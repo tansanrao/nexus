@@ -1,0 +1,6 @@
+[default]
+address = "127.0.0.1"
+port = 8000
+
+[default.databases.linux_kb_db]
+url = "postgres://postgres:example@localhost:5432/linux-kernel-kb"

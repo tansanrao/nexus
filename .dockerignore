@@ -1,0 +1,52 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+
+# Build artifacts
+api-server/target/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+
+# Documentation
+*.md
+!README.md
+!GROKMIRROR_SETUP.md
+
+# Logs
+*.log
+
+# Data directories
+api-server/mirrors/
+temp/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Docker
+Dockerfile*
+docker-compose*.yml

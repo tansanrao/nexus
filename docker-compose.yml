@@ -1,0 +1,96 @@
+services:
+  # PostgreSQL 18 database
+  postgres:
+    image: postgres:18
+    container_name: linux-kb-postgres
+    environment:
+      POSTGRES_DB: linux-kernel-kb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-example}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d linux-kernel-kb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - linux-kb-network
+    restart: unless-stopped
+
+  # Grokmirror service for syncing mailing lists
+  grokmirror:
+    build:
+      context: .
+      dockerfile: grokmirror/Dockerfile
+    container_name: linux-kb-grokmirror
+    volumes:
+      - mirror_data:/app/mirrors
+      - ./grokmirror.conf:/app/grokmirror.conf:ro
+    networks:
+      - linux-kb-network
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
+  # Rust API server
+  api-server:
+    build:
+      context: ./api-server
+      dockerfile: Dockerfile
+    container_name: linux-kb-api
+    environment:
+      # Database configuration
+      ROCKET_DATABASES: '{linux_kb_db={url="postgres://postgres:${POSTGRES_PASSWORD:-example}@postgres:5432/linux-kernel-kb"}}'
+      ROCKET_ADDRESS: "0.0.0.0"
+      ROCKET_PORT: "8000"
+      # Mirror path (shared volume with grokmirror)
+      MIRROR_BASE_PATH: /app/mirrors
+      # Logging
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - mirror_data:/app/mirrors:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      grokmirror:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/mailing-lists"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - linux-kb-network
+    restart: unless-stopped
+
+  # React frontend with nginx
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: linux-kb-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - api-server
+    networks:
+      - linux-kb-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  mirror_data:
+    driver: local
+
+networks:
+  linux-kb-network:
+    driver: bridge
