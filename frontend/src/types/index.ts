@@ -85,46 +85,25 @@ export interface Stats {
   date_range_end: string | null;
 }
 
-// Admin types
-export type JobStatus =
-  | 'Queued'
-  | 'Running'
-  | 'Completed'
-  | 'Failed'
-  | 'Cancelled';
+// Admin types - simplified phase-based tracking
+export type JobPhase =
+  | 'waiting'
+  | 'parsing'
+  | 'threading'
+  | 'done'
+  | 'errored';
 
-export interface SyncMetrics {
-  emails_parsed: number;
-  parse_errors: number;
-  authors_imported: number;
-  emails_imported: number;
-  threads_created: number;
-}
-
-export interface JobProgress {
-  current_step: string;
-  phase_details: string | null;
-  processed: number;
-  total: number | null;
-  errors: string[];
-  warnings: string[];
-}
-
-export interface JobData {
-  mailing_list_slug: string;
-  progress: JobProgress;
-  metrics: SyncMetrics;
-}
-
-export interface SyncJob {
+export interface JobStatusInfo {
   id: number;
   mailing_list_id: number;
-  status: JobStatus;
+  slug: string;
+  name: string;
+  phase: JobPhase;
+  priority: number;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
   error_message: string | null;
-  job_data: JobData;
 }
 
 export interface QueuedJob {
@@ -136,7 +115,7 @@ export interface QueuedJob {
 }
 
 export interface GlobalSyncStatus {
-  current_job: SyncJob | null;
+  current_job: JobStatusInfo | null;
   queued_jobs: QueuedJob[];
   is_running: boolean;
 }

@@ -33,7 +33,6 @@ frontend/build/
 # Documentation
 *.md
 !README.md
-!GROKMIRROR_SETUP.md
 
 # Logs
 *.log

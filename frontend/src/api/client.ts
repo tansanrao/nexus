@@ -14,8 +14,7 @@ import type {
   MailingList,
   MailingListRepository,
 } from '../types';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+import { getApiBaseUrl } from '../contexts/ApiConfigContext';
 
 // Base API call function that supports mailing list context
 async function apiCall<T>(
@@ -23,6 +22,7 @@ async function apiCall<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
+  const API_BASE_URL = getApiBaseUrl();
   const url = mailingList
     ? `${API_BASE_URL}/${mailingList}${endpoint}`
     : `${API_BASE_URL}${endpoint}`;
@@ -37,6 +37,7 @@ async function apiCall<T>(
 
 // Legacy fetchAPI for backward compatibility with admin endpoints
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const API_BASE_URL = getApiBaseUrl();
   const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: response.statusText }));

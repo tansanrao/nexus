@@ -5,17 +5,21 @@
 //!
 //! ## Algorithm Overview
 //!
-//! 1. **Build Container Tree**: Create containers for all messages and their references
-//! 2. **Link References**: Build parent-child relationships from References header
+//! 1. **Build Container Tree**: Create containers for all messages and their references (PARALLEL)
+//! 2. **Link References**: Build parent-child relationships from References header (PARALLEL)
 //! 3. **Apply In-Reply-To**: Fallback for messages without References
 //! 4. **Find Roots**: Identify messages with no parent (thread roots)
-//! 5. **Collect Threads**: Gather all complete threads, preserving phantom structure
+//! 5. **Collect Threads**: Gather all complete threads, preserving phantom structure (PARALLEL)
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use super::container::{collect_thread_emails, Container, EmailData, ThreadInfo};
+use dashmap::DashMap;
+use rayon::prelude::*;
 
-/// Build email threads using the JWZ algorithm
+use super::container::{Container, EmailData, ThreadInfo};
+
+/// Build email threads using the JWZ algorithm (PARALLELIZED)
 ///
 /// This is the main entry point for the threading algorithm. It takes email data
 /// and reference information from the database and returns a list of threads.
@@ -29,55 +33,55 @@ use super::container::{collect_thread_emails, Container, EmailData, ThreadInfo};
 ///
 /// A vector of ThreadInfo structures, each representing one complete thread.
 ///
-/// ## Algorithm Steps
+/// ## Algorithm Steps (PARALLELIZED with Rayon + DashMap)
 ///
-/// 1. Create all containers (real and phantom)
-/// 2. Build parent-child relationships from References header
+/// 1. Create all containers (real and phantom) - PARALLEL with DashMap
+/// 2. Build parent-child relationships from References header - PARALLEL with DashMap
 /// 3. Apply In-Reply-To fallback for messages without References
 /// 4. Find root set (messages with no parent)
-/// 5. Collect threads, preserving phantom structure
+/// 5. Collect threads, preserving phantom structure - PARALLEL with Rayon
 pub fn build_threads(
     email_data: HashMap<i32, EmailData>,
     email_references: HashMap<i32, Vec<String>>,
 ) -> Vec<ThreadInfo> {
-    // Step 1: Build the container tree
-    let mut id_table: HashMap<String, Container> = HashMap::new();
+    // Step 1: Build the container tree (PARALLELIZED)
+    let id_table: Arc<DashMap<String, Container>> = Arc::new(DashMap::new());
 
-    // Create containers for all real messages
-    for (email_id, data) in &email_data {
+    // Create containers for all real messages (PARALLEL)
+    email_data.par_iter().for_each(|(email_id, data)| {
         let msg_id = data.message_id.clone();
         id_table
             .entry(msg_id.clone())
             .or_insert_with(|| Container::new_with_email(msg_id, *email_id));
-    }
+    });
 
-    // Create phantom containers for all referenced messages
-    for refs in email_references.values() {
+    // Create phantom containers for all referenced messages (PARALLEL)
+    email_references.par_iter().for_each(|(_, refs)| {
         for ref_msg_id in refs {
             id_table
                 .entry(ref_msg_id.clone())
                 .or_insert_with(|| Container::new_phantom(ref_msg_id.clone()));
         }
-    }
+    });
 
-    // Step 2: Build parent-child relationships from References header
-    link_references(&mut id_table, &email_data, &email_references);
+    // Step 2: Build parent-child relationships from References header (PARALLELIZED)
+    link_references(&id_table, &email_data, &email_references);
 
     // Step 3: Apply In-Reply-To fallback
-    link_in_reply_to(&mut id_table, &email_data);
+    link_in_reply_to(&id_table, &email_data);
 
     // Step 4: Find root set (messages with no parent)
     let root_set: Vec<String> = id_table
         .iter()
-        .filter(|(_, container)| container.parent.is_none())
-        .map(|(msg_id, _)| msg_id.clone())
+        .filter(|entry| entry.value().parent.is_none())
+        .map(|entry| entry.key().clone())
         .collect();
 
-    // Step 5: Collect threads (handle phantoms correctly)
+    // Step 5: Collect threads (handle phantoms correctly) - PARALLELIZED
     collect_threads(root_set, &id_table, &email_data)
 }
 
-/// Link messages based on References header
+/// Link messages based on References header (PARALLELIZED)
 ///
 /// The References header contains a space-separated list of message IDs
 /// representing the full conversation history. We build the chain by linking
@@ -92,12 +96,15 @@ pub fn build_threads(
 /// - msg3 (parent) → this_message (child)
 ///
 /// This builds the complete conversation chain.
+///
+/// This function is now parallelized using Rayon to process multiple emails concurrently.
+/// DashMap's concurrent access ensures thread-safe operations.
 fn link_references(
-    id_table: &mut HashMap<String, Container>,
+    id_table: &Arc<DashMap<String, Container>>,
     email_data: &HashMap<i32, EmailData>,
     email_references: &HashMap<i32, Vec<String>>,
 ) {
-    for (email_id, data) in email_data {
+    email_data.par_iter().for_each(|(email_id, data)| {
         let msg_id = data.message_id.clone();
 
         if let Some(refs) = email_references.get(email_id) {
@@ -118,7 +125,7 @@ fn link_references(
                 link_if_no_parent(id_table, &msg_id, &last_ref);
             }
         }
-    }
+    });
 }
 
 /// Link messages based on In-Reply-To header
@@ -127,7 +134,7 @@ fn link_references(
 /// establish a parent-child relationship. This is a simpler form of threading
 /// that only looks at the immediate parent.
 fn link_in_reply_to(
-    id_table: &mut HashMap<String, Container>,
+    id_table: &Arc<DashMap<String, Container>>,
     email_data: &HashMap<i32, EmailData>,
 ) {
     for (_email_id, data) in email_data {
@@ -156,8 +163,10 @@ fn link_in_reply_to(
 /// - Child doesn't already have a parent
 /// - Avoids creating cycles
 /// - Avoids duplicate children
+///
+/// Now uses DashMap for thread-safe concurrent access.
 fn link_if_no_parent(
-    id_table: &mut HashMap<String, Container>,
+    id_table: &DashMap<String, Container>,
     child_msg_id: &str,
     parent_msg_id: &str,
 ) {
@@ -181,12 +190,12 @@ fn link_if_no_parent(
     }
 
     // Set parent on child
-    if let Some(child) = id_table.get_mut(child_msg_id) {
+    if let Some(mut child) = id_table.get_mut(child_msg_id) {
         child.parent = Some(parent_msg_id.to_string());
     }
 
     // Add child to parent's children list
-    if let Some(parent) = id_table.get_mut(parent_msg_id) {
+    if let Some(mut parent) = id_table.get_mut(parent_msg_id) {
         parent.add_child(child_msg_id.to_string());
     }
 }
@@ -195,8 +204,10 @@ fn link_if_no_parent(
 ///
 /// We need to ensure that parent is not already a descendant of child,
 /// which would create a cycle in the tree.
+///
+/// Now uses DashMap for thread-safe access.
 fn would_create_cycle(
-    id_table: &HashMap<String, Container>,
+    id_table: &DashMap<String, Container>,
     child_msg_id: &str,
     parent_msg_id: &str,
 ) -> bool {
@@ -221,7 +232,7 @@ fn would_create_cycle(
     false
 }
 
-/// Collect all threads from the root set
+/// Collect all threads from the root set (PARALLELIZED)
 ///
 /// This function processes the root set to create ThreadInfo structures.
 /// It handles both real roots (messages with email data) and phantom roots
@@ -233,90 +244,140 @@ fn would_create_cycle(
 /// Instead, we traverse into phantom containers to find the first real message
 /// in the tree and use that as the thread root, preserving the phantom structure
 /// in the depth calculations. This matches public-inbox behavior.
+///
+/// This function is now parallelized using Rayon - each root thread is processed
+/// independently in parallel, which provides significant speedup for large datasets.
 fn collect_threads(
     root_set: Vec<String>,
-    id_table: &HashMap<String, Container>,
+    id_table: &Arc<DashMap<String, Container>>,
     email_data: &HashMap<i32, EmailData>,
 ) -> Vec<ThreadInfo> {
-    let mut threads = Vec::new();
+    // Process each root in parallel
+    root_set
+        .par_iter()
+        .filter_map(|root_msg_id| {
+            if let Some(root_container) = id_table.get(root_msg_id) {
+                // Case 1: Real root (has email data)
+                if let Some(root_email_id) = root_container.email_id {
+                    if let Some(root_data) = email_data.get(&root_email_id) {
+                        let mut thread_info = ThreadInfo::new(
+                            root_data.message_id.clone(),
+                            root_data.subject.clone(),
+                            root_data.date,
+                        );
 
-    for root_msg_id in root_set {
-        if let Some(root_container) = id_table.get(&root_msg_id) {
-            // Case 1: Real root (has email data)
-            if let Some(root_email_id) = root_container.email_id {
-                if let Some(root_data) = email_data.get(&root_email_id) {
-                    let mut thread_info = ThreadInfo::new(
-                        root_data.message_id.clone(),
-                        root_data.subject.clone(),
-                        root_data.date,
-                    );
+                        // Collect all emails in this thread
+                        collect_thread_emails_dashmap(
+                            root_msg_id,
+                            id_table,
+                            email_data,
+                            0,
+                            &mut thread_info.emails,
+                        );
 
-                    // Collect all emails in this thread
-                    collect_thread_emails(
-                        &root_msg_id,
-                        id_table,
-                        email_data,
-                        0,
-                        &mut thread_info.emails,
-                    );
+                        return Some(thread_info);
+                    }
+                }
+                // Case 2: Phantom root - find first real message in subtree
+                else {
+                    // Find the first real (non-phantom) message in this tree
+                    if let Some((_first_real_msg_id, first_real_data)) =
+                        find_first_real_message_dashmap(root_msg_id, id_table, email_data)
+                    {
+                        let mut thread_info = ThreadInfo::new(
+                            first_real_data.message_id.clone(),
+                            first_real_data.subject.clone(),
+                            first_real_data.date,
+                        );
 
-                    threads.push(thread_info);
+                        // Collect all real emails in this thread starting from the phantom root
+                        // Since the phantom itself isn't added, start at depth -1 so that
+                        // the phantom's direct children (first real messages) get depth 0
+                        collect_thread_emails_dashmap(
+                            root_msg_id,
+                            id_table,
+                            email_data,
+                            -1,
+                            &mut thread_info.emails,
+                        );
+
+                        return Some(thread_info);
+                    }
                 }
             }
-            // Case 2: Phantom root - find first real message in subtree
-            else {
-                // Find the first real (non-phantom) message in this tree
-                if let Some((_first_real_msg_id, first_real_data)) = find_first_real_message(&root_msg_id, id_table, email_data) {
-                    let mut thread_info = ThreadInfo::new(
-                        first_real_data.message_id.clone(),
-                        first_real_data.subject.clone(),
-                        first_real_data.date,
-                    );
-
-                    // Collect all real emails in this thread starting from the phantom root
-                    // Since the phantom itself isn't added, start at depth -1 so that
-                    // the phantom's direct children (first real messages) get depth 0
-                    collect_thread_emails(
-                        &root_msg_id,
-                        id_table,
-                        email_data,
-                        -1,
-                        &mut thread_info.emails,
-                    );
-
-                    threads.push(thread_info);
-                }
-            }
-        }
-    }
-
-    threads
+            None
+        })
+        .collect()
 }
 
-/// Recursively find the first real (non-phantom) message in a subtree
+/// Iteratively find the first real (non-phantom) message in a subtree (DashMap version)
 ///
 /// This is used when the root of a thread is a phantom - we need to find
 /// a real message to use for the thread metadata (subject, date).
-fn find_first_real_message<'a>(
+///
+/// Uses an iterative depth-first search to avoid stack overflow on deep threads.
+fn find_first_real_message_dashmap<'a>(
     msg_id: &str,
-    id_table: &HashMap<String, Container>,
+    id_table: &DashMap<String, Container>,
     email_data: &'a HashMap<i32, EmailData>,
 ) -> Option<(String, &'a EmailData)> {
-    if let Some(container) = id_table.get(msg_id) {
-        // If this container has real email data, return it
-        if let Some(email_id) = container.email_id {
-            if let Some(data) = email_data.get(&email_id) {
-                return Some((msg_id.to_string(), data));
-            }
-        }
+    // Use a stack for iterative DFS
+    let mut stack = vec![msg_id.to_string()];
 
-        // Otherwise, search children recursively
-        for child_msg_id in &container.children {
-            if let Some(result) = find_first_real_message(child_msg_id, id_table, email_data) {
-                return Some(result);
+    while let Some(current_msg_id) = stack.pop() {
+        if let Some(container) = id_table.get(&current_msg_id) {
+            // If this container has real email data, return it
+            if let Some(email_id) = container.email_id {
+                if let Some(data) = email_data.get(&email_id) {
+                    return Some((current_msg_id.clone(), data));
+                }
+            }
+
+            // Clone children to avoid holding the DashMap lock
+            // Add children to stack in reverse order for correct DFS order
+            let children = container.children.clone();
+            drop(container);
+
+            for child_msg_id in children.iter().rev() {
+                stack.push(child_msg_id.clone());
             }
         }
     }
 
     None
+}
+
+/// Iteratively collect all emails in a thread with their depths (DashMap version)
+///
+/// This function performs a depth-first traversal of the thread tree,
+/// collecting all real emails (non-phantoms) and their depth in the tree.
+///
+/// Uses an iterative approach with an explicit stack to avoid stack overflow on deep threads.
+fn collect_thread_emails_dashmap(
+    msg_id: &str,
+    id_table: &DashMap<String, Container>,
+    _email_data: &HashMap<i32, EmailData>,
+    depth: i32,
+    result: &mut Vec<(i32, i32)>,
+) {
+    // Use a stack for iterative DFS: (message_id, depth)
+    let mut stack = vec![(msg_id.to_string(), depth)];
+
+    while let Some((current_msg_id, current_depth)) = stack.pop() {
+        if let Some(container) = id_table.get(&current_msg_id) {
+            // Add this email if it exists (not a phantom)
+            if let Some(email_id) = container.email_id {
+                result.push((email_id, current_depth));
+            }
+
+            // Clone children to avoid holding the DashMap lock
+            // Add children to stack in reverse order for correct DFS order
+            let children = container.children.clone();
+            drop(container);
+
+            for child_msg_id in children.iter().rev() {
+                stack.push((child_msg_id.clone(), current_depth + 1));
+            }
+        }
+    }
 }

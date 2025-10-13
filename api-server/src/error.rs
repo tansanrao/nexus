@@ -22,19 +22,19 @@ impl<'r> Responder<'r, 'static> for ApiError {
     fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
         let (status, error_type, message) = match self {
             ApiError::DatabaseError(e) => {
-                eprintln!("Database error: {}", e);
+                log::error!("database error: {}", e);
                 (Status::InternalServerError, "DatabaseError", e.to_string())
             }
             ApiError::NotFound(msg) => {
-                eprintln!("Not found: {}", msg);
+                log::debug!("not found: {}", msg);
                 (Status::NotFound, "NotFound", msg)
             }
             ApiError::BadRequest(msg) => {
-                eprintln!("Bad request: {}", msg);
+                log::debug!("bad request: {}", msg);
                 (Status::BadRequest, "BadRequest", msg)
             }
             ApiError::InternalError(msg) => {
-                eprintln!("Internal error: {}", msg);
+                log::error!("internal error: {}", msg);
                 (Status::InternalServerError, "InternalError", msg)
             }
         };

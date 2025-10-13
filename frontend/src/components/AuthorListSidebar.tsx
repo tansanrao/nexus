@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Search, SortAsc, SortDesc, Users } from 'lucide-react';
 import { api } from '../api/client';
 import type { AuthorWithStats, AuthorSortBy, SortOrder } from '../types';
+import { useMailingList } from '../contexts/MailingListContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
@@ -11,7 +12,8 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { cn } from '@/lib/utils';
 
 export function AuthorListSidebar() {
-  const { mailingList, authorId } = useParams<{ mailingList: string; authorId: string }>();
+  const { authorId } = useParams<{ authorId: string }>();
+  const { selectedMailingList } = useMailingList();
   const [authors, setAuthors] = useState<AuthorWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,11 +25,11 @@ export function AuthorListSidebar() {
 
   useEffect(() => {
     const loadAuthors = async () => {
-      if (!mailingList) return;
+      if (!selectedMailingList) return;
 
       try {
         setLoading(true);
-        const data = await api.authors.search(mailingList, {
+        const data = await api.authors.search(selectedMailingList, {
           search: searchQuery || undefined,
           page,
           limit,
@@ -48,7 +50,7 @@ export function AuthorListSidebar() {
     }, 300);
 
     return () => clearTimeout(debounce);
-  }, [searchQuery, page, sortBy, order, mailingList]);
+  }, [searchQuery, page, sortBy, order, selectedMailingList]);
 
   const handleSortChange = (newSortBy: AuthorSortBy) => {
     if (newSortBy === sortBy) {
@@ -82,7 +84,7 @@ export function AuthorListSidebar() {
   return (
     <div className="h-full flex flex-col">
       {/* Search and filters */}
-      <div className="border-b p-4 space-y-3">
+      <div className="border-b p-3 space-y-3">
         {/* Search bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -158,7 +160,7 @@ export function AuthorListSidebar() {
 
       {/* Author list */}
       <ScrollArea className="flex-1">
-        <div className="p-2">
+        <div className="py-1">
           {authors.length === 0 ? (
             <div className="p-8 text-center">
               <Users className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
@@ -171,53 +173,42 @@ export function AuthorListSidebar() {
                 return (
                   <Link
                     key={author.id}
-                    to={`/${mailingList}/authors/${author.id}`}
-                    className="block border-b last:border-b-0"
+                    to={`/authors/${author.id}`}
+                    className="block"
                   >
                     <div
                       className={cn(
-                        "p-3 transition-colors hover:bg-accent",
-                        isSelected && "bg-accent"
+                        "px-3 py-3 border-l-2 border-transparent hover:bg-accent/50 transition-all duration-200",
+                        isSelected && "border-l-primary bg-accent"
                       )}
                     >
                       <div className="flex items-start gap-3">
-                        <Avatar className="h-8 w-8 flex-shrink-0">
-                          <AvatarFallback className="text-xs font-medium">
+                        {/* Avatar with ring */}
+                        <Avatar className="h-9 w-9 ring-2 ring-border flex-shrink-0">
+                          <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
                             {getInitials(author.canonical_name, author.email)}
                           </AvatarFallback>
                         </Avatar>
+
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate">
+                          {/* Name */}
+                          <h3 className="text-sm font-semibold truncate mb-0.5">
                             {getDisplayName(author)}
-                          </div>
+                          </h3>
+
+                          {/* Email - subtle */}
                           <div className="text-xs text-muted-foreground truncate mb-2">
                             {author.email}
                           </div>
-                          <div className="space-y-1 text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-muted-foreground font-medium">Messages:</span>
-                              <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
-                                {author.email_count}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-muted-foreground font-medium">Threads:</span>
-                              <Badge variant="outline" className="text-xs px-1.5 py-0 h-5">
-                                {author.thread_count}
-                              </Badge>
-                            </div>
-                            {author.mailing_lists && author.mailing_lists.length > 1 && (
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {author.mailing_lists.slice(0, 2).map((ml) => (
-                                  <Badge key={ml} variant="outline" className="text-xs px-1 py-0 h-4">
-                                    {ml}
-                                  </Badge>
-                                ))}
-                                {author.mailing_lists.length > 2 && (
-                                  <span className="text-xs text-muted-foreground">+{author.mailing_lists.length - 2}</span>
-                                )}
-                              </div>
-                            )}
+
+                          {/* Stats - inline */}
+                          <div className="flex items-center gap-2 text-xs">
+                            <Badge variant="secondary" className="h-5 px-1.5">
+                              {author.email_count} msgs
+                            </Badge>
+                            <Badge variant="outline" className="h-5 px-1.5">
+                              {author.thread_count} threads
+                            </Badge>
                           </div>
                         </div>
                       </div>

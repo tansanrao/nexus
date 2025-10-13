@@ -1,66 +1,126 @@
 @import "tailwindcss";
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-  }
+/* Catppuccin Latte (Light) Theme */
+.theme-catppuccin-latte {
+  --background: 220 23% 95%;
+  --foreground: 234 16% 35%;
+  --card: 0 0% 100%;
+  --card-foreground: 234 16% 35%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 234 16% 35%;
+  --primary: 220 91% 54%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 231 97% 72%;
+  --secondary-foreground: 234 16% 35%;
+  --muted: 220 17% 93%;
+  --muted-foreground: 233 13% 54%;
+  --accent: 266 85% 58%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 347 87% 44%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 87%;
+  --input: 220 13% 87%;
+  --ring: 220 91% 54%;
+  --radius: 0.5rem;
+  --chart-1: 220 91% 54%;
+  --chart-2: 183 74% 35%;
+  --chart-3: 109 58% 40%;
+  --chart-4: 35 77% 49%;
+  --chart-5: 22 99% 52%;
+}
 
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 221.2 83.2% 53.3%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-  }
+/* Catppuccin Mocha (Dark) Theme */
+.theme-catppuccin-mocha {
+  --background: 240 21% 15%;
+  --foreground: 226 64% 88%;
+  --card: 232 23% 18%;
+  --card-foreground: 226 64% 88%;
+  --popover: 232 23% 18%;
+  --popover-foreground: 226 64% 88%;
+  --primary: 217 92% 76%;
+  --primary-foreground: 240 21% 15%;
+  --secondary: 267 84% 81%;
+  --secondary-foreground: 240 21% 15%;
+  --muted: 233 12% 39%;
+  --muted-foreground: 227 20% 66%;
+  --accent: 267 84% 81%;
+  --accent-foreground: 240 21% 15%;
+  --destructive: 343 81% 75%;
+  --destructive-foreground: 240 21% 15%;
+  --border: 233 12% 39%;
+  --input: 233 12% 39%;
+  --ring: 217 92% 76%;
+  --radius: 0.5rem;
+  --chart-1: 217 92% 76%;
+  --chart-2: 170 57% 73%;
+  --chart-3: 115 54% 76%;
+  --chart-4: 41 86% 83%;
+  --chart-5: 23 92% 75%;
+}
+
+/* Solarized Light Theme */
+.theme-solarized-light {
+  --background: 44 87% 94%;
+  --foreground: 196 13% 45%;
+  --card: 46 42% 88%;
+  --card-foreground: 196 13% 45%;
+  --popover: 46 42% 88%;
+  --popover-foreground: 196 13% 45%;
+  --primary: 205 69% 49%;
+  --primary-foreground: 44 87% 94%;
+  --secondary: 175 59% 40%;
+  --secondary-foreground: 44 87% 94%;
+  --muted: 46 42% 88%;
+  --muted-foreground: 194 14% 40%;
+  --accent: 237 45% 60%;
+  --accent-foreground: 44 87% 94%;
+  --destructive: 1 71% 52%;
+  --destructive-foreground: 44 87% 94%;
+  --border: 46 30% 82%;
+  --input: 46 30% 82%;
+  --ring: 205 69% 49%;
+  --radius: 0.5rem;
+  --chart-1: 205 69% 49%;
+  --chart-2: 175 59% 40%;
+  --chart-3: 68 100% 30%;
+  --chart-4: 45 100% 35%;
+  --chart-5: 18 80% 44%;
+}
+
+/* Solarized Dark Theme */
+.theme-solarized-dark {
+  --background: 192 100% 11%;
+  --foreground: 186 8% 55%;
+  --card: 192 81% 14%;
+  --card-foreground: 186 8% 55%;
+  --popover: 192 81% 14%;
+  --popover-foreground: 186 8% 55%;
+  --primary: 205 69% 49%;
+  --primary-foreground: 192 100% 11%;
+  --secondary: 175 59% 40%;
+  --secondary-foreground: 192 100% 11%;
+  --muted: 194 14% 40%;
+  --muted-foreground: 180 7% 60%;
+  --accent: 237 45% 60%;
+  --accent-foreground: 192 100% 11%;
+  --destructive: 1 71% 52%;
+  --destructive-foreground: 186 8% 55%;
+  --border: 194 14% 40%;
+  --input: 194 14% 40%;
+  --ring: 205 69% 49%;
+  --radius: 0.5rem;
+  --chart-1: 205 69% 49%;
+  --chart-2: 175 59% 40%;
+  --chart-3: 68 100% 30%;
+  --chart-4: 45 100% 35%;
+  --chart-5: 18 80% 44%;
 }
 
 @layer base {
   * {
     border-color: hsl(var(--border));
   }
+
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
@@ -70,5 +130,60 @@
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbars for webkit browsers */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Focus visible for keyboard navigation */
+  *:focus-visible {
+    outline: none;
+    ring: 2px solid hsl(var(--primary));
+    ring-offset: 2px;
+    ring-offset-color: hsl(var(--background));
+  }
+}
+
+@layer utilities {
+  /* Glass effect for modern UI */
+  .glass-effect {
+    backdrop-filter: blur(12px);
+    background-color: hsl(var(--card) / 0.5);
+  }
+
+  /* Smooth hover scale */
+  .hover-scale {
+    transition: transform 200ms ease-out;
+  }
+
+  .hover-scale:hover {
+    transform: scale(1.02);
+  }
+
+  /* Selection highlight */
+  .selected-item {
+    background-color: hsl(var(--accent));
+    border-left: 2px solid hsl(var(--primary));
   }
 }

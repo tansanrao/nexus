@@ -104,7 +104,7 @@ fn extract_references(header_value: &str) -> Vec<String> {
 /// Parse an email from raw bytes
 pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::Error>> {
     let parsed = parse_mail(blob_data).map_err(|e| {
-        log::warn!("Failed to parse email MIME structure: {}", e);
+        log::debug!("failed to parse MIME: {}", e);
         e
     })?;
 
@@ -112,7 +112,7 @@ pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::
     let message_id = clean_message_id(
         parsed.headers.get_first_value("Message-ID")
     ).ok_or_else(|| {
-        log::warn!("Email missing required Message-ID header");
+        log::debug!("missing Message-ID header");
         "Missing Message-ID"
     })?;
 
@@ -154,7 +154,7 @@ pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::
     };
 
     if author_email.is_empty() {
-        log::warn!("Email {} missing author email address", message_id);
+        log::debug!("email {} missing author", message_id);
         return Err("Missing author email".into());
     }
 
@@ -209,7 +209,7 @@ pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::
 
     let normalized_subject = normalize_subject(&subject);
 
-    log::debug!("Successfully parsed email: {} - {}", message_id, subject);
+    log::trace!("parsed: {} - {}", message_id, subject);
 
     Ok(ParsedEmail {
         message_id,

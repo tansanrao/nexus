@@ -6,26 +6,38 @@ use env_logger::Env;
 mod db;
 mod error;
 mod models;
+mod request_logger;
 mod routes;
-mod seed_data;
 mod sync;
 mod threading;
 
-use db::LinuxKbDb;
+use db::{NexusDb, BulkWriteDb};
+use request_logger::RequestLogger;
 use rocket::fairing::AdHoc;
 use rocket::http::Method;
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use rocket_db_pools::Database;
 use std::sync::Arc;
 use sync::queue::JobQueue;
+use sync::worker::SyncWorker;
 use tokio::sync::Mutex;
 
 #[launch]
 fn rocket() -> _ {
-    // Initialize logger (defaults to INFO level, set RUST_LOG env var to override)
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    // Initialize logger with module-specific filtering
+    // Suppress verbose Rocket logs, keep our app logs at INFO
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or("info,rocket::server=warn,rocket::request=warn")
+    ).init();
 
-    log::info!("Starting Linux Kernel Knowledge Base API Server");
+    log::info!("Starting Nexus API Server");
+
+    // Ensure cache directory exists
+    let cache_path = std::env::var("THREADING_CACHE_BASE_PATH")
+        .unwrap_or_else(|_| "./cache".to_string());
+    std::fs::create_dir_all(&cache_path)
+        .expect("Failed to create cache directory");
+    log::info!("Cache directory initialized at: {}", cache_path);
 
     // Configure CORS
     let cors = CorsOptions::default()
@@ -41,11 +53,35 @@ fn rocket() -> _ {
         .expect("Error creating CORS");
 
     rocket::build()
-        .attach(LinuxKbDb::init())
+        .attach(RequestLogger)
+        .attach(NexusDb::init())
+        .attach(BulkWriteDb::init())
         .attach(cors)
+        // Run database migrations on startup
+        .attach(AdHoc::try_on_ignite("Run Migrations", |rocket| async move {
+            match NexusDb::fetch(&rocket) {
+                Some(db) => {
+                    let pool = (**db).clone();
+                    match sync::run_migrations(&pool).await {
+                        Ok(_) => {
+                            log::info!("database migrations successful");
+                            Ok(rocket)
+                        }
+                        Err(e) => {
+                            log::error!("database migrations failed: {}", e);
+                            Err(rocket)
+                        }
+                    }
+                }
+                None => {
+                    log::error!("database pool not available for migrations");
+                    Err(rocket)
+                }
+            }
+        }))
         // Fairing to clone and manage the database pool for background tasks and job queue
         .attach(AdHoc::try_on_ignite("Manage DB Pool and Job Queue", |rocket| async move {
-            match LinuxKbDb::fetch(&rocket) {
+            match NexusDb::fetch(&rocket) {
                 Some(db) => {
                     let pool = (**db).clone();
 
@@ -57,6 +93,19 @@ fn rocket() -> _ {
                 None => Err(rocket),
             }
         }))
+        // Spawn sync worker in background
+        .attach(AdHoc::on_liftoff("Spawn Sync Worker", |rocket| Box::pin(async move {
+            if let Some(pool) = rocket.state::<rocket_db_pools::sqlx::PgPool>() {
+                let worker_pool = pool.clone();
+                tokio::spawn(async move {
+                    log::info!("starting sync worker");
+                    let worker = SyncWorker::new(worker_pool);
+                    worker.run().await
+                });
+            } else {
+                log::error!("failed to spawn sync worker: database pool not found");
+            }
+        })))
         .mount(
             "/api",
             routes![
@@ -78,11 +127,13 @@ fn rocket() -> _ {
                 routes::authors::get_author_threads_participated,
                 routes::stats::get_stats,
                 // Admin routes
+                routes::admin::start_sync,
                 routes::admin::queue_sync,
                 routes::admin::get_sync_status,
                 routes::admin::cancel_sync,
                 routes::admin::reset_db,
                 routes::admin::get_database_status,
+                routes::admin::get_database_config,
             ],
         )
 }

@@ -1,15 +1,15 @@
 use rocket::serde::json::Json;
 use rocket::get;
-use rocket_db_pools::Connection;
+use rocket_db_pools::{sqlx, Connection};
 
-use crate::db::LinuxKbDb;
+use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{Author, AuthorWithStats, EmailWithAuthor, ThreadWithStarter, Thread};
+use crate::models::{AuthorWithStats, EmailWithAuthor, ThreadWithStarter, Thread};
 
 #[get("/<slug>/authors?<search>&<page>&<limit>&<sort_by>&<order>")]
 pub async fn search_authors(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     search: Option<String>,
     page: Option<i64>,
     limit: Option<i64>,
@@ -150,7 +150,7 @@ pub async fn search_authors(
 #[get("/<slug>/authors/<author_id>")]
 pub async fn get_author(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     author_id: i32,
 ) -> Result<Json<AuthorWithStats>, ApiError> {
     // Get mailing list ID from slug (for context, but we fetch global author)
@@ -229,7 +229,7 @@ pub async fn get_author(
 #[get("/<slug>/authors/<author_id>/emails?<page>&<limit>")]
 pub async fn get_author_emails(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     author_id: i32,
     page: Option<i64>,
     limit: Option<i64>,
@@ -272,7 +272,7 @@ pub async fn get_author_emails(
 #[get("/<slug>/authors/<author_id>/threads-started?<page>&<limit>")]
 pub async fn get_author_threads_started(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     author_id: i32,
     page: Option<i64>,
     limit: Option<i64>,
@@ -317,7 +317,7 @@ pub async fn get_author_threads_started(
 #[get("/<slug>/authors/<author_id>/threads-participated?<page>&<limit>")]
 pub async fn get_author_threads_participated(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     author_id: i32,
     page: Option<i64>,
     limit: Option<i64>,

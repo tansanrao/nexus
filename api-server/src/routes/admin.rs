@@ -1,14 +1,12 @@
-use crate::db::LinuxKbDb;
+use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::sync::git::{MailingListSyncConfig, RepoConfig};
-use crate::sync::queue::{GlobalSyncStatus, JobQueue};
-use crate::sync::{reset_database, SyncOrchestrator};
+use crate::sync::queue::{JobQueue, JobStatusInfo};
+use crate::sync::reset_database;
+use crate::sync::pg_config::PgConfig;
 use rocket::serde::json::Json;
 use rocket::State;
-use rocket_db_pools::Connection;
+use rocket_db_pools::{sqlx, Connection};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Deserialize)]
 pub struct SyncRequest {
@@ -19,6 +17,22 @@ pub struct SyncRequest {
 pub struct SyncStartResponse {
     job_ids: Vec<i32>,
     message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueuedJobInfo {
+    id: i32,
+    mailing_list_id: i32,
+    mailing_list_slug: String,
+    mailing_list_name: String,
+    position: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SyncStatusResponse {
+    current_job: Option<JobStatusInfo>,
+    queued_jobs: Vec<QueuedJobInfo>,
+    is_running: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,17 +52,31 @@ pub struct MessageResponse {
     message: String,
 }
 
-/// Start sync jobs for multiple mailing lists (adds them to the queue)
+/// Start sync for all enabled mailing lists
+#[post("/admin/sync/start")]
+pub async fn start_sync(
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<MessageResponse>, ApiError> {
+    let queue = JobQueue::new(pool.inner().clone());
+    let job_ids = queue.enqueue_all_enabled()
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to enqueue jobs: {}", e)))?;
+
+    Ok(Json(MessageResponse {
+        message: format!("Enqueued {} sync jobs", job_ids.len()),
+    }))
+}
+
+/// Start sync for specific mailing lists
 #[post("/admin/sync/queue", data = "<request>")]
 pub async fn queue_sync(
     request: Json<SyncRequest>,
     pool: &State<sqlx::PgPool>,
-    job_queue: &State<Arc<Mutex<JobQueue>>>,
 ) -> Result<Json<SyncStartResponse>, ApiError> {
-    let queue = job_queue.inner().lock().await;
+    let queue = JobQueue::new(pool.inner().clone());
 
     // Validate and get mailing list IDs
-    let mut mailing_list_ids = Vec::new();
+    let mut job_ids = Vec::new();
 
     for slug in &request.mailing_list_slugs {
         let list: Option<(i32,)> = sqlx::query_as(
@@ -59,7 +87,10 @@ pub async fn queue_sync(
         .await?;
 
         if let Some((id,)) = list {
-            mailing_list_ids.push(id);
+            let job_id = queue.enqueue_job(id)
+                .await
+                .map_err(|e| ApiError::InternalError(format!("Failed to enqueue job: {}", e)))?;
+            job_ids.push(job_id);
         } else {
             return Err(ApiError::BadRequest(
                 format!("Mailing list '{}' not found or disabled", slug)
@@ -67,23 +98,9 @@ pub async fn queue_sync(
         }
     }
 
-    if mailing_list_ids.is_empty() {
+    if job_ids.is_empty() {
         return Err(ApiError::BadRequest("No mailing lists specified".to_string()));
     }
-
-    // Enqueue jobs
-    let job_ids = queue.enqueue_jobs(mailing_list_ids)
-        .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to enqueue jobs: {}", e)))?;
-
-    drop(queue); // Release lock
-
-    // Start processing if not already running
-    let queue_clone = Arc::clone(job_queue.inner());
-    let pool_clone = pool.inner().clone();
-    tokio::spawn(async move {
-        process_queue(queue_clone, pool_clone).await;
-    });
 
     Ok(Json(SyncStartResponse {
         job_ids: job_ids.clone(),
@@ -91,104 +108,54 @@ pub async fn queue_sync(
     }))
 }
 
-/// Process the job queue (runs in background)
-async fn process_queue(job_queue: Arc<Mutex<JobQueue>>, pool: sqlx::PgPool) {
-    loop {
-        let next_job = {
-            let queue = job_queue.lock().await;
-            queue.get_next_job().await
-        };
-
-        match next_job {
-            Ok(Some(job)) => {
-                log::info!("Processing sync job {} for mailing list {}", job.id, job.mailing_list_id);
-
-                // Load repositories for this mailing list
-                let repos: Vec<(String, i32)> = match sqlx::query_as(
-                    "SELECT repo_url, repo_order FROM mailing_list_repositories
-                     WHERE mailing_list_id = $1 ORDER BY repo_order"
-                )
-                .bind(job.mailing_list_id)
-                .fetch_all(&pool)
-                .await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::error!("Failed to load repositories: {}", e);
-                        let queue = job_queue.lock().await;
-                        let _ = queue.fail_job(format!("Failed to load repositories: {}", e)).await;
-                        continue;
-                    }
-                };
-
-                if repos.is_empty() {
-                    log::error!("No repositories configured for mailing list {}", job.mailing_list_id);
-                    let queue = job_queue.lock().await;
-                    let _ = queue.fail_job("No repositories configured".to_string()).await;
-                    continue;
-                }
-
-                // Build repo configs
-                let repo_configs: Vec<RepoConfig> = repos
-                    .into_iter()
-                    .map(|(url, order)| RepoConfig { url, order })
-                    .collect();
-
-                // Create sync config
-                let git_config = MailingListSyncConfig::new(
-                    job.mailing_list_id,
-                    job.job_data.mailing_list_slug.clone(),
-                    repo_configs
-                );
-
-                // Run sync
-                let orchestrator = SyncOrchestrator::new(git_config, pool.clone(), job.mailing_list_id);
-                let result = orchestrator.run_sync_with_queue(Arc::clone(&job_queue)).await;
-
-                let queue = job_queue.lock().await;
-                match result {
-                    Ok(stats) => {
-                        log::info!(
-                            "Sync job {} completed successfully: {} authors, {} emails, {} threads",
-                            job.id, stats.authors, stats.emails, stats.threads
-                        );
-                        let _ = queue.complete_job().await;
-                    }
-                    Err(e) => {
-                        log::error!("Sync job {} failed: {}", job.id, e);
-                        let _ = queue.fail_job(e).await;
-                    }
-                }
-            }
-            Ok(None) => {
-                // No more jobs in queue
-                break;
-            }
-            Err(e) => {
-                log::error!("Failed to get next job: {}", e);
-                break;
-            }
-        }
-    }
-}
-
-/// Get the global sync status (current job + queue)
+/// Get current sync status (running + queued jobs)
 #[get("/admin/sync/status")]
 pub async fn get_sync_status(
-    job_queue: &State<Arc<Mutex<JobQueue>>>,
-) -> Result<Json<GlobalSyncStatus>, ApiError> {
-    let queue = job_queue.inner().lock().await;
-    let status = queue.get_global_status()
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<SyncStatusResponse>, ApiError> {
+    let queue = JobQueue::new(pool.inner().clone());
+    let jobs = queue.get_all_jobs()
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to get sync status: {}", e)))?;
-    Ok(Json(status))
+
+    // Separate current job from queued jobs
+    let mut current_job = None;
+    let mut queued_jobs = Vec::new();
+
+    for (idx, job) in jobs.iter().enumerate() {
+        match job.phase.as_str() {
+            "waiting" | "parsing" | "threading" => {
+                if current_job.is_none() {
+                    current_job = Some(job.clone());
+                } else {
+                    queued_jobs.push(QueuedJobInfo {
+                        id: job.id,
+                        mailing_list_id: job.mailing_list_id,
+                        mailing_list_slug: job.slug.clone(),
+                        mailing_list_name: job.name.clone(),
+                        position: (idx + 1) as i32,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let is_running = current_job.is_some();
+
+    Ok(Json(SyncStatusResponse {
+        current_job,
+        queued_jobs,
+        is_running,
+    }))
 }
 
 /// Cancel all queued sync jobs
 #[post("/admin/sync/cancel")]
 pub async fn cancel_sync(
-    job_queue: &State<Arc<Mutex<JobQueue>>>,
+    pool: &State<sqlx::PgPool>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    let queue = job_queue.inner().lock().await;
+    let queue = JobQueue::new(pool.inner().clone());
     let cancelled_count = queue.cancel_queued_jobs()
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to cancel jobs: {}", e)))?;
@@ -213,7 +180,7 @@ pub async fn reset_db(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse
 /// Get database statistics (global, not per mailing list)
 #[get("/admin/database/status")]
 pub async fn get_database_status(
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
 ) -> Result<Json<DatabaseStatusResponse>, ApiError> {
     let total_authors: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM authors")
         .fetch_one(&mut **db)
@@ -255,4 +222,25 @@ pub async fn get_database_status(
         date_range_start: date_range.0,
         date_range_end: date_range.1,
     }))
+}
+
+/// Get PostgreSQL configuration for monitoring
+#[get("/admin/database/config")]
+pub async fn get_database_config(
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let config = PgConfig::check_config(pool.inner())
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to get config: {}", e)))?;
+
+    let json = serde_json::json!({
+        "max_connections": config.max_connections,
+        "shared_buffers": config.shared_buffers,
+        "work_mem": config.work_mem,
+        "maintenance_work_mem": config.maintenance_work_mem,
+        "max_parallel_workers": config.max_parallel_workers,
+        "max_worker_processes": config.max_worker_processes,
+    });
+
+    Ok(Json(json))
 }

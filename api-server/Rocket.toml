@@ -1,6 +1,33 @@
+# Rocket Configuration for Nexus API Server
+#
+# IMPORTANT: For Docker deployment, these values are overridden by environment variables
+# in docker-compose.yml. This file is primarily for local development.
+#
+# Environment Variable Override:
+# You can override any configuration using environment variables with the ROCKET_ prefix:
+#
+#   export ROCKET_DATABASES='{nexus_db={url="postgres://user:pass@host:port/db"}, bulk_write_db={url="postgres://user:pass@host:port/db"}}'
+#   export ROCKET_ADDRESS="0.0.0.0"
+#   export ROCKET_PORT="8000"
+#
+# For local development, update the database URLs below to match your PostgreSQL setup.
+
 [default]
-address = "127.0.0.1"
+address = "0.0.0.0"
 port = 8000
 
-[default.databases.linux_kb_db]
-url = "postgres://postgres:example@localhost:5432/linux-kernel-kb"
+# Main database connection pool
+[default.databases.nexus_db]
+url = "postgres://postgres:changeme456@localhost:5432/nexus"
+min_connections = 4
+max_connections = 20
+connect_timeout = 5
+idle_timeout = 300
+
+# Separate pool optimized for bulk write operations
+[default.databases.bulk_write_db]
+url = "postgres://postgres:changeme456@localhost:5432/nexus"
+min_connections = 8
+max_connections = 16
+connect_timeout = 10
+idle_timeout = 600

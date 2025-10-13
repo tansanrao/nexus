@@ -21,6 +21,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct Container {
     /// The Message-ID of this container
+    #[allow(dead_code)]
     pub message_id: String,
 
     /// Database email ID if this message exists in our dataset (None for phantoms)
@@ -54,11 +55,6 @@ impl Container {
         }
     }
 
-    /// Check if this container is a phantom (no associated email)
-    pub fn is_phantom(&self) -> bool {
-        self.email_id.is_none()
-    }
-
     /// Add a child to this container (avoiding duplicates)
     pub fn add_child(&mut self, child_msg_id: String) {
         if !self.children.contains(&child_msg_id) {
@@ -74,6 +70,7 @@ impl Container {
 #[derive(Debug, Clone)]
 pub struct EmailData {
     /// Database ID
+    #[allow(dead_code)]
     pub id: i32,
 
     /// Message-ID from email header
@@ -89,21 +86,12 @@ pub struct EmailData {
     pub date: chrono::DateTime<chrono::Utc>,
 
     /// Patch series information (metadata only, not used for threading)
+    #[allow(dead_code)]
     pub series_id: Option<String>,
+    #[allow(dead_code)]
     pub series_number: Option<i32>,
+    #[allow(dead_code)]
     pub series_total: Option<i32>,
-}
-
-impl EmailData {
-    /// Check if this email is part of a patch series
-    pub fn is_patch_series(&self) -> bool {
-        self.series_number.is_some()
-    }
-
-    /// Check if this email is a cover letter (patch 0/N)
-    pub fn is_cover_letter(&self) -> bool {
-        self.series_number == Some(0)
-    }
 }
 
 /// Information about a complete thread after building
@@ -139,14 +127,12 @@ impl ThreadInfo {
             emails: Vec::new(),
         }
     }
-
-    /// Add an email to this thread with its depth
-    pub fn add_email(&mut self, email_id: i32, depth: i32) {
-        self.emails.push((email_id, depth));
-    }
 }
 
-/// Recursively collect all emails in a thread with their depths
+/// Recursively collect all emails in a thread with their depths (DEPRECATED)
+///
+/// NOTE: This function is deprecated and replaced by collect_thread_emails_dashmap
+/// in jwz_algorithm.rs which works with DashMap for parallel processing.
 ///
 /// This function performs a depth-first traversal of the thread tree,
 /// collecting all real emails (non-phantoms) and their depth in the tree.
@@ -158,6 +144,8 @@ impl ThreadInfo {
 /// - `email_data`: Map of email_id to EmailData
 /// - `depth`: Current depth in the tree (0 for root)
 /// - `result`: Output vector to accumulate (email_id, depth) pairs
+#[deprecated(note = "Use collect_thread_emails_dashmap in jwz_algorithm.rs instead")]
+#[allow(dead_code)]
 pub fn collect_thread_emails(
     msg_id: &str,
     id_table: &HashMap<String, Container>,

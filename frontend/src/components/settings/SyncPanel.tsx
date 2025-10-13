@@ -149,8 +149,8 @@ export function SyncPanel() {
       {/* Mailing Lists Selection */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-medium text-gray-900">Select Mailing Lists</h3>
-          <p className="text-sm text-gray-600">
+          <h3 className="text-lg font-medium">Select Mailing Lists</h3>
+          <p className="text-sm text-muted-foreground">
             {lists.filter(l => l.enabled).length} of {lists.length} enabled
           </p>
         </div>
@@ -162,35 +162,35 @@ export function SyncPanel() {
             placeholder="Search by name, slug, or description..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-ring focus:border-transparent"
           />
-          <label className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+          <label className="flex items-center gap-2 px-4 py-2 border rounded-lg cursor-pointer hover:bg-accent">
             <input
               type="checkbox"
               checked={showEnabledOnly}
               onChange={(e) => setShowEnabledOnly(e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              className="w-4 h-4 rounded focus:ring-ring"
             />
-            <span className="text-sm text-gray-700">Enabled only</span>
+            <span className="text-sm">Enabled only</span>
           </label>
         </div>
 
         {/* Info banner */}
-        <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+        <Card className="mb-3 p-3 bg-primary/5 border-primary/20 text-sm">
           <p><strong>Note:</strong> Grokmirror mirrors ALL lists automatically. The "enabled" toggle only controls which lists the API server will parse and import.</p>
-        </div>
+        </Card>
 
         {/* Mailing lists */}
         <div className="space-y-2">
           {paginatedLists.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-muted-foreground">
               {searchQuery || showEnabledOnly ? 'No mailing lists match your filters' : 'No mailing lists available. Click "Seed Mailing Lists" in the Database panel.'}
             </div>
           ) : (
             paginatedLists.map((list) => (
               <div
                 key={list.id}
-                className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent"
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <label className="flex items-center cursor-pointer">
@@ -198,18 +198,18 @@ export function SyncPanel() {
                       type="checkbox"
                       checked={list.enabled}
                       onChange={() => handleToggle(list.slug, list.enabled)}
-                      className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      className="w-5 h-5 rounded focus:ring-ring"
                       disabled={isRunning}
                     />
-                    <span className="ml-3 font-medium text-gray-900">{list.name}</span>
+                    <span className="ml-3 font-medium">{list.name}</span>
                   </label>
-                  <span className="text-xs text-gray-400 font-mono">({list.slug})</span>
+                  <span className="text-xs text-muted-foreground font-mono">({list.slug})</span>
                   {list.description && (
-                    <span className="text-sm text-gray-500 truncate">- {list.description}</span>
+                    <span className="text-sm text-muted-foreground truncate">- {list.description}</span>
                   )}
                 </div>
                 {list.last_synced_at && (
-                  <span className="text-xs text-gray-400 whitespace-nowrap ml-3">
+                  <span className="text-xs text-muted-foreground whitespace-nowrap ml-3">
                     Last synced: {new Date(list.last_synced_at).toLocaleString()}
                   </span>
                 )}
@@ -220,28 +220,30 @@ export function SyncPanel() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-            <p className="text-sm text-gray-600">
+          <div className="flex items-center justify-between mt-4 pt-4 border-t">
+            <p className="text-sm text-muted-foreground">
               Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredLists.length)} of {filteredLists.length}
             </p>
             <div className="flex gap-2">
-              <button
+              <Button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                variant="outline"
+                size="sm"
               >
                 Previous
-              </button>
-              <span className="px-3 py-1 text-sm text-gray-700">
+              </Button>
+              <span className="px-3 py-1 text-sm flex items-center">
                 Page {currentPage} of {totalPages}
               </span>
-              <button
+              <Button
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                variant="outline"
+                size="sm"
               >
                 Next
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -250,79 +252,32 @@ export function SyncPanel() {
       {/* Current Job Status */}
       {currentJob && (
         <div className="mb-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-3">Current Sync Job</h3>
-          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="font-medium text-blue-900">
-                  Syncing: {currentJob.job_data.mailing_list_slug}
-                </p>
-                <p className="text-sm text-blue-700 mt-1">
-                  {currentJob.job_data.progress.current_step}
-                </p>
-                {currentJob.job_data.progress.phase_details && (
-                  <p className="text-xs text-blue-600 mt-1">
-                    {currentJob.job_data.progress.phase_details}
+          <h3 className="text-lg font-medium mb-3">Current Sync Job</h3>
+          <Card className="p-4 bg-primary/5 border-primary/20">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <p className="font-medium">{currentJob.name}</p>
+                <p className="text-sm text-muted-foreground mt-1">({currentJob.slug})</p>
+                {currentJob.started_at && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Started: {new Date(currentJob.started_at).toLocaleString()}
                   </p>
                 )}
               </div>
-              <StatusBadge status={currentJob.status} />
+              <PhaseBadge phase={currentJob.phase} />
             </div>
-
-            {/* Progress Bar */}
-            {currentJob.job_data.progress.total && currentJob.job_data.progress.total > 0 && (
-              <div className="mt-3">
-                <div className="flex justify-between text-xs text-blue-700 mb-1">
-                  <span>Progress</span>
-                  <span>
-                    {currentJob.job_data.progress.processed.toLocaleString()} / {currentJob.job_data.progress.total.toLocaleString()}
-                    {' '}({getProgressPercentage(currentJob.job_data.progress).toFixed(1)}%)
-                  </span>
-                </div>
-                <div className="w-full bg-blue-200 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-blue-600 h-full transition-all duration-300 rounded-full"
-                    style={{ width: `${getProgressPercentage(currentJob.job_data.progress)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Metrics */}
-            <div className="grid grid-cols-5 gap-2 mt-4 pt-3 border-t border-blue-200">
-              <MetricItem label="Parsed" value={currentJob.job_data.metrics.emails_parsed} />
-              <MetricItem label="Errors" value={currentJob.job_data.metrics.parse_errors} warning={currentJob.job_data.metrics.parse_errors > 0} />
-              <MetricItem label="Authors" value={currentJob.job_data.metrics.authors_imported} />
-              <MetricItem label="Emails" value={currentJob.job_data.metrics.emails_imported} />
-              <MetricItem label="Threads" value={currentJob.job_data.metrics.threads_created} />
-            </div>
-          </div>
+          </Card>
         </div>
       )}
 
       {/* Queue */}
       {syncStatus && syncStatus.queued_jobs.length > 0 && (
         <div>
-          <h3 className="text-lg font-medium text-gray-900 mb-3">
-            Queue ({syncStatus.queued_jobs.length} jobs)
-          </h3>
-          <div className="space-y-2">
-            {syncStatus.queued_jobs.map((job) => (
-              <div
-                key={job.id}
-                className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center justify-center w-6 h-6 bg-gray-300 text-gray-700 rounded-full text-xs font-bold">
-                    {job.position}
-                  </span>
-                  <span className="font-medium text-gray-900">{job.mailing_list_name}</span>
-                  <span className="text-sm text-gray-500">({job.mailing_list_slug})</span>
-                </div>
-                <span className="text-xs text-gray-400 px-2 py-1 bg-gray-200 rounded">Queued</span>
-              </div>
-            ))}
-          </div>
+          <Card className="p-4 bg-muted/50">
+            <p className="text-sm">
+              <span className="font-medium">{syncStatus.queued_jobs.length}</span> job{syncStatus.queued_jobs.length > 1 ? 's' : ''} in queue
+            </p>
+          </Card>
         </div>
       )}
 
@@ -337,26 +292,16 @@ export function SyncPanel() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const variant = status === 'Failed' ? 'destructive' :
-                   status === 'Completed' ? 'default' :
-                   'secondary';
+function PhaseBadge({ phase }: { phase: string }) {
+  const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' }> = {
+    waiting: { label: 'Waiting', variant: 'secondary' },
+    parsing: { label: 'Parsing', variant: 'default' },
+    threading: { label: 'Threading', variant: 'default' },
+    done: { label: 'Done', variant: 'default' },
+    errored: { label: 'Error', variant: 'destructive' },
+  };
 
-  return <Badge variant={variant}>{status}</Badge>;
+  const { label, variant } = config[phase] || config.waiting;
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
-function MetricItem({ label, value, warning = false }: { label: string; value: number; warning?: boolean }) {
-  return (
-    <div className="text-center">
-      <p className={`text-xs ${warning ? 'text-yellow-700' : 'text-blue-700'} font-medium`}>{label}</p>
-      <p className={`text-lg font-bold ${warning ? 'text-yellow-900' : 'text-blue-900'}`}>
-        {value.toLocaleString()}
-      </p>
-    </div>
-  );
-}
-
-function getProgressPercentage(progress: { processed: number; total: number | null }): number {
-  if (!progress.total || progress.total === 0) return 0;
-  return Math.min(100, (progress.processed / progress.total) * 100);
-}

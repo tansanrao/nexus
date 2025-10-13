@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
-import type { MailingList } from '../types';
+import { Link, useLocation } from 'react-router-dom';
+import { useMailingList } from '../contexts/MailingListContext';
 import {
   Select,
   SelectContent,
@@ -13,38 +11,7 @@ import { cn } from '@/lib/utils';
 
 export function MailingListSubHeader() {
   const location = useLocation();
-  const navigate = useNavigate();
-
-  // Extract mailingList from pathname since we're outside Routes context
-  const pathParts = location.pathname.split('/').filter(Boolean);
-  const currentSlug = pathParts.length > 0 && !['settings'].includes(pathParts[0]) ? pathParts[0] : undefined;
-
-  const [mailingLists, setMailingLists] = useState<MailingList[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadMailingLists = async () => {
-      try {
-        const lists = await api.mailingLists.list();
-        setMailingLists(lists);
-      } catch (error) {
-        console.error('Failed to load mailing lists:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadMailingLists();
-  }, []);
-
-  const handleMailingListChange = (slug: string) => {
-    // Maintain the current view type (threads or authors)
-    if (location.pathname.includes('/authors')) {
-      navigate(`/${slug}/authors`);
-    } else {
-      navigate(`/${slug}/threads`);
-    }
-  };
+  const { selectedMailingList, setSelectedMailingList, mailingLists, loading } = useMailingList();
 
   // Determine page title
   const getPageTitle = () => {
@@ -62,8 +29,8 @@ export function MailingListSubHeader() {
 
   const pageTitle = getPageTitle();
 
-  // Check if we're on a mailing list page by checking both the URL pattern and the slug
-  const isMailingListPage = !!currentSlug && !location.pathname.startsWith('/settings');
+  // Check if we're on a mailing list page (not settings)
+  const isMailingListPage = !location.pathname.startsWith('/settings');
 
   return (
     <div className="h-12 px-6 flex items-center justify-between border-b bg-card">
@@ -71,13 +38,13 @@ export function MailingListSubHeader() {
       <h2 className="text-base font-semibold">{pageTitle}</h2>
 
       {/* Right: Mailing List Controls (only for mailing list pages) */}
-      {isMailingListPage && (
+      {isMailingListPage && selectedMailingList && (
         <div className="flex items-center gap-4">
           {/* Mailing List Selector */}
           <div className="w-56">
             <Select
-              value={currentSlug}
-              onValueChange={handleMailingListChange}
+              value={selectedMailingList}
+              onValueChange={setSelectedMailingList}
               disabled={loading}
             >
               <SelectTrigger>
@@ -96,7 +63,7 @@ export function MailingListSubHeader() {
           {/* Secondary Navigation */}
           <nav className="flex gap-1">
             <Link
-              to={`/${currentSlug}/threads`}
+              to="/threads"
               className={cn(
                 "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                 location.pathname.includes('/threads')
@@ -107,7 +74,7 @@ export function MailingListSubHeader() {
               Threads
             </Link>
             <Link
-              to={`/${currentSlug}/authors`}
+              to="/authors"
               className={cn(
                 "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                 location.pathname.includes('/authors')

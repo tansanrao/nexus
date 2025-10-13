@@ -2,65 +2,52 @@ services:
   # PostgreSQL 18 database
   postgres:
     image: postgres:18
-    container_name: linux-kb-postgres
+    container_name: nexus-postgres
     environment:
-      POSTGRES_DB: linux-kernel-kb
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-example}
+      POSTGRES_DB: ${POSTGRES_DB:-nexus}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme456}
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${HOST_POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d linux-kernel-kb"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nexus"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
     networks:
-      - linux-kb-network
+      - nexus-network
     restart: unless-stopped
-
-  # Grokmirror service for syncing mailing lists
-  grokmirror:
-    build:
-      context: .
-      dockerfile: grokmirror/Dockerfile
-    container_name: linux-kb-grokmirror
-    volumes:
-      - mirror_data:/app/mirrors
-      - ./grokmirror.conf:/app/grokmirror.conf:ro
-    networks:
-      - linux-kb-network
-    restart: unless-stopped
-    depends_on:
-      - postgres
+    shm_size: '512m'
 
   # Rust API server
   api-server:
     build:
       context: ./api-server
       dockerfile: Dockerfile
-    container_name: linux-kb-api
+    container_name: nexus-api
     environment:
-      # Database configuration
-      ROCKET_DATABASES: '{linux_kb_db={url="postgres://postgres:${POSTGRES_PASSWORD:-example}@postgres:5432/linux-kernel-kb"}}'
+      # Database configuration (uses Rocket.toml env var substitution)
+      ROCKET_DATABASES: '{nexus_db={url="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme456}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-nexus}"}, bulk_write_db={url="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme456}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-nexus}"}}'
       ROCKET_ADDRESS: "0.0.0.0"
       ROCKET_PORT: "8000"
       # Mirror path (shared volume with grokmirror)
-      MIRROR_BASE_PATH: /app/mirrors
+      MIRROR_BASE_PATH: ${MIRROR_BASE_PATH:-/app/mirrors}
+      # Threading cache path
+      THREADING_CACHE_BASE_PATH: ${THREADING_CACHE_BASE_PATH:-/app/cache}
       # Logging
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      - mirror_data:/app/mirrors:ro
+      - ${HOST_MIRROR_DATA_PATH:-./data/mirrors}:/app/mirrors:ro
+      - ${HOST_CACHE_DATA_PATH:-./data/cache}:/app/cache
     depends_on:
       postgres:
         condition: service_healthy
-      grokmirror:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/mailing-lists"]
       interval: 30s
@@ -68,7 +55,7 @@ services:
       retries: 3
       start_period: 40s
     networks:
-      - linux-kb-network
+      - nexus-network
     restart: unless-stopped
 
   # React frontend with nginx
@@ -76,21 +63,21 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: linux-kb-frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    container_name: nexus-frontend
+    environment:
+      # HTTP Basic Authentication credentials
+      HTTP_BASIC_AUTH_USERNAME: ${HTTP_BASIC_AUTH_USERNAME:-admin}
+      HTTP_BASIC_AUTH_PASSWORD: ${HTTP_BASIC_AUTH_PASSWORD:-changeme123}
     ports:
       - "${FRONTEND_PORT:-80}:80"
     depends_on:
       - api-server
     networks:
-      - linux-kb-network
+      - nexus-network
     restart: unless-stopped
 
-volumes:
-  postgres_data:
-    driver: local
-  mirror_data:
-    driver: local
-
 networks:
-  linux-kb-network:
+  nexus-network:
     driver: bridge

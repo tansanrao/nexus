@@ -1,15 +1,15 @@
 use rocket::serde::json::Json;
 use rocket::get;
-use rocket_db_pools::Connection;
+use rocket_db_pools::{sqlx, Connection};
 
-use crate::db::LinuxKbDb;
+use crate::db::NexusDb;
 use crate::error::ApiError;
 use crate::models::EmailWithAuthor;
 
 #[get("/<slug>/emails/<email_id>")]
 pub async fn get_email(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     email_id: i32,
 ) -> Result<Json<EmailWithAuthor>, ApiError> {
     // Get mailing list ID from slug

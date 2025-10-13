@@ -5,6 +5,7 @@ use std::env;
 /// Configuration for a single repository
 #[derive(Debug, Clone)]
 pub struct RepoConfig {
+    #[allow(dead_code)]
     pub url: String,
     pub order: i32,
 }
@@ -12,6 +13,7 @@ pub struct RepoConfig {
 /// Configuration for syncing a mailing list with multiple repositories
 #[derive(Debug, Clone)]
 pub struct MailingListSyncConfig {
+    #[allow(dead_code)]
     pub list_id: i32,
     pub slug: String,
     pub repos: Vec<RepoConfig>,
@@ -37,17 +39,20 @@ impl MailingListSyncConfig {
         }
     }
 
-    /// Get the mirror path for a specific repository
+    /// Get the mirror path for a specific repository using grokmirror's structure
+    /// Path structure: {mirror_base}/{slug}/git/{epoch}.git
+    /// Example: /app/mirrors/bpf/git/0.git
     pub fn get_repo_mirror_path(&self, repo_order: i32) -> PathBuf {
         self.mirror_base_path
             .join(&self.slug)
-            .join(repo_order.to_string())
+            .join("git")
+            .join(format!("{}.git", repo_order))
     }
 }
 
 /// Manages git operations for mailing list repositories
 pub struct GitManager {
-    config: MailingListSyncConfig,
+    pub config: MailingListSyncConfig,
 }
 
 #[derive(Debug)]
@@ -108,7 +113,7 @@ impl GitManager {
         if !mirror_path.exists() {
             return Err(GitError::Other(format!(
                 "Mirror not found at {:?}. Please ensure grokmirror is running and has completed at least one sync. \
-                See GROKMIRROR_SETUP.md for setup instructions.",
+                See grokmirror/README.md for setup instructions.",
                 mirror_path
             )));
         }
@@ -116,7 +121,7 @@ impl GitManager {
         if gix::open(mirror_path).is_err() {
             return Err(GitError::Other(format!(
                 "Invalid git repository at {:?}. The mirror may be corrupted. \
-                Try running 'grok-fsck -c grokmirror.conf' to check repository health.",
+                Try running 'grok-fsck -c grokmirror/grokmirror.conf' to check repository health.",
                 mirror_path
             )));
         }
@@ -133,104 +138,19 @@ impl GitManager {
         Ok(())
     }
 
-    /// Get all email commits from all repositories for this mailing list
-    /// This will get ALL commits - use get_new_commits_since for incremental syncs
-    pub fn get_all_email_commits(&self) -> Result<Vec<(String, String, i32)>, GitError> {
-        self.get_email_commits_with_filter(None)
-    }
-
-    /// Get new email commits since last indexed commit per repository
-    /// Pass a map of repo_order -> last_indexed_commit_hash
-    pub fn get_new_commits_since(
+    /// Get commits for a specific epoch (repo_order)
+    /// Used by the worker to discover commits sequentially per epoch
+    pub fn get_commits_for_epoch(
         &self,
-        last_commits: &std::collections::HashMap<i32, String>
+        repo_order: i32,
+        since: Option<&str>
     ) -> Result<Vec<(String, String, i32)>, GitError> {
-        log::info!(
-            "Discovering new email commits since last sync across {} repositories for '{}'",
-            self.config.repos.len(),
-            self.config.slug
-        );
-
-        // Validate all mirrors first
-        self.validate_all_mirrors()?;
-
-        let mut all_commits = Vec::new();
-
-        for repo_config in &self.config.repos {
-            let mirror_path = self.config.get_repo_mirror_path(repo_config.order);
-            let last_commit = last_commits.get(&repo_config.order);
-
-            log::info!(
-                "Discovering commits in repository {} (order {}) since {:?}",
-                repo_config.url,
-                repo_config.order,
-                last_commit
-            );
-
-            let commits = self.get_email_commits_from_repo_since(
-                &mirror_path,
-                repo_config.order,
-                last_commit.map(|s| s.as_str())
-            )?;
-
-            log::info!("Found {} new commits in repository {}", commits.len(), repo_config.order);
-            all_commits.extend(commits);
-        }
-
-        log::info!(
-            "Discovered total of {} new email commits across all repositories",
-            all_commits.len()
-        );
-
-        Ok(all_commits)
-    }
-
-    /// Internal method to get commits with optional filter
-    fn get_email_commits_with_filter(
-        &self,
-        last_commits: Option<&std::collections::HashMap<i32, String>>
-    ) -> Result<Vec<(String, String, i32)>, GitError> {
-        log::info!(
-            "Discovering email commits across {} repositories for '{}'",
-            self.config.repos.len(),
-            self.config.slug
-        );
-
-        // Validate all mirrors first
-        self.validate_all_mirrors()?;
-
-        let mut all_commits = Vec::new();
-
-        for repo_config in &self.config.repos {
-            let mirror_path = self.config.get_repo_mirror_path(repo_config.order);
-            let last_commit = last_commits.and_then(|m| m.get(&repo_config.order));
-
-            log::info!(
-                "Discovering commits in repository {} (order {})",
-                repo_config.url,
-                repo_config.order
-            );
-
-            let commits = self.get_email_commits_from_repo_since(
-                &mirror_path,
-                repo_config.order,
-                last_commit.map(|s| s.as_str())
-            )?;
-
-            log::info!("Found {} commits in repository {}", commits.len(), repo_config.order);
-            all_commits.extend(commits);
-        }
-
-        log::info!(
-            "Discovered total of {} email commits across all repositories",
-            all_commits.len()
-        );
-
-        Ok(all_commits)
+        let mirror_path = self.config.get_repo_mirror_path(repo_order);
+        self.get_email_commits_from_repo_since(&mirror_path, repo_order, since)
     }
 
     /// Get email commits from a specific repository, optionally filtering by last indexed commit
-    /// Returns (commit_hash, path, repo_order)
+    /// Returns (commit_hash, path, repo_order) in chronological order (oldest to newest)
     /// If since_commit is Some, only returns commits newer than the specified commit
     fn get_email_commits_from_repo_since(
         &self,
@@ -257,7 +177,11 @@ impl GitManager {
             }
 
             if let Some(target) = reference.target().try_id() {
-                // Walk the commit history
+                // Collect commits for this branch in a temporary vector
+                // We'll reverse it later to get chronological order
+                let mut branch_commits = Vec::new();
+
+                // Walk the commit history from HEAD backwards
                 let commit = repo
                     .find_object(target)
                     .map_err(|e| GitError::Other(format!("Failed to find object: {}", e)))?
@@ -266,11 +190,10 @@ impl GitManager {
 
                 let commit_hash = commit.id.to_hex().to_string();
 
-                // Check if we've reached the since_commit (stop here if incremental)
+                // For incremental sync: if HEAD is the since_commit, this branch has no new commits
                 if let Some(since) = since_commit {
                     if commit_hash == since {
-                        // We've reached the last indexed commit, stop here
-                        continue;
+                        continue; // Skip this branch entirely
                     }
                 }
 
@@ -280,14 +203,12 @@ impl GitManager {
                     .map_err(|e| GitError::Other(format!("Failed to get tree: {}", e)))?;
 
                 // Check if 'm' file exists in the tree (public-inbox v2 format)
-                for entry in tree.iter() {
-                    let entry = entry
-                        .map_err(|e| GitError::Other(format!("Failed to iterate tree: {}", e)))?;
+                let has_email = tree.iter().any(|entry| {
+                    entry.map(|e| e.filename() == "m" && e.mode().is_blob()).unwrap_or(false)
+                });
 
-                    if entry.filename() == "m" && entry.mode().is_blob() {
-                        commits.push((commit_hash.clone(), "m".to_string(), repo_order));
-                        break;
-                    }
+                if has_email {
+                    branch_commits.push((commit_hash.clone(), "m".to_string(), repo_order));
                 }
 
                 // Walk commit ancestors
@@ -321,16 +242,18 @@ impl GitManager {
                         .map_err(|e| GitError::Other(format!("Failed to get ancestor tree: {}", e)))?;
 
                     // In public-inbox v2 format, emails are stored in 'm' files
-                    for entry in ancestor_tree.iter() {
-                        let entry = entry
-                            .map_err(|e| GitError::Other(format!("Failed to iterate ancestor tree: {}", e)))?;
+                    let has_email = ancestor_tree.iter().any(|entry| {
+                        entry.map(|e| e.filename() == "m" && e.mode().is_blob()).unwrap_or(false)
+                    });
 
-                        if entry.filename() == "m" && entry.mode().is_blob() {
-                            commits.push((ancestor_hash.clone(), "m".to_string(), repo_order));
-                            break;
-                        }
+                    if has_email {
+                        branch_commits.push((ancestor_hash.clone(), "m".to_string(), repo_order));
                     }
                 }
+
+                // Reverse to get chronological order (oldest to newest)
+                branch_commits.reverse();
+                commits.extend(branch_commits);
             }
         }
 
@@ -409,9 +332,13 @@ mod tests {
         let path0 = config.get_repo_mirror_path(0);
         let path1 = config.get_repo_mirror_path(1);
 
+        // Check grokmirror path structure: {mirror_base}/{slug}/git/{epoch}.git
         assert!(path0.to_string_lossy().contains("bpf"));
-        assert!(path0.to_string_lossy().contains("/0"));
+        assert!(path0.to_string_lossy().contains("/git/"));
+        assert!(path0.to_string_lossy().ends_with("0.git"));
+
         assert!(path1.to_string_lossy().contains("bpf"));
-        assert!(path1.to_string_lossy().contains("/1"));
+        assert!(path1.to_string_lossy().contains("/git/"));
+        assert!(path1.to_string_lossy().ends_with("1.git"));
     }
 }

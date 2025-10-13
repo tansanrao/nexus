@@ -1,5 +1,5 @@
 # Multi-stage build for Rust API server
-FROM rust:1.90-bullseye as builder
+FROM rust:1.90-bookworm as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -42,8 +42,8 @@ COPY --from=builder /app/target/release/api-server /app/api-server
 # Copy Rocket.toml (will be overridden by env vars in production)
 COPY Rocket.toml /app/Rocket.toml
 
-# Create directory for mirrors
-RUN mkdir -p /app/mirrors
+# Create directories for mirrors and cache
+RUN mkdir -p /app/mirrors /app/cache
 
 # Expose API port
 EXPOSE 8000

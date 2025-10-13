@@ -1,14 +1,13 @@
-.PHONY: help build build-api build-frontend build-grokmirror up down restart logs logs-api logs-frontend logs-grokmirror logs-postgres ps clean clean-all shell-api shell-frontend shell-grokmirror shell-postgres health init seed
+.PHONY: help build build-api build-frontend up down restart logs logs-api logs-frontend logs-postgres ps clean clean-all shell-api shell-frontend shell-postgres health init seed
 
 # Default target
 help:
-	@echo "Linux Kernel KB - Docker Management"
+	@echo "Nexus - Docker Management"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  make build              - Build all Docker images"
 	@echo "  make build-api          - Build API server image only"
 	@echo "  make build-frontend     - Build frontend image only"
-	@echo "  make build-grokmirror   - Build grokmirror image only"
 	@echo ""
 	@echo "  make up                 - Start all services"
 	@echo "  make down               - Stop all services"
@@ -18,12 +17,10 @@ help:
 	@echo "  make logs               - View logs from all services"
 	@echo "  make logs-api           - View API server logs"
 	@echo "  make logs-frontend      - View frontend logs"
-	@echo "  make logs-grokmirror    - View grokmirror logs"
 	@echo "  make logs-postgres      - View PostgreSQL logs"
 	@echo ""
 	@echo "  make shell-api          - Open shell in API container"
 	@echo "  make shell-frontend     - Open shell in frontend container"
-	@echo "  make shell-grokmirror   - Open shell in grokmirror container"
 	@echo "  make shell-postgres     - Open shell in postgres container"
 	@echo ""
 	@echo "  make health             - Check health status of services"
@@ -42,9 +39,6 @@ build-api:
 
 build-frontend:
 	docker compose build frontend
-
-build-grokmirror:
-	docker compose build grokmirror
 
 # Service management
 up:
@@ -77,9 +71,6 @@ logs-api:
 logs-frontend:
 	docker compose logs -f frontend
 
-logs-grokmirror:
-	docker compose logs -f grokmirror
-
 logs-postgres:
 	docker compose logs -f postgres
 
@@ -90,11 +81,8 @@ shell-api:
 shell-frontend:
 	docker compose exec frontend /bin/sh
 
-shell-grokmirror:
-	docker compose exec grokmirror /bin/bash
-
 shell-postgres:
-	docker compose exec postgres psql -U postgres -d linux-kernel-kb
+	docker compose exec postgres psql -U postgres -d nexus-db
 
 # Health checks
 health:

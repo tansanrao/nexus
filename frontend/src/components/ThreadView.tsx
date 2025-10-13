@@ -4,6 +4,7 @@ import { ChevronRight, Maximize2, Minimize2, Mail } from 'lucide-react';
 import { api } from '../api/client';
 import type { ThreadDetail } from '../types';
 import { useTimezone } from '../contexts/TimezoneContext';
+import { useMailingList } from '../contexts/MailingListContext';
 import { formatDateInTimezone } from '../utils/timezone';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -14,7 +15,8 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { cn } from '@/lib/utils';
 
 export function ThreadView() {
-  const { threadId, mailingList } = useParams<{ threadId: string; mailingList: string }>();
+  const { threadId } = useParams<{ threadId: string }>();
+  const { selectedMailingList } = useMailingList();
   const { timezone } = useTimezone();
   const [threadData, setThreadData] = useState<ThreadDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,11 +25,11 @@ export function ThreadView() {
 
   useEffect(() => {
     const loadThread = async () => {
-      if (!threadId || !mailingList) return;
+      if (!threadId || !selectedMailingList) return;
 
       try {
         setLoading(true);
-        const data = await api.threads.get(mailingList, parseInt(threadId));
+        const data = await api.threads.get(selectedMailingList, parseInt(threadId));
         setThreadData(data);
         setError(null);
       } catch (err) {
@@ -38,7 +40,7 @@ export function ThreadView() {
     };
 
     loadThread();
-  }, [threadId, mailingList]);
+  }, [threadId, selectedMailingList]);
 
   const formatDate = (dateStr: string) => {
     return formatDateInTimezone(dateStr, timezone, 'MMM d, yyyy h:mm a');
@@ -92,36 +94,36 @@ export function ThreadView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Thread header */}
-      <div className="border-b bg-card px-6 py-4">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <h1 className="text-xl font-semibold">{threadData.thread.subject}</h1>
+      {/* Thread header - Sticky */}
+      <div className="border-b bg-card/50 backdrop-blur px-6 py-4 sticky top-0 z-10">
+        {/* Subject line - larger */}
+        <h1 className="text-2xl font-bold mb-3 leading-tight">
+          {threadData.thread.subject}
+        </h1>
+
+        {/* Metadata bar */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <Mail className="h-4 w-4" />
+              <span>{threadData.thread.message_count || 0} messages</span>
+            </div>
+            <Separator orientation="vertical" className="h-4" />
+            <span>Started {formatDate(threadData.thread.start_date)}</span>
+            <Separator orientation="vertical" className="h-4" />
+            <span>Last {formatDate(threadData.thread.last_date)}</span>
+          </div>
+
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={expandAll}
-            >
-              <Maximize2 className="h-3 w-3 mr-1" />
-              Expand All
+            <Button variant="ghost" size="sm" onClick={expandAll}>
+              <Maximize2 className="h-4 w-4 mr-1.5" />
+              Expand
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={collapseAll}
-            >
-              <Minimize2 className="h-3 w-3 mr-1" />
-              Collapse All
+            <Button variant="ghost" size="sm" onClick={collapseAll}>
+              <Minimize2 className="h-4 w-4 mr-1.5" />
+              Collapse
             </Button>
           </div>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-          <Badge variant="secondary">
-            {threadData.thread.message_count || 0} messages
-          </Badge>
-          <span>Started {formatDate(threadData.thread.start_date)}</span>
-          <span>•</span>
-          <span>Last activity {formatDate(threadData.thread.last_date)}</span>
         </div>
       </div>
 
@@ -136,63 +138,78 @@ export function ThreadView() {
                   key={email.id}
                   style={{ marginLeft: `${email.depth * 24}px` }}
                 >
-                  <Card className="overflow-hidden">
-                    {/* Email header */}
+                  <Card
+                    className={cn(
+                      "overflow-hidden transition-all",
+                      isCollapsed ? "shadow-sm hover:shadow-md" : "shadow hover:shadow-lg"
+                    )}
+                  >
+                    {/* Email header - always visible */}
                     <button
                       onClick={() => toggleEmailCollapse(email.id)}
-                      className="w-full text-left hover:bg-accent transition-colors"
+                      className="w-full text-left px-4 py-3 hover:bg-accent/30 transition-colors"
                     >
-                      <div className="p-4 flex items-start gap-3">
-                        <Avatar className="h-10 w-10 flex-shrink-0">
-                          <AvatarFallback className="text-xs font-medium">
+                      <div className="flex items-start gap-3">
+                        {/* Avatar - with ring */}
+                        <Avatar className="h-10 w-10 ring-2 ring-border flex-shrink-0">
+                          <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
                             {getInitials(email.author_name, email.author_email)}
                           </AvatarFallback>
                         </Avatar>
 
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-4 mb-1">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <ChevronRight
-                                  className={cn(
-                                    "h-4 w-4 text-muted-foreground flex-shrink-0 transition-transform",
-                                    !isCollapsed && "rotate-90"
-                                  )}
-                                />
-                                <span className="font-semibold text-sm truncate">
-                                  {email.author_name || email.author_email}
-                                </span>
-                              </div>
-                              <div className="text-xs text-muted-foreground ml-6 truncate">
-                                {email.author_email}
-                              </div>
+                          {/* Name & Time row */}
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <ChevronRight
+                                className={cn(
+                                  "h-4 w-4 text-muted-foreground flex-shrink-0 transition-transform duration-200",
+                                  !isCollapsed && "rotate-90"
+                                )}
+                              />
+                              <span className="font-semibold text-sm truncate">
+                                {email.author_name || email.author_email}
+                              </span>
+                              {/* Depth indicator badge for replies */}
+                              {email.depth > 0 && (
+                                <Badge variant="outline" className="text-xs h-4 px-1 flex-shrink-0">
+                                  ↳ {email.depth}
+                                </Badge>
+                              )}
                             </div>
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            <time className="text-xs text-muted-foreground whitespace-nowrap ml-2">
                               {formatDate(email.date)}
-                            </span>
+                            </time>
                           </div>
 
+                          {/* Email - subtle */}
+                          <div className="text-xs text-muted-foreground ml-6">
+                            {email.author_email}
+                          </div>
+
+                          {/* Subject if different */}
                           {email.subject !== threadData.thread.subject && (
-                            <div className="text-sm text-foreground ml-6 mt-2">
+                            <div className="text-sm text-foreground ml-6 mt-2 font-medium">
                               {email.subject}
                             </div>
                           )}
 
+                          {/* Preview when collapsed */}
                           {isCollapsed && email.body && (
-                            <div className="text-xs text-muted-foreground ml-6 mt-2 line-clamp-2">
-                              {email.body.substring(0, 150)}...
+                            <div className="text-sm text-muted-foreground ml-6 mt-2 line-clamp-2">
+                              {email.body.substring(0, 120)}...
                             </div>
                           )}
                         </div>
                       </div>
                     </button>
 
-                    {/* Email body */}
+                    {/* Body - only when expanded */}
                     {!isCollapsed && (
                       <>
                         <Separator />
-                        <div className="p-4 bg-muted/30">
-                          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">
+                        <div className="px-4 py-4 bg-muted/20">
+                          <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
                             {email.body || '(No message body)'}
                           </pre>
                         </div>

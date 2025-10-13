@@ -1,10 +1,10 @@
-# Linux KB
+# Nexus
 
 A comprehensive knowledge base for Linux kernel development, providing a powerful mailing list browser and search interface for navigating the Linux kernel community's communication history.
 
 ## Overview
 
-Linux KB synchronizes and indexes Linux kernel mailing list archives from [lore.kernel.org](https://lore.kernel.org), enabling developers to:
+Nexus synchronizes and indexes Linux kernel mailing list archives from [lore.kernel.org](https://lore.kernel.org), enabling developers to:
 
 - Browse and search mailing list threads with advanced filtering
 - Track email conversations with intelligent threading
@@ -84,29 +84,29 @@ See [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) for detailed Docker deploymen
 
 #### Grokmirror Setup
 
-Linux KB uses grokmirror to efficiently mirror all lore.kernel.org repositories.
+Nexus uses grokmirror to efficiently mirror all lore.kernel.org repositories.
 
 ```bash
 # Install grokmirror
 pip install grokmirror
 
 # Run initial mirror sync (this will take several hours on first run)
-grok-pull -c grokmirror.conf
+grok-pull -c grokmirror/grokmirror.conf
 
 # Set up continuous syncing (choose one):
-# Option 1: Systemd service (recommended - see GROKMIRROR_SETUP.md)
+# Option 1: Systemd service (recommended - see grokmirror/README.md)
 # Option 2: Cron job every 5 minutes
 crontab -e
-# Add: */5 * * * * cd /path/to/linux-kernel-kb && grok-pull -c grokmirror.conf
+# Add: */5 * * * * cd /path/to/linux-kernel-kb && grok-pull -c grokmirror/grokmirror.conf
 ```
 
-See [GROKMIRROR_SETUP.md](./GROKMIRROR_SETUP.md) for detailed setup instructions.
+See [grokmirror/README.md](./grokmirror/README.md) for detailed setup instructions.
 
 #### Database Setup
 
 ```bash
 # Create database
-createdb linux-kernel-kb
+createdb nexus
 
 # Database schema is auto-created on first run via the reset endpoint
 ```
@@ -156,7 +156,7 @@ npm run dev
 
 ```bash
 # Database connection (or configure in Rocket.toml)
-DATABASE_URL=postgres://user:password@localhost/linux-kernel-kb
+DATABASE_URL=postgres://user:password@localhost/nexus
 
 # Mirror storage location
 MIRROR_BASE_PATH=./mirrors
@@ -167,7 +167,7 @@ RUST_LOG=info
 
 ### Mailing Lists
 
-Linux KB supports all ~341 mailing lists archived by lore.kernel.org, including:
+Nexus supports all ~341 mailing lists archived by lore.kernel.org, including:
 - **lkml**: Linux Kernel Mailing List (18 epochs/shards)
 - **netdev**: Network device development (2 epochs)
 - **bpf**: Berkeley Packet Filter development
@@ -194,7 +194,7 @@ Tables are partitioned by mailing list for optimal performance:
 
 ### Sync Pipeline
 
-Linux KB uses a two-phase sync architecture:
+Nexus uses a two-phase sync architecture:
 
 **Phase 1: Mirror Sync (Grokmirror - External)**
 1. Grokmirror runs continuously (cron/systemd)

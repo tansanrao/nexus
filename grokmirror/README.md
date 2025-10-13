@@ -1,10 +1,10 @@
-# Grokmirror Setup for Linux KB
+# Grokmirror Setup for Nexus
 
-This guide explains how to set up grokmirror to mirror all lore.kernel.org mailing list archives for use with Linux KB.
+This guide explains how to set up grokmirror to mirror all lore.kernel.org mailing list archives for use with Nexus.
 
 ## Overview
 
-Linux KB uses a two-component architecture:
+Nexus uses a two-component architecture:
 
 1. **Grokmirror** (external): Efficiently mirrors all ~341 lore.kernel.org git repositories
 2. **API Server** (internal): Reads from local mirrors, parses emails, imports to database
@@ -36,7 +36,7 @@ grok-pull --version
 
 ### 2. Configure Grokmirror
 
-The `grokmirror.conf` file in the project root is pre-configured for Linux KB.
+The `grokmirror.conf` file in the `grokmirror/` directory is pre-configured for Nexus.
 
 Edit the `toplevel` path if needed:
 ```toml
@@ -49,7 +49,7 @@ toplevel = ./api-server/mirrors  # Adjust if needed
 Run the first sync manually to download all archives (~20GB+):
 
 ```bash
-grok-pull -c grokmirror.conf
+grok-pull -c grokmirror/grokmirror.conf
 ```
 
 This will take several hours on the first run. Subsequent runs only pull changes and are much faster.
@@ -73,7 +73,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/path/to/linux-kernel-kb
-ExecStart=/usr/local/bin/grok-pull -c grokmirror.conf --daemon
+ExecStart=/usr/local/bin/grok-pull -c grokmirror/grokmirror.conf --daemon
 Restart=always
 RestartSec=60
 
@@ -82,7 +82,7 @@ WantedBy=default.target
 ```
 
 **Update the paths**:
-- `WorkingDirectory`: Absolute path to your linux-kernel-kb directory
+- `WorkingDirectory`: Absolute path to your nexus directory
 - `ExecStart`: Path to grok-pull (find with `which grok-pull`)
 
 **Enable and start the service**:
@@ -110,18 +110,18 @@ crontab -e
 
 Add this line:
 ```cron
-*/5 * * * * cd /path/to/linux-kernel-kb && grok-pull -c grokmirror.conf >> /tmp/grokmirror.log 2>&1
+*/5 * * * * cd /path/to/nexus && grok-pull -c grokmirror/grokmirror.conf >> /tmp/grokmirror.log 2>&1
 ```
 
-**Note**: Update `/path/to/linux-kernel-kb` with the actual path.
+**Note**: Update `/path/to/nexus` with the actual path.
 
 ### Option 3: Manual Execution
 
 For testing or development, run manually:
 
 ```bash
-cd /path/to/linux-kernel-kb
-grok-pull -c grokmirror.conf
+cd /path/to/nexus
+grok-pull -c grokmirror/grokmirror.conf
 ```
 
 ## Repository Maintenance
@@ -133,7 +133,7 @@ Grokmirror includes `grok-fsck` for repository maintenance (repacking, corruptio
 Add to crontab (runs every Sunday at 2 AM):
 
 ```cron
-0 2 * * 0 cd /path/to/linux-kernel-kb && grok-fsck -c grokmirror.conf
+0 2 * * 0 cd /path/to/nexus && grok-fsck -c grokmirror/grokmirror.conf
 ```
 
 Or with systemd timer:
@@ -146,8 +146,8 @@ Description=Grokmirror repository maintenance
 
 [Service]
 Type=oneshot
-WorkingDirectory=/path/to/linux-kernel-kb
-ExecStart=/usr/local/bin/grok-fsck -c grokmirror.conf
+WorkingDirectory=/path/to/nexus
+ExecStart=/usr/local/bin/grok-fsck -c grokmirror/grokmirror.conf
 ```
 
 **Create** `~/.config/systemd/user/grokmirror-fsck.timer`:
@@ -195,7 +195,7 @@ You should see directories for each mailing list (e.g., `lkml/`, `bpf/`, `netdev
 du -sh ./api-server/mirrors
 ```
 
-## Using with Linux KB
+## Using with Nexus
 
 Once grokmirror is running:
 
@@ -277,4 +277,4 @@ curl -s https://lore.kernel.org/manifest.js.gz | gunzip | head
 
 For grokmirror issues, contact: tools@linux.kernel.org
 
-For Linux KB issues, file an issue at: [project repository]
+For Nexus issues, file an issue at: [project repository]

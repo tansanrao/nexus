@@ -1,18 +1,18 @@
-use crate::db::LinuxKbDb;
+use crate::db::NexusDb;
 use crate::error::ApiError;
 use crate::models::{MailingList, MailingListRepository, MailingListWithRepos};
-use crate::seed_data;
 use crate::sync::create_mailing_list_partitions;
+use crate::sync::manifest::{fetch_manifest, parse_manifest};
 use rocket::serde::json::Json;
 use rocket::State;
-use rocket_db_pools::Connection;
+use rocket_db_pools::{sqlx, Connection};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
 /// Get all mailing lists
 #[get("/admin/mailing-lists")]
 pub async fn list_mailing_lists(
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
 ) -> Result<Json<Vec<MailingList>>, ApiError> {
     let lists: Vec<MailingList> = sqlx::query_as(
         r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
@@ -29,7 +29,7 @@ pub async fn list_mailing_lists(
 #[get("/admin/mailing-lists/<slug>")]
 pub async fn get_mailing_list(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
 ) -> Result<Json<MailingList>, ApiError> {
     let list: MailingList = sqlx::query_as(
         r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
@@ -48,7 +48,7 @@ pub async fn get_mailing_list(
 #[get("/admin/mailing-lists/<slug>/repositories")]
 pub async fn get_mailing_list_with_repos(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
 ) -> Result<Json<MailingListWithRepos>, ApiError> {
     // Get the mailing list
     let list: MailingList = sqlx::query_as(
@@ -127,14 +127,22 @@ pub struct SeedResponse {
 
 /// Seed all mailing lists from lore.kernel.org manifest
 /// This endpoint is idempotent - safe to run multiple times
+/// Dynamically fetches and parses the grokmirror manifest
 #[post("/admin/mailing-lists/seed")]
 pub async fn seed_mailing_lists(
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<SeedResponse>, ApiError> {
-    log::info!("Starting mailing list seed process...");
+    log::info!("seeding mailing lists from grokmirror manifest");
 
-    let seed_data = seed_data::get_all_mailing_lists();
+    // Fetch and parse the manifest dynamically
+    let manifest = fetch_manifest()
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to fetch manifest: {}", e)))?;
+
+    let seed_data = parse_manifest(&manifest);
     let total_lists = seed_data.len();
+
+    log::info!("parsed {} mailing lists from manifest", total_lists);
 
     let mut mailing_lists_created = 0;
     let mut repositories_created = 0;
@@ -203,7 +211,7 @@ pub async fn seed_mailing_lists(
     }
 
     log::info!(
-        "Seed complete: {} lists, {} repos, {} partitions created",
+        "seed complete: {} lists, {} repos, {} partitions",
         mailing_lists_created, repositories_created, partitions_created
     );
 

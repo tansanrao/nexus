@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Search, SortAsc, SortDesc, Mail } from 'lucide-react';
+import { Search, Mail } from 'lucide-react';
 import { api } from '../api/client';
 import type { Thread, ThreadSortBy, SortOrder, SearchType } from '../types';
 import { useTimezone } from '../contexts/TimezoneContext';
+import { useMailingList } from '../contexts/MailingListContext';
 import { formatDateInTimezone } from '../utils/timezone';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from './ui/button';
@@ -11,6 +12,7 @@ import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
+import { FilterPanel } from './mailinglist/FilterPanel';
 import { cn } from '@/lib/utils';
 
 export function ThreadListSidebar() {
@@ -23,20 +25,22 @@ export function ThreadListSidebar() {
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [searchType, setSearchType] = useState<SearchType>('subject');
-  const { threadId, mailingList } = useParams<{ threadId: string; mailingList: string }>();
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const { threadId } = useParams<{ threadId: string }>();
+  const { selectedMailingList } = useMailingList();
   const { timezone } = useTimezone();
   const limit = 50;
 
   useEffect(() => {
     const loadThreads = async () => {
-      if (!mailingList) return;
+      if (!selectedMailingList) return;
 
       try {
         setLoading(true);
         let data: Thread[];
 
         if (activeSearch.trim()) {
-          data = await api.threads.search(mailingList, {
+          data = await api.threads.search(selectedMailingList, {
             search: activeSearch,
             search_type: searchType,
             page,
@@ -45,7 +49,7 @@ export function ThreadListSidebar() {
             order
           });
         } else {
-          data = await api.threads.list(mailingList, { page, limit, sort_by: sortBy, order });
+          data = await api.threads.list(selectedMailingList, { page, limit, sort_by: sortBy, order });
         }
 
         setThreads(data);
@@ -58,7 +62,7 @@ export function ThreadListSidebar() {
     };
 
     loadThreads();
-  }, [page, sortBy, order, activeSearch, searchType, mailingList]);
+  }, [page, sortBy, order, activeSearch, searchType, selectedMailingList]);
 
   const handleSearch = () => {
     setActiveSearch(searchInput);
@@ -88,7 +92,7 @@ export function ThreadListSidebar() {
   };
 
   const formatStartDate = (dateStr: string) => {
-    return formatDateInTimezone(dateStr, timezone, 'MMM d, yyyy h:mm a');
+    return formatDateInTimezone(dateStr, timezone, 'MMM d, yyyy');
   };
 
   const formatRelativeTime = (dateStr: string) => {
@@ -122,7 +126,7 @@ export function ThreadListSidebar() {
   return (
     <div className="h-full flex flex-col">
       {/* Search and filters */}
-      <div className="border-b p-4 space-y-3">
+      <div className="border-b p-3 space-y-3">
         {/* Search bar */}
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -150,67 +154,21 @@ export function ThreadListSidebar() {
           </div>
         )}
 
-        {/* Search type */}
-        <div className="flex gap-1">
-          <Button
-            variant={searchType === 'subject' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSearchType('subject')}
-            className="flex-1 h-8 text-xs"
-          >
-            Subject
-          </Button>
-          <Button
-            variant={searchType === 'full_text' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setSearchType('full_text')}
-            className="flex-1 h-8 text-xs"
-          >
-            Full Text
-          </Button>
-        </div>
-
-        {/* Sort controls */}
-        <div className="flex gap-1">
-          <Button
-            variant={sortBy === 'last_date' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => handleSortChange('last_date')}
-            className="flex-1 h-8 text-xs"
-          >
-            Last
-            {sortBy === 'last_date' && (
-              order === 'desc' ? <SortDesc className="ml-1 h-3 w-3" /> : <SortAsc className="ml-1 h-3 w-3" />
-            )}
-          </Button>
-          <Button
-            variant={sortBy === 'start_date' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => handleSortChange('start_date')}
-            className="flex-1 h-8 text-xs"
-          >
-            Start
-            {sortBy === 'start_date' && (
-              order === 'desc' ? <SortDesc className="ml-1 h-3 w-3" /> : <SortAsc className="ml-1 h-3 w-3" />
-            )}
-          </Button>
-          <Button
-            variant={sortBy === 'message_count' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => handleSortChange('message_count')}
-            className="flex-1 h-8 text-xs"
-          >
-            Count
-            {sortBy === 'message_count' && (
-              order === 'desc' ? <SortDesc className="ml-1 h-3 w-3" /> : <SortAsc className="ml-1 h-3 w-3" />
-            )}
-          </Button>
-        </div>
+        {/* Filter panel */}
+        <FilterPanel
+          searchType={searchType}
+          setSearchType={setSearchType}
+          sortBy={sortBy}
+          order={order}
+          onSortChange={handleSortChange}
+          isExpanded={filtersExpanded}
+          onToggle={() => setFiltersExpanded(!filtersExpanded)}
+        />
       </div>
 
       {/* Thread list */}
       <ScrollArea className="flex-1">
-        <div className="p-2">
+        <div className="py-1">
           {threads.length === 0 ? (
             <div className="p-8 text-center">
               <Mail className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
@@ -223,33 +181,30 @@ export function ThreadListSidebar() {
                 return (
                   <Link
                     key={thread.id}
-                    to={`/${mailingList}/threads/${thread.id}`}
-                    className="block border-b last:border-b-0"
+                    to={`/threads/${thread.id}`}
+                    className="block"
                   >
                     <div
                       className={cn(
-                        "p-3 transition-colors hover:bg-accent",
-                        isSelected && "bg-accent"
+                        "px-3 py-3 border-l-2 border-transparent hover:bg-accent/50 cursor-pointer transition-all duration-200",
+                        isSelected && "border-l-primary bg-accent"
                       )}
                     >
-                      <div className="text-sm font-medium line-clamp-2 mb-2">
-                        {thread.subject}
+                      {/* Row 1: Subject + Message count */}
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <h3 className="text-sm font-semibold line-clamp-1 flex-1">
+                          {thread.subject}
+                        </h3>
+                        <Badge variant="outline" className="text-xs h-5 px-1.5 shrink-0">
+                          {thread.message_count || 0}
+                        </Badge>
                       </div>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-muted-foreground font-medium">Messages:</span>
-                          <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
-                            {thread.message_count || 0}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-muted-foreground font-medium">Started:</span>
-                          <span className="text-foreground">{formatStartDate(thread.start_date)}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-muted-foreground font-medium">Last Activity:</span>
-                          <span className="text-foreground">{formatRelativeTime(thread.last_date)}</span>
-                        </div>
+
+                      {/* Row 2: Metadata */}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="truncate">{formatRelativeTime(thread.last_date)}</span>
+                        <span>•</span>
+                        <span className="truncate">Started {formatStartDate(thread.start_date)}</span>
                       </div>
                     </div>
                   </Link>

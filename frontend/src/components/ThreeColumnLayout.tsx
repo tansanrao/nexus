@@ -17,12 +17,15 @@ export function ThreeColumnLayout({
 }: ThreeColumnLayoutProps) {
   return (
     <div className="flex-1 flex overflow-hidden">
-      <div className={`${leftWidth} flex-shrink-0 border-r border-border bg-card overflow-y-auto`}>
+      {/* Left column - responsive width */}
+      <div className={`${leftWidth} lg:${leftWidth} md:w-72 flex-shrink-0 border-r border-border bg-card overflow-y-auto`}>
         {left}
       </div>
-      <div className={`${middleWidth} flex-shrink-0 border-r border-border bg-card overflow-y-auto`}>
+      {/* Middle column - responsive width */}
+      <div className={`${middleWidth} lg:${middleWidth} md:w-80 flex-shrink-0 border-r border-border bg-card overflow-y-auto`}>
         {middle}
       </div>
+      {/* Right column */}
       {right && (
         <div className="flex-1 overflow-y-auto bg-background">
           {right}

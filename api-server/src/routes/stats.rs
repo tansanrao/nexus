@@ -1,15 +1,15 @@
 use rocket::serde::json::Json;
 use rocket::get;
-use rocket_db_pools::Connection;
+use rocket_db_pools::{sqlx, Connection};
 
-use crate::db::LinuxKbDb;
+use crate::db::NexusDb;
 use crate::error::ApiError;
 use crate::models::Stats;
 
 #[get("/<slug>/stats")]
 pub async fn get_stats(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
 ) -> Result<Json<Stats>, ApiError> {
     // Get mailing list ID from slug
     let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")

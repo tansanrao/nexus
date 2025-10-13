@@ -1,6 +1,10 @@
 # Temporary files
 temp/
 api-server/mirrors/
+api-server/cache/
+
+# Docker bind mount data directories
+data/
 
 # Python
 .venv/

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use rocket_db_pools::sqlx::FromRow;
 
 // ===== Mailing List Models =====
 
@@ -36,6 +36,7 @@ pub struct MailingListWithRepos {
 // ===== Core Data Models (Partitioned by mailing_list_id) =====
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct Author {
     pub id: i32,
     pub email: String,
@@ -45,6 +46,7 @@ pub struct Author {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct AuthorNameAlias {
     pub id: i32,
     pub author_id: i32,
@@ -55,6 +57,7 @@ pub struct AuthorNameAlias {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct AuthorMailingListActivity {
     pub author_id: i32,
     pub mailing_list_id: i32,
@@ -65,6 +68,7 @@ pub struct AuthorMailingListActivity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct Email {
     pub id: i32,
     pub mailing_list_id: i32,
@@ -90,6 +94,7 @@ pub struct Thread {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct ThreadMembership {
     pub mailing_list_id: i32,
     pub thread_id: i32,
@@ -98,6 +103,7 @@ pub struct ThreadMembership {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[allow(dead_code)]
 pub struct EmailRecipient {
     pub id: i32,
     pub mailing_list_id: i32,
@@ -171,59 +177,7 @@ pub struct Stats {
     pub date_range_end: Option<DateTime<Utc>>,
 }
 
-// ===== Query Parameter Structs =====
-
-#[derive(Debug, Deserialize)]
-pub struct PaginationParams {
-    #[serde(default = "default_page")]
-    pub page: i64,
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-}
-
-fn default_page() -> i64 {
-    1
-}
-
-fn default_limit() -> i64 {
-    50
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AuthorSearchParams {
-    pub search: Option<String>,
-    #[serde(default = "default_page")]
-    pub page: i64,
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ThreadQueryParams {
-    #[serde(default = "default_page")]
-    pub page: i64,
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub sort_by: Option<ThreadSortBy>,
-    #[serde(default)]
-    pub order: Option<SortOrder>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ThreadSearchParams {
-    pub search: Option<String>,
-    #[serde(default)]
-    pub search_type: Option<SearchType>,
-    #[serde(default = "default_page")]
-    pub page: i64,
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub sort_by: Option<ThreadSortBy>,
-    #[serde(default)]
-    pub order: Option<SortOrder>,
-}
+// ===== Search Types =====
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -235,95 +189,6 @@ pub enum SearchType {
 impl Default for SearchType {
     fn default() -> Self {
         SearchType::Subject
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ThreadSortBy {
-    StartDate,
-    LastDate,
-    MessageCount,
-}
-
-impl Default for ThreadSortBy {
-    fn default() -> Self {
-        ThreadSortBy::LastDate
-    }
-}
-
-impl ThreadSortBy {
-    pub fn to_sql(&self) -> &'static str {
-        match self {
-            ThreadSortBy::StartDate => "start_date",
-            ThreadSortBy::LastDate => "last_date",
-            ThreadSortBy::MessageCount => "message_count",
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SortOrder {
-    Asc,
-    Desc,
-}
-
-impl Default for SortOrder {
-    fn default() -> Self {
-        SortOrder::Desc
-    }
-}
-
-impl SortOrder {
-    pub fn to_sql(&self) -> &'static str {
-        match self {
-            SortOrder::Asc => "ASC",
-            SortOrder::Desc => "DESC",
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AuthorQueryParams {
-    pub search: Option<String>,
-    #[serde(default = "default_page")]
-    pub page: i64,
-    #[serde(default = "default_limit")]
-    pub limit: i64,
-    #[serde(default)]
-    pub sort_by: Option<AuthorSortBy>,
-    #[serde(default)]
-    pub order: Option<SortOrder>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AuthorSortBy {
-    Name,
-    Email,
-    EmailCount,
-    ThreadCount,
-    FirstEmailDate,
-    LastEmailDate,
-}
-
-impl Default for AuthorSortBy {
-    fn default() -> Self {
-        AuthorSortBy::EmailCount
-    }
-}
-
-impl AuthorSortBy {
-    pub fn to_sql(&self) -> &'static str {
-        match self {
-            AuthorSortBy::Name => "name",
-            AuthorSortBy::Email => "email",
-            AuthorSortBy::EmailCount => "email_count",
-            AuthorSortBy::ThreadCount => "thread_count",
-            AuthorSortBy::FirstEmailDate => "first_email_date",
-            AuthorSortBy::LastEmailDate => "last_email_date",
-        }
     }
 }
 

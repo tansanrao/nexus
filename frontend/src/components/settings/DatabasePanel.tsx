@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import type { DatabaseStatus, GlobalSyncStatus } from '../../types';
+import { Button } from '../ui/button';
+import { Card } from '../ui/card';
+import { Input } from '../ui/input';
 
 export function DatabasePanel() {
   const [status, setStatus] = useState<DatabaseStatus | null>(null);
@@ -98,47 +101,46 @@ export function DatabasePanel() {
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
+    <Card className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Database Management</h2>
+        <h2 className="text-xl font-semibold">Database Management</h2>
         <div className="flex gap-3">
-          <button
+          <Button
             onClick={handleSeedMailingLists}
             disabled={seedLoading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >
             {seedLoading ? 'Seeding...' : 'Seed Mailing Lists'}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => setShowConfirmModal(true)}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            variant="destructive"
           >
             Reset Database
-          </button>
+          </Button>
         </div>
       </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
-          {error}
-        </div>
+        <Card className="mb-4 p-4 bg-destructive/10 border-destructive">
+          <div className="text-sm text-destructive">{error}</div>
+        </Card>
       )}
 
       {seedSuccess && (
-        <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
-          {seedSuccess}
-        </div>
+        <Card className="mb-4 p-4 bg-primary/10 border-primary/30">
+          <div className="text-sm text-primary">{seedSuccess}</div>
+        </Card>
       )}
 
-      <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm">
+      <Card className="mb-4 p-4 bg-primary/5 border-primary/20 text-sm">
         <p className="font-medium mb-1">Setup Instructions:</p>
         <ol className="list-decimal list-inside space-y-1">
-          <li>Ensure grokmirror is running and has synced repositories (see GROKMIRROR_SETUP.md)</li>
+          <li>Ensure grokmirror is running and has synced repositories (see grokmirror/README.md)</li>
           <li>Click "Reset Database" to create fresh schema</li>
           <li>Click "Seed Mailing Lists" to populate all ~341 lore.kernel.org lists</li>
           <li>Go to Sync panel to enable and sync specific lists</li>
         </ol>
-      </div>
+      </Card>
 
       {status && (
         <div className="space-y-6">
@@ -154,9 +156,9 @@ export function DatabasePanel() {
 
           {/* Date Range */}
           {status.date_range_start && status.date_range_end && (
-            <div className="pt-4 border-t border-gray-200">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Data Range</h3>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
+            <div className="pt-4 border-t">
+              <h3 className="text-sm font-medium mb-2">Data Range</h3>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span>{formatDate(status.date_range_start)}</span>
                 <span>→</span>
                 <span>{formatDate(status.date_range_end)}</span>
@@ -165,76 +167,78 @@ export function DatabasePanel() {
           )}
 
           {/* Refresh Button */}
-          <div className="pt-4 border-t border-gray-200">
-            <button
+          <div className="pt-4 border-t">
+            <Button
               onClick={loadStatus}
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              variant="outline"
+              size="sm"
             >
               Refresh Statistics
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {/* Confirmation Modal */}
       {showConfirmModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-xl font-semibold text-gray-900 mb-4">Reset Database</h3>
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center z-50">
+          <Card className="p-6 max-w-md w-full mx-4 shadow-2xl" style={{ backgroundColor: 'hsl(var(--card))' }}>
+            <h3 className="text-xl font-semibold mb-4">Reset Database</h3>
             <div className="space-y-4">
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-800 font-medium mb-2">Warning: This action cannot be undone!</p>
-                <p className="text-sm text-red-700">
+              <div className="p-4 rounded-lg border-2 border-destructive" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                <p className="text-sm text-destructive font-medium mb-2">Warning: This action cannot be undone!</p>
+                <p className="text-sm text-destructive">
                   This will delete all data from the database and recreate all tables. You will need to run a sync to
                   repopulate the data.
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium mb-2">
                   Type <span className="font-mono font-bold">RESET</span> to confirm:
                 </label>
-                <input
+                <Input
                   type="text"
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   placeholder="RESET"
                 />
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button
+                <Button
                   onClick={handleResetDatabase}
                   disabled={confirmText !== 'RESET' || loading}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  variant="destructive"
+                  className="flex-1"
                 >
                   {loading ? 'Resetting...' : 'Reset Database'}
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() => {
                     setShowConfirmModal(false);
                     setConfirmText('');
                   }}
                   disabled={loading}
-                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  variant="outline"
+                  className="flex-1"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
-          </div>
+          </Card>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-      <p className="text-sm text-gray-600 mb-1">{label}</p>
-      <p className="text-2xl font-semibold text-gray-900">{value}</p>
+    <div className="p-4 bg-muted rounded-lg border">
+      <p className="text-sm text-muted-foreground mb-1">{label}</p>
+      <p className="text-2xl font-semibold">{value}</p>
     </div>
   );
 }

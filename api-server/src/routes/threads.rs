@@ -1,16 +1,16 @@
 use rocket::serde::json::Json;
 use rocket::get;
-use rocket_db_pools::Connection;
+use rocket_db_pools::{sqlx, Connection};
 use std::collections::HashMap;
 
-use crate::db::LinuxKbDb;
+use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{EmailHierarchy, Thread, ThreadDetail, ThreadQueryParams, ThreadSearchParams, ThreadSortBy, SortOrder, SearchType};
+use crate::models::{EmailHierarchy, Thread, ThreadDetail, SearchType};
 
 #[get("/<slug>/threads?<page>&<limit>&<sort_by>&<order>")]
 pub async fn list_threads(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     page: Option<i64>,
     limit: Option<i64>,
     sort_by: Option<String>,
@@ -68,7 +68,7 @@ pub async fn list_threads(
 #[get("/<slug>/threads/<thread_id>")]
 pub async fn get_thread(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     thread_id: i32,
 ) -> Result<Json<ThreadDetail>, ApiError> {
     // Get mailing list ID from slug
@@ -189,7 +189,7 @@ fn sort_emails_by_thread_order(emails: Vec<EmailHierarchy>) -> Vec<EmailHierarch
 #[get("/<slug>/threads/search?<search>&<search_type>&<page>&<limit>&<sort_by>&<order>")]
 pub async fn search_threads(
     slug: String,
-    mut db: Connection<LinuxKbDb>,
+    mut db: Connection<NexusDb>,
     search: Option<String>,
     search_type: Option<String>,
     page: Option<i64>,

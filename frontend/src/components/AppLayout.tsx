@@ -1,6 +1,5 @@
 import { type ReactNode } from 'react';
-import { TopNavigation } from './TopNavigation';
-import { MailingListSubHeader } from './MailingListSubHeader';
+import { AppSidebar } from './layout/AppSidebar';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -8,9 +7,11 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   return (
-    <div className="h-screen flex flex-col bg-background">
-      <TopNavigation />
-      <MailingListSubHeader />
+    <div className="h-screen flex bg-background">
+      {/* Left: App Sidebar */}
+      <AppSidebar />
+
+      {/* Right: Sub-app Container */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {children}
       </div>

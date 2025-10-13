@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { Calendar } from 'lucide-react';
 import { api } from '../api/client';
 import type { AuthorWithStats, Thread, ThreadWithStarter } from '../types';
 import { useTimezone } from '../contexts/TimezoneContext';
+import { useMailingList } from '../contexts/MailingListContext';
 import { formatDateInTimezone, formatDateCompact } from '../utils/timezone';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -14,7 +16,8 @@ import { cn } from '@/lib/utils';
 type ThreadTabType = 'started' | 'participated';
 
 export function AuthorDetailMiddle() {
-  const { authorId, mailingList, threadId } = useParams<{ authorId: string; mailingList: string; threadId: string }>();
+  const { authorId, threadId } = useParams<{ authorId: string; threadId: string }>();
+  const { selectedMailingList } = useMailingList();
   const { timezone } = useTimezone();
   const [author, setAuthor] = useState<AuthorWithStats | null>(null);
   const [activeTab, setActiveTab] = useState<ThreadTabType>('started');
@@ -27,11 +30,11 @@ export function AuthorDetailMiddle() {
 
   useEffect(() => {
     const loadAuthorData = async () => {
-      if (!authorId || !mailingList) return;
+      if (!authorId || !selectedMailingList) return;
 
       try {
         setLoading(true);
-        const authorData = await api.authors.get(mailingList, parseInt(authorId));
+        const authorData = await api.authors.get(selectedMailingList, parseInt(authorId));
         setAuthor(authorData);
         setError(null);
       } catch (err) {
@@ -42,19 +45,19 @@ export function AuthorDetailMiddle() {
     };
 
     loadAuthorData();
-  }, [authorId, mailingList]);
+  }, [authorId, selectedMailingList]);
 
   useEffect(() => {
     const loadTabData = async () => {
-      if (!authorId || !mailingList) return;
+      if (!authorId || !selectedMailingList) return;
 
       try {
         setLoading(true);
         if (activeTab === 'started') {
-          const threadsData = await api.authors.getThreadsStarted(mailingList, parseInt(authorId), page, limit);
+          const threadsData = await api.authors.getThreadsStarted(selectedMailingList, parseInt(authorId), page, limit);
           setThreadsStarted(threadsData);
         } else if (activeTab === 'participated') {
-          const threadsData = await api.authors.getThreadsParticipated(mailingList, parseInt(authorId), page, limit);
+          const threadsData = await api.authors.getThreadsParticipated(selectedMailingList, parseInt(authorId), page, limit);
           setThreadsParticipated(threadsData);
         }
         setError(null);
@@ -66,7 +69,7 @@ export function AuthorDetailMiddle() {
     };
 
     loadTabData();
-  }, [authorId, page, activeTab, mailingList]);
+  }, [authorId, page, activeTab, selectedMailingList]);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'N/A';
@@ -108,35 +111,58 @@ export function AuthorDetailMiddle() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Author metadata card */}
-      <div className="border-b p-4">
-        <Card className="p-4">
-          <div className="flex items-start gap-3 mb-3">
-            <Avatar className="h-12 w-12">
-              <AvatarFallback className="text-sm font-medium">
+      {/* Author metadata card - Enhanced */}
+      <div className="border-b p-4 bg-gradient-to-b from-card to-card/50">
+        <Card className="p-5 shadow-lg">
+          {/* Avatar & Header */}
+          <div className="flex items-start gap-4 mb-4">
+            <Avatar className="h-16 w-16 ring-4 ring-primary/10 flex-shrink-0">
+              <AvatarFallback className="text-lg font-bold bg-primary/20 text-primary">
                 {getInitials(author.canonical_name, author.email)}
               </AvatarFallback>
             </Avatar>
+
             <div className="flex-1 min-w-0">
-              <h2 className="text-base font-semibold truncate">
+              <h2 className="text-xl font-bold mb-1">
                 {getDisplayName(author)}
               </h2>
-              <div className="text-xs text-muted-foreground truncate">{author.email}</div>
+              <p className="text-sm text-muted-foreground truncate">
+                {author.email}
+              </p>
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap mb-2">
-            <Badge variant="secondary" className="text-xs">
-              {author.email_count} emails
-            </Badge>
-            <Badge variant="outline" className="text-xs">
-              {author.thread_count} threads
-            </Badge>
+
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="text-center p-3 rounded-lg bg-primary/5">
+              <div className="text-2xl font-bold text-primary">
+                {author.email_count}
+              </div>
+              <div className="text-xs text-muted-foreground">Messages</div>
+            </div>
+            <div className="text-center p-3 rounded-lg bg-secondary/5">
+              <div className="text-2xl font-bold text-secondary">
+                {author.thread_count}
+              </div>
+              <div className="text-xs text-muted-foreground">Threads</div>
+            </div>
           </div>
-          {/* Show mailing lists */}
+
+          {/* Activity Period */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+            <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>
+              Active: {formatDate(author.first_email_date)} – {formatDate(author.last_email_date)}
+            </span>
+          </div>
+
+          {/* Mailing Lists */}
           {author.mailing_lists && author.mailing_lists.length > 0 && (
-            <div className="mb-2">
-              <div className="text-xs text-muted-foreground mb-1">Active in:</div>
-              <div className="flex gap-1 flex-wrap">
+            <div className="mb-3">
+              <div className="text-xs font-medium text-muted-foreground mb-2">
+                Active in {author.mailing_lists.length} list{author.mailing_lists.length > 1 ? 's' : ''}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
                 {author.mailing_lists.map((ml) => (
                   <Badge key={ml} variant="outline" className="text-xs">
                     {ml}
@@ -145,19 +171,19 @@ export function AuthorDetailMiddle() {
               </div>
             </div>
           )}
-          {/* Show name variations */}
+
+          {/* Name Variations */}
           {author.name_variations && author.name_variations.length > 1 && (
-            <div className="mb-2">
-              <div className="text-xs text-muted-foreground mb-1">Also known as:</div>
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-2">
+                Also known as:
+              </div>
               <div className="text-xs text-muted-foreground">
                 {author.name_variations.slice(1, 4).join(', ')}
                 {author.name_variations.length > 4 && ` +${author.name_variations.length - 4} more`}
               </div>
             </div>
           )}
-          <div className="text-xs text-muted-foreground">
-            Active: {formatDate(author.first_email_date)} – {formatDate(author.last_email_date)}
-          </div>
         </Card>
       </div>
 
@@ -199,23 +225,23 @@ export function AuthorDetailMiddle() {
                 return (
                   <Link
                     key={thread.id}
-                    to={`/${mailingList}/authors/${authorId}/threads/${thread.id}`}
+                    to={`/authors/${authorId}/threads/${thread.id}`}
                     className="block"
                   >
                     <div
                       className={cn(
-                        "p-3 rounded-md transition-colors hover:bg-accent",
-                        isSelected && "bg-accent"
+                        "px-3 py-2.5 rounded-md hover:bg-accent/50 transition-all",
+                        isSelected && "bg-accent border-l-2 border-primary pl-[10px]"
                       )}
                     >
-                      <div className="text-sm font-medium line-clamp-2 mb-1">
+                      <div className="text-sm font-semibold line-clamp-2 mb-1.5">
                         {thread.subject}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="secondary" className="text-xs px-1 py-0">
+                        <Badge variant="outline" className="h-4 px-1 text-xs">
                           {thread.message_count || 0}
                         </Badge>
-                        <span className="truncate">{formatDateCompact(thread.last_date, timezone)}</span>
+                        <span>{formatDateCompact(thread.last_date, timezone)}</span>
                       </div>
                     </div>
                   </Link>
