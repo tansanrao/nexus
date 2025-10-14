@@ -1,6 +1,7 @@
 use rocket::serde::json::Json;
 use rocket::get;
 use rocket_db_pools::{sqlx, Connection};
+use std::collections::HashMap;
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
@@ -108,28 +109,51 @@ pub async fn search_authors(
             .await?
     };
 
-    // Enrich with mailing lists and name variations
-    let mut authors: Vec<AuthorWithStats> = Vec::new();
-    for row in author_rows {
-        // Get mailing lists this author participates in
-        let mailing_list_slugs: Vec<(String,)> = sqlx::query_as(
-            r#"SELECT ml.slug FROM author_mailing_list_activity act
+    // Batch fetch mailing lists and name variations for all authors to avoid N+1 queries
+    let author_ids: Vec<i32> = author_rows.iter().map(|r| r.id).collect();
+
+    // Fetch all mailing list slugs for all authors in one query
+    let mailing_lists_data: Vec<(i32, String)> = if !author_ids.is_empty() {
+        sqlx::query_as(
+            r#"SELECT act.author_id, ml.slug
+               FROM author_mailing_list_activity act
                JOIN mailing_lists ml ON act.mailing_list_id = ml.id
-               WHERE act.author_id = $1"#
+               WHERE act.author_id = ANY($1)"#
         )
-        .bind(row.id)
+        .bind(&author_ids)
         .fetch_all(&mut **db)
-        .await?;
+        .await?
+    } else {
+        Vec::new()
+    };
 
-        // Get name variations
-        let name_variations: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT name FROM author_name_aliases WHERE author_id = $1 ORDER BY usage_count DESC"
+    // Fetch all name variations for all authors in one query
+    let name_variations_data: Vec<(i32, String)> = if !author_ids.is_empty() {
+        sqlx::query_as(
+            "SELECT author_id, name FROM author_name_aliases
+             WHERE author_id = ANY($1) ORDER BY author_id, usage_count DESC"
         )
-        .bind(row.id)
+        .bind(&author_ids)
         .fetch_all(&mut **db)
-        .await?;
+        .await?
+    } else {
+        Vec::new()
+    };
 
-        authors.push(AuthorWithStats {
+    // Build lookup maps
+    let mut mailing_lists_map: HashMap<i32, Vec<String>> = HashMap::new();
+    for (author_id, slug) in mailing_lists_data {
+        mailing_lists_map.entry(author_id).or_insert_with(Vec::new).push(slug);
+    }
+
+    let mut name_variations_map: HashMap<i32, Vec<String>> = HashMap::new();
+    for (author_id, name) in name_variations_data {
+        name_variations_map.entry(author_id).or_insert_with(Vec::new).push(name);
+    }
+
+    // Build final author list with enriched data
+    let authors: Vec<AuthorWithStats> = author_rows.into_iter().map(|row| {
+        AuthorWithStats {
             id: row.id,
             email: row.email,
             canonical_name: row.canonical_name,
@@ -139,10 +163,10 @@ pub async fn search_authors(
             thread_count: row.thread_count,
             first_email_date: row.first_email_date,
             last_email_date: row.last_email_date,
-            mailing_lists: mailing_list_slugs.into_iter().map(|(s,)| s).collect(),
-            name_variations: name_variations.into_iter().map(|(n,)| n).collect(),
-        });
-    }
+            mailing_lists: mailing_lists_map.get(&row.id).cloned().unwrap_or_default(),
+            name_variations: name_variations_map.get(&row.id).cloned().unwrap_or_default(),
+        }
+    }).collect();
 
     Ok(Json(authors))
 }
@@ -205,7 +229,7 @@ pub async fn get_author(
 
     // Get name variations
     let name_variations: Vec<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT name FROM author_name_aliases WHERE author_id = $1 ORDER BY usage_count DESC"
+        "SELECT name FROM author_name_aliases WHERE author_id = $1 ORDER BY usage_count DESC"
     )
     .bind(author_id)
     .fetch_all(&mut **db)

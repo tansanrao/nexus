@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:18
     container_name: nexus-postgres
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nexus}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -11,7 +12,8 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - ${HOST_POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d nexus"]
       interval: 10s
@@ -21,7 +23,7 @@ services:
     networks:
       - nexus-network
     restart: unless-stopped
-    shm_size: '512m'
+    shm_size: '16GB'
 
   # Rust API server
   api-server:
@@ -43,8 +45,8 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      - ${HOST_MIRROR_DATA_PATH:-./data/mirrors}:/app/mirrors:ro
-      - ${HOST_CACHE_DATA_PATH:-./data/cache}:/app/cache
+      - mirrors:/app/mirrors:ro
+      - cache:/app/cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,3 +83,23 @@ services:
 networks:
   nexus-network:
     driver: bridge
+
+volumes:
+  pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOST_POSTGRES_DATA_PATH:-./data/postgres}
+  mirrors:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOST_MIRROR_DATA_PATH:-./data/mirrors}
+  cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOST_CACHE_DATA_PATH:-./data/cache}

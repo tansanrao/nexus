@@ -82,7 +82,7 @@ shell-frontend:
 	docker compose exec frontend /bin/sh
 
 shell-postgres:
-	docker compose exec postgres psql -U postgres -d nexus-db
+	docker compose exec postgres psql -U postgres -d nexus
 
 # Health checks
 health:

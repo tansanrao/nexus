@@ -1,8 +1,7 @@
 use crate::sync::parser::ParsedEmail;
-use crate::threading::{build_threads, extract_patch_series_info, EmailData as ThreadEmailData, ThreadingCache};
+use crate::threading::{extract_patch_series_info, EmailThreadingInfo};
 use rocket_db_pools::sqlx::{PgPool, Postgres};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use chrono::{DateTime, Utc};
 
 const STREAM_CHUNK_SIZE: usize = 25_000;
@@ -79,100 +78,13 @@ impl BulkImporter {
         Self { pool, mailing_list_id }
     }
 
-    /// Import and thread emails for a specific epoch with 2-epoch cache window
-    /// This is the core of the optimized sync workflow:
-    /// 1. Load/build cache for 2-epoch window FIRST
-    /// 2. Import emails to database (streaming in chunks) with epoch tags
-    /// 3. As each chunk is imported, merge new emails into cache
-    /// 4. Thread using the populated cache
-    /// 5. Save cache to disk for next iteration
-    pub async fn import_and_thread_epoch(
-        &self,
-        emails: Vec<(String, ParsedEmail, i32)>, // (commit, email, epoch)
-        cache_epoch_range: (i32, i32),
-    ) -> Result<ImportStats, sqlx::Error> {
-        let total = emails.len();
-        let num_chunks = (total + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE;
 
-        log::info!(
-            "import+thread: {} emails in {} chunks, cache window: epochs {}-{}",
-            total, num_chunks, cache_epoch_range.0, cache_epoch_range.1
-        );
-
-        // Step 1: Load or build cache for 2-epoch window BEFORE importing
-        log::info!("loading threading cache for list {} (epochs {}-{})",
-            self.mailing_list_id, cache_epoch_range.0, cache_epoch_range.1);
-
-        let cache_base_path = std::env::var("THREADING_CACHE_BASE_PATH")
-            .unwrap_or_else(|_| "./cache".to_string());
-        let cache_path = format!("{}/{}_threading_v1.bin", cache_base_path, self.mailing_list_id);
-
-        // Try to load cache from disk (synchronously, without await)
-        let cache_load_result = if Path::new(&cache_path).exists() {
-            ThreadingCache::load_from_disk(Path::new(&cache_path)).ok()
-        } else {
-            None
-        };
-
-        // Now handle the result with awaits (after the non-Send type is dropped)
-        let mut cache = match cache_load_result {
-            Some(c) if c.covers_epochs(cache_epoch_range) => {
-                log::info!("loaded threading cache from disk (fast path)");
-                c
-            }
-            Some(_) => {
-                log::info!("cache exists but doesn't cover required epochs, rebuilding from database");
-                ThreadingCache::load_from_db(&self.pool, self.mailing_list_id, cache_epoch_range).await?
-            }
-            None => {
-                log::info!("no cache found or failed to load, building from database");
-                ThreadingCache::load_from_db(&self.pool, self.mailing_list_id, cache_epoch_range).await?
-            }
-        };
-
-        let cache_stats = cache.stats();
-        log::info!(
-            "cache ready: {} emails, {} references from epochs {}-{}",
-            cache_stats.email_count,
-            cache_stats.reference_count,
-            cache_stats.epoch_range.0,
-            cache_stats.epoch_range.1
-        );
-
-        let mut cumulative_stats = ImportStats::default();
-
-        // Step 2: Import emails in chunks and merge into cache
-        for (chunk_idx, chunk) in emails.chunks(STREAM_CHUNK_SIZE).enumerate() {
-            log::debug!("importing chunk {}/{}", chunk_idx + 1, num_chunks);
-            let (stats, cache_data) = self.import_chunk(chunk).await?;
-            cumulative_stats.merge(stats);
-
-            // Merge newly imported emails into cache
-            if !cache_data.emails.is_empty() {
-                log::trace!("merging {} emails from chunk {} into cache", cache_data.emails.len(), chunk_idx + 1);
-                cache.merge_new_emails(cache_data.emails);
-                cache.merge_new_references(cache_data.references);
-            }
-        }
-
-        // Step 3: Build threads with the populated cache
-        log::info!("threading with cache for epochs {}-{}", cache_epoch_range.0, cache_epoch_range.1);
-        let (thread_count, membership_count) = self
-            .build_threads_with_cache(cache, &cache_path)
-            .await?;
-
-        cumulative_stats.threads = thread_count;
-        cumulative_stats.thread_memberships = membership_count;
-
-        // Step 4: Update author activity stats
-        log::info!("updating author activity");
-        self.update_author_activity().await?;
-
-        Ok(cumulative_stats)
-    }
-
-    /// Import single chunk with 4 parallel database connections
+    /// Import single chunk with enhanced parallel database operations
     /// Returns ImportStats and ChunkCacheData for merging into threading cache
+    ///
+    /// Optimizations:
+    /// - Uses up to 6 parallel connections from the increased bulk_write_db pool
+    /// - Parallelizes data loading operations where possible
     async fn import_chunk(&self, chunk: &[(String, ParsedEmail, i32)])
         -> Result<(ImportStats, ChunkCacheData), sqlx::Error> {
 
@@ -197,12 +109,54 @@ impl BulkImporter {
         let email_count = self.bulk_insert_emails(&mut conn2, &emails_data).await?;
         drop(conn2); // Release connection
 
-        // Load email IDs for recipients and references
-        let email_id_map = self.load_email_ids(chunk).await?;
-        let recipients_data = self.prepare_recipients(chunk, &email_id_map).await?;
+        // Parallelize email ID loading and recipient author ID loading
+        let message_ids: Vec<String> = chunk.iter().map(|(_, e, _)| e.message_id.clone()).collect();
+
+        // Collect recipient emails for parallel loading
+        let mut recipient_emails = std::collections::HashSet::new();
+        for (_, email, _) in chunk {
+            for (_, addr) in &email.to_addrs {
+                recipient_emails.insert(addr.clone());
+            }
+            for (_, addr) in &email.cc_addrs {
+                recipient_emails.insert(addr.clone());
+            }
+        }
+        let recipient_emails_vec: Vec<String> = recipient_emails.into_iter().collect();
+
+        // Parallel load: email IDs and recipient author IDs
+        let (email_id_rows, recipient_author_rows) = tokio::try_join!(
+            async {
+                sqlx::query_as::<_, (String, i32)>(
+                    "SELECT message_id, id FROM emails WHERE mailing_list_id = $1 AND message_id = ANY($2)"
+                )
+                .bind(self.mailing_list_id)
+                .bind(&message_ids)
+                .fetch_all(&self.pool)
+                .await
+            },
+            async {
+                if !recipient_emails_vec.is_empty() {
+                    sqlx::query_as::<_, (String, i32)>(
+                        "SELECT email, id FROM authors WHERE email = ANY($1)"
+                    )
+                    .bind(&recipient_emails_vec)
+                    .fetch_all(&self.pool)
+                    .await
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+        )?;
+
+        let email_id_map: std::collections::HashMap<String, i32> = email_id_rows.into_iter().collect();
+        let recipient_author_map: std::collections::HashMap<String, i32> = recipient_author_rows.into_iter().collect();
+
+        // Prepare recipients and references data with pre-loaded maps
+        let recipients_data = self.prepare_recipients_with_map(chunk, &email_id_map, &recipient_author_map);
         let references_data = self.prepare_references(chunk, &email_id_map);
 
-        // Import recipients and references in parallel
+        // Import recipients and references in parallel (2 connections)
         let mut conn3 = self.pool.acquire().await?;
         let mut conn4 = self.pool.acquire().await?;
 
@@ -483,64 +437,15 @@ impl BulkImporter {
         Ok(rows_affected)
     }
 
-    /// Load email IDs after insertion
-    async fn load_email_ids(&self, chunk: &[(String, ParsedEmail, i32)]) -> Result<HashMap<String, i32>, sqlx::Error> {
-        let message_ids: Vec<String> = chunk.iter()
-            .map(|(_, e, _)| e.message_id.clone())
-            .collect();
 
-        let expected_count = message_ids.len();
-
-        let rows: Vec<(String, i32)> = sqlx::query_as(
-            "SELECT message_id, id FROM emails WHERE mailing_list_id = $1 AND message_id = ANY($2)"
-        )
-        .bind(self.mailing_list_id)
-        .bind(&message_ids)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let found_count = rows.len();
-        if found_count < expected_count {
-            log::debug!(
-                "load_email_ids: expected {} emails but only found {} in database (missing: {})",
-                expected_count, found_count, expected_count - found_count
-            );
-        }
-
-        Ok(rows.into_iter().collect())
-    }
-
-    /// Prepare recipients data from chunk
-    async fn prepare_recipients(
+    /// Prepare recipients data from chunk with pre-loaded author map (optimized)
+    /// This version is used by the parallelized import_chunk to avoid duplicate database queries
+    fn prepare_recipients_with_map(
         &self,
         chunk: &[(String, ParsedEmail, i32)],
         email_id_map: &HashMap<String, i32>,
-    ) -> Result<RecipientsData, sqlx::Error> {
-        // Collect all recipient emails to load their author IDs
-        let mut recipient_emails = HashSet::new();
-        for (_, email, _) in chunk {
-            for (_, addr) in &email.to_addrs {
-                recipient_emails.insert(addr.clone());
-            }
-            for (_, addr) in &email.cc_addrs {
-                recipient_emails.insert(addr.clone());
-            }
-        }
-
-        let recipient_emails_vec: Vec<String> = recipient_emails.into_iter().collect();
-        let author_rows: Vec<(String, i32)> = if !recipient_emails_vec.is_empty() {
-            sqlx::query_as(
-                "SELECT email, id FROM authors WHERE email = ANY($1)"
-            )
-            .bind(&recipient_emails_vec)
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            Vec::new()
-        };
-
-        let author_map: HashMap<String, i32> = author_rows.into_iter().collect();
-
+        author_map: &HashMap<String, i32>,
+    ) -> RecipientsData {
         // Use a HashSet to deduplicate (email_id, author_id, recipient_type) tuples
         let mut recipient_set: HashSet<(i32, i32, String)> = HashSet::new();
 
@@ -571,7 +476,7 @@ impl BulkImporter {
             data.recipient_types.push(recipient_type);
         }
 
-        Ok(data)
+        data
     }
 
     /// Bulk insert recipients using UNNEST
@@ -663,106 +568,27 @@ impl BulkImporter {
         Ok(count)
     }
 
-    /// Build threads with cache for 2-epoch window
-    /// Implements the optimized threading path using an in-memory cache
-    ///
-    /// This method uses a pre-populated cache that already contains:
-    /// 1. All emails from the cache epoch range that were in the database before sync
-    /// 2. All newly imported emails merged during the import phase
-    ///
-    /// The cache provides:
-    /// - Fast loading from disk (bincode) instead of database queries
-    /// - Bounded memory usage (only 2 epochs worth of data in cache)
-    /// - Persistence across sync runs
-    async fn build_threads_with_cache(
+
+    /// Import emails in streaming chunks and populate unified cache
+    /// This is used by the dispatcher for threading
+    pub async fn import_chunk_with_epoch_cache(
         &self,
-        cache: ThreadingCache,
-        cache_path: &str,
-    ) -> Result<(usize, usize), sqlx::Error> {
-        let cache_stats = cache.stats();
-        let cache_epoch_range = cache_stats.epoch_range;
+        emails: &[(String, ParsedEmail, i32)],
+        cache: &crate::threading::MailingListCache,
+    ) -> Result<ImportStats, sqlx::Error> {
+        let total = emails.len();
+        log::info!("importing {} emails with epoch cache population", total);
 
-        log::info!(
-            "threading with populated cache: {} emails, {} references from epochs {}-{}",
-            cache_stats.email_count,
-            cache_stats.reference_count,
-            cache_epoch_range.0,
-            cache_epoch_range.1
-        );
+        // Import using existing chunk logic
+        let (stats, cache_data) = self.import_chunk(emails).await?;
 
-        // Step 1: Get cached data for threading
-        let cached_email_data = cache.get_all_email_data();
-        let cached_references = cache.get_all_references();
-
-        // Step 2: Load emails OUTSIDE cache epoch range from database
-        // These are needed for complete threading (old emails from other epochs that might be referenced)
-        log::info!("loading emails outside cache epoch range from database");
-
-        let mut tx = self.pool.begin().await?;
-
-        let db_only_emails: Vec<(i32, String, String, Option<String>, DateTime<Utc>, Option<String>, Option<i32>, Option<i32>)> =
-            sqlx::query_as(
-                r#"SELECT e.id, e.message_id, e.subject, e.in_reply_to, e.date,
-                          e.series_id, e.series_number, e.series_total
-                   FROM emails e
-                   WHERE e.mailing_list_id = $1
-                   AND (e.epoch < $2 OR e.epoch > $3)
-                   ORDER BY e.date"#
-            )
-            .bind(self.mailing_list_id)
-            .bind(cache_epoch_range.0)
-            .bind(cache_epoch_range.1)
-            .fetch_all(&mut *tx)
-            .await?;
-
-        let db_only_email_count = db_only_emails.len();
-        log::info!("loaded {} emails from database (outside cache)", db_only_email_count);
-
-        // Load references for emails outside cache
-        let db_email_ids: Vec<i32> = db_only_emails.iter().map(|(id, ..)| *id).collect();
-        let db_only_refs: Vec<(i32, String)> = if !db_email_ids.is_empty() {
-            sqlx::query_as(
-                r#"SELECT email_id, referenced_message_id
-                   FROM email_references
-                   WHERE mailing_list_id = $1 AND email_id = ANY($2)
-                   ORDER BY email_id, position"#
-            )
-            .bind(self.mailing_list_id)
-            .bind(&db_email_ids)
-            .fetch_all(&mut *tx)
-            .await?
-        } else {
-            Vec::new()
-        };
-
-        // Step 3: Merge cached and DB data
-        let mut all_email_data = HashMap::new();
-        let mut all_references = HashMap::new();
-
-        // Add cached data (includes newly imported emails)
-        for (email_id, (msg_id, subject, in_reply_to, date, series_id, series_num, series_total)) in cached_email_data {
-            all_email_data.insert(
-                email_id,
-                ThreadEmailData {
-                    id: email_id,
-                    message_id: msg_id,
-                    subject,
-                    in_reply_to,
-                    date,
-                    series_id,
-                    series_number: series_num,
-                    series_total,
-                }
-            );
-        }
-        all_references.extend(cached_references);
-
-        // Add DB data (emails from outside cache epoch range)
-        for (id, message_id, subject, in_reply_to, date, series_id, series_number, series_total) in db_only_emails {
-            all_email_data.insert(
-                id,
-                ThreadEmailData {
-                    id,
+        // Populate epoch cache with newly imported emails
+        log::debug!("populating cache with {} emails", cache_data.emails.len());
+        for (email_id, message_id, subject, in_reply_to, date, series_id, series_number, series_total) in cache_data.emails {
+            cache.insert_email(
+                message_id.clone(),
+                EmailThreadingInfo {
+                    email_id,
                     message_id,
                     subject,
                     in_reply_to,
@@ -774,425 +600,17 @@ impl BulkImporter {
             );
         }
 
-        // Group DB references
-        for (email_id, ref_msg_id) in db_only_refs {
-            all_references
-                .entry(email_id)
-                .or_insert_with(Vec::new)
-                .push(ref_msg_id);
+        // Populate references
+        for (email_id, refs) in cache_data.references {
+            cache.insert_references(email_id, refs);
         }
 
-        log::info!(
-            "threading with merged data: {} total emails ({} from cache + newly imported, {} from DB outside cache)",
-            all_email_data.len(),
-            cache_stats.email_count,
-            db_only_email_count
-        );
-
-        // Step 4: Run JWZ threading algorithm
-        log::debug!("running JWZ algorithm on {} emails", all_email_data.len());
-
-        let threads_to_create = tokio::task::spawn_blocking(move || {
-            build_threads(all_email_data, all_references)
-        })
-        .await
-        .map_err(|e| sqlx::Error::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Threading task panicked: {}", e)
-        )))?;
-
-        log::debug!("threading complete: {} threads", threads_to_create.len());
-
-        // Step 6: Insert threads and memberships
-        let thread_count = threads_to_create.len();
-        let mut membership_count = 0;
-
-        for thread_info in threads_to_create {
-            // Bulk insert memberships
-            let mut membership_map: HashMap<i32, i32> = HashMap::new();
-            for (email_id, depth) in thread_info.emails {
-                membership_map.entry(email_id).or_insert(depth);
-            }
-
-            // Compute membership hash: SHA256 of sorted email IDs
-            let membership_hash = {
-                let mut sorted_email_ids: Vec<i32> = membership_map.keys().copied().collect();
-                sorted_email_ids.sort_unstable();
-                use sha2::{Sha256, Digest};
-                let mut hasher = Sha256::new();
-                for email_id in sorted_email_ids {
-                    hasher.update(email_id.to_le_bytes());
-                }
-                hasher.finalize().to_vec()
-            };
-
-            // Check if thread exists with the same membership_hash
-            let existing_hash: Option<(i32, Option<Vec<u8>>)> = sqlx::query_as(
-                "SELECT id, membership_hash FROM threads WHERE mailing_list_id = $1 AND root_message_id = $2"
-            )
-            .bind(self.mailing_list_id)
-            .bind(&thread_info.root_message_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-
-            let should_update = match existing_hash {
-                Some((_, Some(ref existing))) if existing == &membership_hash => {
-                    log::trace!("thread {} unchanged, skipping update", &thread_info.root_message_id);
-                    false
-                }
-                _ => true
-            };
-
-            if !should_update {
-                continue;
-            }
-
-            // Insert thread with membership_hash
-            sqlx::query(
-                r#"INSERT INTO threads (mailing_list_id, root_message_id, subject, start_date, last_date, message_count, membership_hash)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)
-                   ON CONFLICT (mailing_list_id, root_message_id) DO NOTHING"#
-            )
-            .bind(self.mailing_list_id)
-            .bind(&thread_info.root_message_id)
-            .bind(&thread_info.subject)
-            .bind(thread_info.start_date)
-            .bind(thread_info.start_date)
-            .bind(membership_map.len() as i32)
-            .bind(&membership_hash)
-            .execute(&mut *tx)
-            .await?;
-
-            // Get thread ID
-            let thread_row: (i32,) = sqlx::query_as(
-                "SELECT id FROM threads WHERE mailing_list_id = $1 AND root_message_id = $2"
-            )
-            .bind(self.mailing_list_id)
-            .bind(&thread_info.root_message_id)
-            .fetch_one(&mut *tx)
-            .await?;
-
-            let thread_id = thread_row.0;
-
-            let membership_count_for_thread = membership_map.len();
-            if membership_count_for_thread > 0 {
-                let mut mailing_list_ids = Vec::new();
-                let mut thread_ids = Vec::new();
-                let mut email_ids = Vec::new();
-                let mut depths = Vec::new();
-
-                for (email_id, depth) in membership_map {
-                    mailing_list_ids.push(self.mailing_list_id);
-                    thread_ids.push(thread_id);
-                    email_ids.push(email_id);
-                    depths.push(depth);
-                }
-
-                sqlx::query(
-                    r#"INSERT INTO thread_memberships (mailing_list_id, thread_id, email_id, depth)
-                       SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[])
-                       ON CONFLICT (mailing_list_id, thread_id, email_id) DO NOTHING"#
-                )
-                .bind(&mailing_list_ids)
-                .bind(&thread_ids)
-                .bind(&email_ids)
-                .bind(&depths)
-                .execute(&mut *tx)
-                .await?;
-
-                membership_count += membership_count_for_thread;
-            }
-
-            // Update thread statistics
-            sqlx::query(
-                r#"UPDATE threads SET
-                    message_count = (SELECT COUNT(*) FROM thread_memberships
-                                    WHERE mailing_list_id = $1 AND thread_id = $2),
-                    start_date = (
-                        SELECT MIN(e.date) FROM emails e
-                        JOIN thread_memberships tm ON tm.email_id = e.id
-                        WHERE tm.mailing_list_id = $1 AND tm.thread_id = $2
-                    ),
-                    last_date = (
-                        SELECT MAX(e.date) FROM emails e
-                        JOIN thread_memberships tm ON tm.email_id = e.id
-                        WHERE tm.mailing_list_id = $1 AND tm.thread_id = $2
-                    ),
-                    membership_hash = $3
-                WHERE mailing_list_id = $1 AND id = $2"#
-            )
-            .bind(self.mailing_list_id)
-            .bind(thread_id)
-            .bind(&membership_hash)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        // Mark all emails as threaded
-        sqlx::query(
-            r#"UPDATE emails SET threaded_at = NOW()
-               WHERE mailing_list_id = $1"#
-        )
-        .bind(self.mailing_list_id)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-
-        // Step 7: Save updated cache to disk for next iteration
-        log::info!("saving threading cache to disk");
-        cache.save_to_disk(Path::new(&cache_path))
-            .map_err(|e| sqlx::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to save cache: {}", e)
-            )))?;
-
-        Ok((thread_count, membership_count))
-    }
-
-    /// Build threads for all emails in the mailing list
-    async fn build_threads_full(
-        &self,
-        tx: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(usize, usize), sqlx::Error> {
-        // Load all emails
-        let email_rows: Vec<(
-            i32,
-            String,
-            String,
-            Option<String>,
-            DateTime<Utc>,
-            Option<String>,
-            Option<i32>,
-            Option<i32>,
-        )> = sqlx::query_as(
-            r#"SELECT e.id, e.message_id, e.subject, e.in_reply_to, e.date,
-                      e.series_id, e.series_number, e.series_total
-               FROM emails e
-               WHERE e.mailing_list_id = $1
-               ORDER BY e.date"#
-        )
-        .bind(self.mailing_list_id)
-        .fetch_all(&mut **tx)
-        .await?;
-
-        let email_ids: Vec<i32> = email_rows.iter().map(|(id, ..)| *id).collect();
-
-        self.build_threads_for_emails(tx, &email_ids).await
-    }
-
-    /// Build threads for a specific set of emails
-    async fn build_threads_for_emails(
-        &self,
-        tx: &mut sqlx::Transaction<'_, Postgres>,
-        email_ids: &[i32],
-    ) -> Result<(usize, usize), sqlx::Error> {
-        // Load email data
-        let email_rows: Vec<(
-            i32,
-            String,
-            String,
-            Option<String>,
-            DateTime<Utc>,
-            Option<String>,
-            Option<i32>,
-            Option<i32>,
-        )> = sqlx::query_as(
-            r#"SELECT e.id, e.message_id, e.subject, e.in_reply_to, e.date,
-                      e.series_id, e.series_number, e.series_total
-               FROM emails e
-               WHERE e.mailing_list_id = $1 AND e.id = ANY($2)
-               ORDER BY e.date"#
-        )
-        .bind(self.mailing_list_id)
-        .bind(email_ids)
-        .fetch_all(&mut **tx)
-        .await?;
-
-        let mut email_data: HashMap<i32, ThreadEmailData> = HashMap::new();
-        for (id, message_id, subject, in_reply_to, date, series_id, series_number, series_total) in email_rows {
-            email_data.insert(
-                id,
-                ThreadEmailData {
-                    id,
-                    message_id,
-                    subject,
-                    in_reply_to,
-                    date,
-                    series_id,
-                    series_number,
-                    series_total,
-                },
-            );
-        }
-
-        // Load references for these emails
-        let ref_rows: Vec<(i32, String)> = sqlx::query_as(
-            r#"SELECT email_id, referenced_message_id
-               FROM email_references
-               WHERE mailing_list_id = $1 AND email_id = ANY($2)
-               ORDER BY email_id, position"#
-        )
-        .bind(self.mailing_list_id)
-        .bind(email_ids)
-        .fetch_all(&mut **tx)
-        .await?;
-
-        let mut email_references: HashMap<i32, Vec<String>> = HashMap::new();
-        for (email_id, ref_msg_id) in ref_rows {
-            email_references
-                .entry(email_id)
-                .or_insert_with(Vec::new)
-                .push(ref_msg_id);
-        }
-
-        log::debug!("running JWZ on {} emails", email_data.len());
-
-        // Run JWZ algorithm
-        let threads_to_create = tokio::task::spawn_blocking(move || {
-            build_threads(email_data, email_references)
-        })
-        .await
-        .map_err(|e| sqlx::Error::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Threading task panicked: {}", e)
-        )))?;
-
-        log::debug!("threading complete: {} threads", threads_to_create.len());
-
-        // Insert threads and memberships
-        let thread_count = threads_to_create.len();
-        let mut membership_count = 0;
-
-        for thread_info in threads_to_create {
-            // Bulk insert memberships
-            let mut membership_map: HashMap<i32, i32> = HashMap::new();
-            for (email_id, depth) in thread_info.emails {
-                membership_map.entry(email_id).or_insert(depth);
-            }
-
-            // Compute membership hash: SHA256 of sorted email IDs
-            // This allows us to skip updates if membership hasn't actually changed
-            let membership_hash = {
-                let mut sorted_email_ids: Vec<i32> = membership_map.keys().copied().collect();
-                sorted_email_ids.sort_unstable();
-                use sha2::{Sha256, Digest};
-                let mut hasher = Sha256::new();
-                for email_id in sorted_email_ids {
-                    hasher.update(email_id.to_le_bytes());
-                }
-                hasher.finalize().to_vec()
-            };
-
-            // Check if thread exists with the same membership_hash
-            let existing_hash: Option<(i32, Option<Vec<u8>>)> = sqlx::query_as(
-                "SELECT id, membership_hash FROM threads WHERE mailing_list_id = $1 AND root_message_id = $2"
-            )
-            .bind(self.mailing_list_id)
-            .bind(&thread_info.root_message_id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-            let should_update = match existing_hash {
-                Some((_, Some(ref existing))) if existing == &membership_hash => {
-                    // Hash matches - no structural change, skip update
-                    log::trace!("thread {} unchanged, skipping update", &thread_info.root_message_id);
-                    false
-                }
-                _ => true
-            };
-
-            if !should_update {
-                // Thread exists and hasn't changed, skip
-                continue;
-            }
-
-            // Insert thread with membership_hash
-            sqlx::query(
-                r#"INSERT INTO threads (mailing_list_id, root_message_id, subject, start_date, last_date, message_count, membership_hash)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)
-                   ON CONFLICT (mailing_list_id, root_message_id) DO NOTHING"#
-            )
-            .bind(self.mailing_list_id)
-            .bind(&thread_info.root_message_id)
-            .bind(&thread_info.subject)
-            .bind(thread_info.start_date)
-            .bind(thread_info.start_date)
-            .bind(membership_map.len() as i32)
-            .bind(&membership_hash)
-            .execute(&mut **tx)
-            .await?;
-
-            // Get thread ID
-            let thread_row: (i32,) = sqlx::query_as(
-                "SELECT id FROM threads WHERE mailing_list_id = $1 AND root_message_id = $2"
-            )
-            .bind(self.mailing_list_id)
-            .bind(&thread_info.root_message_id)
-            .fetch_one(&mut **tx)
-            .await?;
-
-            let thread_id = thread_row.0;
-
-            let membership_count_for_thread = membership_map.len();
-            if membership_count_for_thread > 0 {
-                let mut mailing_list_ids = Vec::new();
-                let mut thread_ids = Vec::new();
-                let mut email_ids = Vec::new();
-                let mut depths = Vec::new();
-
-                for (email_id, depth) in membership_map {
-                    mailing_list_ids.push(self.mailing_list_id);
-                    thread_ids.push(thread_id);
-                    email_ids.push(email_id);
-                    depths.push(depth);
-                }
-
-                sqlx::query(
-                    r#"INSERT INTO thread_memberships (mailing_list_id, thread_id, email_id, depth)
-                       SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[])
-                       ON CONFLICT (mailing_list_id, thread_id, email_id) DO NOTHING"#
-                )
-                .bind(&mailing_list_ids)
-                .bind(&thread_ids)
-                .bind(&email_ids)
-                .bind(&depths)
-                .execute(&mut **tx)
-                .await?;
-
-                membership_count += membership_count_for_thread;
-            }
-
-            // Update thread statistics including membership_hash
-            sqlx::query(
-                r#"UPDATE threads SET
-                    message_count = (SELECT COUNT(*) FROM thread_memberships
-                                    WHERE mailing_list_id = $1 AND thread_id = $2),
-                    start_date = (
-                        SELECT MIN(e.date) FROM emails e
-                        JOIN thread_memberships tm ON tm.email_id = e.id
-                        WHERE tm.mailing_list_id = $1 AND tm.thread_id = $2
-                    ),
-                    last_date = (
-                        SELECT MAX(e.date) FROM emails e
-                        JOIN thread_memberships tm ON tm.email_id = e.id
-                        WHERE tm.mailing_list_id = $1 AND tm.thread_id = $2
-                    ),
-                    membership_hash = $3
-                WHERE mailing_list_id = $1 AND id = $2"#
-            )
-            .bind(self.mailing_list_id)
-            .bind(thread_id)
-            .bind(&membership_hash)
-            .execute(&mut **tx)
-            .await?;
-        }
-
-        Ok((thread_count, membership_count))
+        log::debug!("cache population complete for {} emails", stats.emails);
+        Ok(stats)
     }
 
     /// Update author activity stats
-    async fn update_author_activity(&self) -> Result<(), sqlx::Error> {
+    pub async fn update_author_activity(&self) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
 
         // Calculate stats per author for this mailing list
@@ -1223,4 +641,5 @@ impl BulkImporter {
 
         Ok(())
     }
+
 }

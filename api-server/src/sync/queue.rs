@@ -119,7 +119,7 @@ impl JobQueue {
         Ok(())
     }
 
-    /// Cancel all queued jobs
+    /// Cancel all queued jobs (waiting only)
     pub async fn cancel_queued_jobs(&self) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r#"UPDATE sync_jobs
@@ -130,6 +130,31 @@ impl JobQueue {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Cancel ALL jobs including currently running ones
+    pub async fn cancel_all_jobs(&self) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE sync_jobs
+               SET phase = 'errored', completed_at = NOW(), error_message = 'Cancelled by user'
+               WHERE phase IN ('waiting', 'parsing', 'threading')"#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Check if a job was cancelled (for dispatcher to detect cancellation)
+    pub async fn is_job_cancelled(&self, job_id: i32) -> Result<bool, sqlx::Error> {
+        let result: Option<(String,)> = sqlx::query_as(
+            "SELECT phase FROM sync_jobs WHERE id = $1"
+        )
+        .bind(job_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(result.map(|(phase,)| phase == "errored").unwrap_or(false))
     }
 
     /// Get all jobs (for status endpoint)

@@ -1,11 +1,10 @@
-use crate::db::NexusDb;
 use crate::error::ApiError;
 use crate::sync::queue::{JobQueue, JobStatusInfo};
 use crate::sync::reset_database;
 use crate::sync::pg_config::PgConfig;
 use rocket::serde::json::Json;
 use rocket::State;
-use rocket_db_pools::{sqlx, Connection};
+use rocket_db_pools::sqlx;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -150,18 +149,18 @@ pub async fn get_sync_status(
     }))
 }
 
-/// Cancel all queued sync jobs
+/// Cancel ALL sync jobs including currently running ones
 #[post("/admin/sync/cancel")]
 pub async fn cancel_sync(
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<MessageResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
-    let cancelled_count = queue.cancel_queued_jobs()
+    let cancelled_count = queue.cancel_all_jobs()
         .await
         .map_err(|e| ApiError::InternalError(format!("Failed to cancel jobs: {}", e)))?;
 
     Ok(Json(MessageResponse {
-        message: format!("Cancelled {} queued job(s)", cancelled_count),
+        message: format!("Cancelled {} job(s) (including running jobs)", cancelled_count),
     }))
 }
 
@@ -178,39 +177,60 @@ pub async fn reset_db(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse
 }
 
 /// Get database statistics (global, not per mailing list)
+/// Queries are parallelized for faster response times
 #[get("/admin/database/status")]
 pub async fn get_database_status(
-    mut db: Connection<NexusDb>,
+    pool: &State<sqlx::PgPool>,
 ) -> Result<Json<DatabaseStatusResponse>, ApiError> {
-    let total_authors: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM authors")
-        .fetch_one(&mut **db)
-        .await?;
-
-    let total_emails: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
-        .fetch_one(&mut **db)
-        .await?;
-
-    let total_threads: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM threads")
-        .fetch_one(&mut **db)
-        .await?;
-
-    let total_recipients: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM email_recipients")
-        .fetch_one(&mut **db)
-        .await?;
-
-    let total_references: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM email_references")
-        .fetch_one(&mut **db)
-        .await?;
-
-    let total_thread_memberships: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM thread_memberships")
-        .fetch_one(&mut **db)
-        .await?;
-
-    let date_range: (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>) =
-        sqlx::query_as("SELECT MIN(date), MAX(date) FROM emails")
-            .fetch_one(&mut **db)
+    // Parallelize all independent COUNT queries for better performance
+    let (
+        total_authors,
+        total_emails,
+        total_threads,
+        total_recipients,
+        total_references,
+        total_thread_memberships,
+        date_range,
+    ) = tokio::try_join!(
+        async {
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM authors")
+                .fetch_one(pool.inner())
+                .await
+        },
+        async {
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM emails")
+                .fetch_one(pool.inner())
+                .await
+        },
+        async {
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM threads")
+                .fetch_one(pool.inner())
+                .await
+        },
+        async {
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM email_recipients")
+                .fetch_one(pool.inner())
+                .await
+        },
+        async {
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM email_references")
+                .fetch_one(pool.inner())
+                .await
+        },
+        async {
+            sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM thread_memberships")
+                .fetch_one(pool.inner())
+                .await
+        },
+        async {
+            sqlx::query_as::<_, (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>)>(
+                "SELECT MIN(date), MAX(date) FROM emails"
+            )
+            .fetch_one(pool.inner())
             .await
-            .unwrap_or((None, None));
+            .or_else(|_| Ok::<_, sqlx::Error>((None, None)))
+        }
+    )?;
 
     Ok(Json(DatabaseStatusResponse {
         total_authors: total_authors.0,

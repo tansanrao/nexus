@@ -20,15 +20,15 @@
 //! - `container`: Data structures for the threading algorithm
 //! - `jwz_algorithm`: Core JWZ threading implementation
 //! - `patch_series`: Patch series detection (metadata extraction only)
+//! - `epoch_cache`: Caching system for threading data
 
-pub mod cache;
 pub mod container;
-pub mod incremental;
+pub mod epoch_cache;
 pub mod jwz_algorithm;
 pub mod patch_series;
 
 // Re-export main types and functions
-pub use cache::ThreadingCache;
 pub use container::EmailData;
+pub use epoch_cache::{EmailThreadingInfo, MailingListCache};
 pub use jwz_algorithm::build_threads;
 pub use patch_series::extract_patch_series_info;

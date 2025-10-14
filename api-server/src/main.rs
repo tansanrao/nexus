@@ -19,7 +19,7 @@ use rocket_cors::{AllowedOrigins, CorsOptions};
 use rocket_db_pools::Database;
 use std::sync::Arc;
 use sync::queue::JobQueue;
-use sync::worker::SyncWorker;
+use sync::dispatcher::SyncDispatcher;
 use tokio::sync::Mutex;
 
 #[launch]
@@ -93,17 +93,17 @@ fn rocket() -> _ {
                 None => Err(rocket),
             }
         }))
-        // Spawn sync worker in background
-        .attach(AdHoc::on_liftoff("Spawn Sync Worker", |rocket| Box::pin(async move {
+        // Spawn sync dispatcher in background
+        .attach(AdHoc::on_liftoff("Spawn Sync Dispatcher", |rocket| Box::pin(async move {
             if let Some(pool) = rocket.state::<rocket_db_pools::sqlx::PgPool>() {
-                let worker_pool = pool.clone();
+                let dispatcher_pool = pool.clone();
                 tokio::spawn(async move {
-                    log::info!("starting sync worker");
-                    let worker = SyncWorker::new(worker_pool);
-                    worker.run().await
+                    log::info!("starting sync dispatcher");
+                    let dispatcher = SyncDispatcher::new(dispatcher_pool);
+                    dispatcher.run().await
                 });
             } else {
-                log::error!("failed to spawn sync worker: database pool not found");
+                log::error!("failed to spawn sync dispatcher: database pool not found");
             }
         })))
         .mount(
