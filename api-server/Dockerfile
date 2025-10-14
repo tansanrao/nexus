@@ -20,6 +20,7 @@ RUN mkdir src && \
 
 # Copy actual source code
 COPY src ./src
+COPY migrations ./migrations
 
 # Build the real application
 # Touch main.rs to force rebuild
