@@ -17,18 +17,17 @@
 //!
 //! ## Module Structure
 //!
-//! - `container`: Data structures for the threading algorithm
-//! - `jwz_algorithm`: Core JWZ threading implementation
+//! - `algorithm`: Core JWZ threading implementation with cycle detection and tree traversal
+//! - `cache`: Caching system for threading data to avoid repeated database queries
+//! - `container`: Data structures used by the threading algorithm
 //! - `patch_series`: Patch series detection (metadata extraction only)
-//! - `epoch_cache`: Caching system for threading data
 
+mod algorithm;
+mod cache;
 pub mod container;
-pub mod epoch_cache;
-pub mod jwz_algorithm;
 pub mod patch_series;
 
 // Re-export main types and functions
-pub use container::EmailData;
-pub use epoch_cache::{EmailThreadingInfo, MailingListCache};
-pub use jwz_algorithm::build_threads;
+pub use algorithm::build_email_threads;
+pub use cache::{EmailThreadingInfo, MailingListCache};
 pub use patch_series::extract_patch_series_info;

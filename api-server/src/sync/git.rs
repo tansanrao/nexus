@@ -1,8 +1,67 @@
+//! Git repository management and operations for public-inbox mirrors.
+//!
+//! This module handles all Git-related operations for accessing mailing list archives
+//! stored in public-inbox v2 format. It works with grokmirror-managed repository mirrors
+//! and provides efficient commit discovery and blob retrieval.
+//!
+//! # Public-Inbox V2 Format
+//!
+//! Public-inbox stores emails in Git repositories using a specific structure:
+//! - Each email is stored as a blob named `m` in a commit
+//! - Commits are organized in branches (one branch per email)
+//! - Multiple "epoch" repositories partition the timeline (epoch 0, 1, 2, etc.)
+//! - Path structure: `{mirror_base}/{slug}/git/{epoch}.git`
+//!
+//! Example:
+//! ```text
+//! /app/mirrors/bpf/git/0.git  <- Epoch 0 (oldest emails)
+//! /app/mirrors/bpf/git/1.git  <- Epoch 1
+//! /app/mirrors/bpf/git/2.git  <- Epoch 2 (newest emails)
+//! ```
+//!
+//! # Grokmirror Integration
+//!
+//! This module expects repositories to be maintained by grokmirror:
+//! - Mirrors are kept up-to-date automatically by grokmirror daemon
+//! - Mirror validation checks repository health before operations
+//! - Error messages guide users to grokmirror documentation
+//!
+//! # Components
+//!
+//! - **`RepoConfig`**: Configuration for a single epoch repository
+//! - **`MailingListSyncConfig`**: Configuration for entire mailing list (multiple epochs)
+//! - **`GitManager`**: Main interface for Git operations
+//! - **`GitError`**: Error type for Git operations
+//!
+//! # Key Operations
+//!
+//! ## Mirror Validation
+//! Ensures repository mirrors exist and are valid before attempting sync operations.
+//!
+//! ## Commit Discovery
+//! Traverses repository history to find email commits:
+//! - Respects checkpoints to avoid reprocessing
+//! - Returns commits in chronological order
+//! - Filters for public-inbox v2 format (commits with 'm' blob)
+//!
+//! ## Blob Retrieval
+//! Fetches raw email content from Git blobs for parsing.
+//!
+//! # Performance Characteristics
+//!
+//! - Uses `gix` (Rust Git implementation) for speed and safety
+//! - Commit traversal is I/O bound (disk or NFS reads)
+//! - Blob retrieval happens in parallel during parsing phase
+//! - Repository operations are read-only (no modifications)
+
 use gix::ObjectId;
 use std::path::PathBuf;
 use std::env;
 
-/// Configuration for a single repository
+/// Configuration for a single epoch repository.
+///
+/// Each mailing list can have multiple epoch repositories representing
+/// different time periods. Epochs are processed sequentially by order.
 #[derive(Debug, Clone)]
 pub struct RepoConfig {
     #[allow(dead_code)]
@@ -10,7 +69,17 @@ pub struct RepoConfig {
     pub order: i32,
 }
 
-/// Configuration for syncing a mailing list with multiple repositories
+/// Configuration for syncing a mailing list with multiple epoch repositories.
+///
+/// Coordinates access to all epoch repositories for a mailing list. Handles
+/// path resolution based on grokmirror's directory structure.
+///
+/// # Fields
+///
+/// - `list_id`: Database ID of the mailing list
+/// - `slug`: Mailing list slug (e.g., "bpf", "linux-kernel")
+/// - `repos`: Vector of epoch repositories ordered by `order` field
+/// - `mirror_base_path`: Base path where grokmirror stores mirrors
 #[derive(Debug, Clone)]
 pub struct MailingListSyncConfig {
     #[allow(dead_code)]
@@ -50,7 +119,31 @@ impl MailingListSyncConfig {
     }
 }
 
-/// Manages git operations for mailing list repositories
+/// Manages Git operations for mailing list repositories.
+///
+/// Primary interface for interacting with public-inbox Git mirrors. Handles
+/// mirror validation, commit discovery, and blob retrieval using the `gix` library.
+///
+/// # Responsibilities
+///
+/// - **Mirror Validation**: Check repository existence and health
+/// - **Commit Discovery**: Find email commits respecting checkpoints
+/// - **Blob Retrieval**: Fetch raw email data from Git objects
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// let manager = GitManager::new(config);
+///
+/// // Validate all mirrors before starting
+/// manager.validate_all_mirrors()?;
+///
+/// // Get commits for a specific epoch
+/// let commits = manager.get_commits_for_epoch(0, None)?;
+///
+/// // Retrieve email blob
+/// let blob_data = manager.get_blob_data(&commit_hash, "m", 0)?;
+/// ```
 pub struct GitManager {
     pub config: MailingListSyncConfig,
 }
@@ -146,13 +239,74 @@ impl GitManager {
         since: Option<&str>
     ) -> Result<Vec<(String, String, i32)>, GitError> {
         let mirror_path = self.config.get_repo_mirror_path(repo_order);
-        self.get_email_commits_from_repo_since(&mirror_path, repo_order, since)
+        self.fetch_commits_after_checkpoint(&mirror_path, repo_order, since)
     }
 
-    /// Get email commits from a specific repository, optionally filtering by last indexed commit
-    /// Returns (commit_hash, path, repo_order) in chronological order (oldest to newest)
-    /// If since_commit is Some, only returns commits newer than the specified commit
-    fn get_email_commits_from_repo_since(
+    /// Fetch email commits from a repository after a specific checkpoint.
+    ///
+    /// Performs a comprehensive traversal of all branches in the repository to discover
+    /// email commits. Implements checkpoint-aware traversal to support incremental syncs.
+    ///
+    /// # Arguments
+    ///
+    /// - `mirror_path`: Path to the Git repository
+    /// - `repo_order`: Epoch number (for tagging commits)
+    /// - `since_commit`: Optional checkpoint hash to resume from
+    ///
+    /// # Returns
+    ///
+    /// Vector of (commit_hash, path, repo_order) tuples in chronological order
+    /// (oldest to newest). Path is always "m" for public-inbox v2 format.
+    ///
+    /// # Algorithm
+    ///
+    /// For each local branch in the repository:
+    ///
+    /// 1. **Head Check**: Get branch HEAD commit
+    ///    - If HEAD == checkpoint hash, skip branch (no new commits)
+    ///
+    /// 2. **Head Processing**: Check if HEAD has email blob
+    ///    - Look for 'm' file in commit tree (public-inbox v2 format)
+    ///    - Add to results if present
+    ///
+    /// 3. **Ancestor Traversal**: Walk commit history backwards
+    ///    - Stop when reaching checkpoint commit
+    ///    - Check each ancestor for 'm' blob
+    ///    - Collect all email commits
+    ///
+    /// 4. **Reverse Order**: Commits are collected newest-first
+    ///    - Reverse to get chronological order (oldest-first)
+    ///    - Ensures database receives emails in proper sequence
+    ///
+    /// # Checkpoint Behavior
+    ///
+    /// - **No checkpoint** (`None`): Returns all commits from repository
+    /// - **With checkpoint** (`Some(hash)`): Returns only commits after the checkpoint
+    ///   - Branch where HEAD == checkpoint: Skip entirely
+    ///   - Other branches: Traverse until hitting checkpoint, then stop
+    ///
+    /// # Public-Inbox V2 Format
+    ///
+    /// - Each email is stored as a blob named 'm' at the root of a commit tree
+    /// - Not all commits contain emails (some are metadata/refs)
+    /// - Must check each commit's tree for the 'm' blob
+    /// - One commit = one email (when 'm' blob exists)
+    ///
+    /// # Performance Considerations
+    ///
+    /// - Traverses all branches (public-inbox uses one branch per email)
+    /// - I/O bound (reading Git objects from disk/NFS)
+    /// - Results are collected in memory before returning
+    /// - Checkpoint significantly reduces work for incremental syncs
+    ///
+    /// # Error Handling
+    ///
+    /// Returns `GitError::Other` with context for any failure during:
+    /// - Reference iteration
+    /// - Commit retrieval
+    /// - Tree access
+    /// - Ancestor traversal
+    fn fetch_commits_after_checkpoint(
         &self,
         mirror_path: &PathBuf,
         repo_order: i32,
@@ -266,12 +420,12 @@ impl GitManager {
         let repo = gix::open(&mirror_path)?;
 
         // Parse the commit hash
-        let oid = ObjectId::from_hex(commit_hash.as_bytes())
+        let object_id = ObjectId::from_hex(commit_hash.as_bytes())
             .map_err(|e| GitError::Other(format!("Invalid commit hash: {}", e)))?;
 
         // Find the commit
         let commit = repo
-            .find_object(oid)
+            .find_object(object_id)
             .map_err(|e| GitError::Other(format!("Failed to find commit: {}", e)))?
             .try_into_commit()
             .map_err(|e| GitError::Other(format!("Object is not a commit: {}", e)))?;
