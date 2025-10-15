@@ -2,9 +2,8 @@ import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import type { DatabaseStatus } from '../types';
 import { ScrollArea } from '../components/ui/scroll-area';
-import { Card } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { Section } from '../components/ui/section';
+import { CompactButton } from '../components/ui/compact-button';
 
 export function SettingsSystemStatistics() {
   const [status, setStatus] = useState<DatabaseStatus | null>(null);
@@ -18,7 +17,6 @@ export function SettingsSystemStatistics() {
       const data = await api.admin.database.getStatus();
       setStatus(data);
     } catch (err) {
-      console.error('Failed to fetch database status:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch system statistics');
     } finally {
       setLoading(false);
@@ -26,98 +24,90 @@ export function SettingsSystemStatistics() {
   };
 
   useEffect(() => {
-    loadStatus();
+    void loadStatus();
   }, []);
 
-  const formatNumber = (num: number): string => {
-    return num.toLocaleString();
-  };
-
-  const formatDate = (dateStr: string | null): string => {
-    if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString();
-  };
+  const formatNumber = (num: number) => num.toLocaleString();
+  const formatDate = (date: string | null) =>
+    date ? new Date(date).toLocaleDateString() : 'N/A';
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <ScrollArea className="flex-1">
-        <div className="p-6">
-          <div className="max-w-5xl mx-auto">
-            <div className="mb-8">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold mb-2">System Statistics</h1>
-                  <p className="text-muted-foreground">
-                    Overview of database statistics and system metrics.
-                  </p>
-                </div>
-                <Button
-                  onClick={loadStatus}
-                  disabled={loading}
-                  variant="outline"
-                  size="sm"
-                >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh
-                </Button>
-              </div>
-            </div>
+        <div className="px-4 py-6 lg:px-8">
+          <div className="mx-auto flex max-w-4xl flex-col gap-6">
+            <header className="space-y-1">
+              <h1 className="text-xl font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                System stats
+              </h1>
+              <p className="text-sm text-muted-foreground/80">
+                Overview of database totals and data ranges.
+              </p>
+            </header>
 
-            {error && (
-              <Card className="mb-6 p-4 bg-destructive/10 border-destructive">
-                <div className="text-sm text-destructive">{error}</div>
-              </Card>
-            )}
+            <Section
+              title="Refresh"
+              description="Pull the latest snapshot from the API."
+              actions={
+                <CompactButton onClick={() => void loadStatus()} disabled={loading}>
+                  {loading ? 'Refreshing…' : 'Refresh'}
+                </CompactButton>
+              }
+            >
+              {error && (
+                <p className="text-[12px] uppercase tracking-[0.08em] text-destructive">
+                  {error}
+                </p>
+              )}
+              {loading && !status && (
+                <p className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">
+                  Loading statistics…
+                </p>
+              )}
+              {status && (
+                <p className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">
+                  Last checked {new Date().toLocaleString()}
+                </p>
+              )}
+            </Section>
 
-            {loading && !status ? (
-              <div className="text-center py-12 text-muted-foreground">
-                Loading statistics...
-              </div>
-            ) : status ? (
-              <div className="space-y-6">
-                {/* Main Statistics */}
-                <Card className="p-6">
-                  <h2 className="text-lg font-semibold mb-4">Database Records</h2>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <StatCard label="Authors" value={formatNumber(status.total_authors)} />
-                    <StatCard label="Emails" value={formatNumber(status.total_emails)} />
-                    <StatCard label="Threads" value={formatNumber(status.total_threads)} />
-                    <StatCard label="Recipients" value={formatNumber(status.total_recipients)} />
-                    <StatCard label="References" value={formatNumber(status.total_references)} />
-                    <StatCard label="Thread Memberships" value={formatNumber(status.total_thread_memberships)} />
+            {status && (
+              <>
+                <Section title="Database records" description="Total counts across indexed data.">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                    <Stat label="Authors" value={formatNumber(status.total_authors)} />
+                    <Stat label="Emails" value={formatNumber(status.total_emails)} />
+                    <Stat label="Threads" value={formatNumber(status.total_threads)} />
+                    <Stat label="Recipients" value={formatNumber(status.total_recipients)} />
+                    <Stat label="References" value={formatNumber(status.total_references)} />
+                    <Stat label="Thread memberships" value={formatNumber(status.total_thread_memberships)} />
                   </div>
-                </Card>
+                </Section>
 
-                {/* Date Range */}
                 {status.date_range_start && status.date_range_end && (
-                  <Card className="p-6">
-                    <h2 className="text-lg font-semibold mb-4">Data Range</h2>
-                    <div className="flex items-center gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Earliest Email:</span>
-                        <div className="font-medium mt-1">{formatDate(status.date_range_start)}</div>
-                      </div>
-                      <div className="text-muted-foreground">→</div>
-                      <div>
-                        <span className="text-muted-foreground">Latest Email:</span>
-                        <div className="font-medium mt-1">{formatDate(status.date_range_end)}</div>
+                  <Section title="Data range" description="Time span covered by the indexed dataset.">
+                    <div className="surface-muted px-3 py-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-muted-foreground">Earliest:</span>
+                        <span className="font-medium">{formatDate(status.date_range_start)}</span>
+                        <span className="text-muted-foreground" aria-hidden="true">→</span>
+                        <span className="text-muted-foreground">Latest:</span>
+                        <span className="font-medium">{formatDate(status.date_range_end)}</span>
                       </div>
                     </div>
-                  </Card>
+                  </Section>
                 )}
 
-                {/* Information Card */}
-                <Card className="p-6 bg-muted/50">
-                  <h3 className="text-sm font-medium mb-2">About These Statistics</h3>
-                  <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                    <li>Statistics are calculated across all enabled mailing lists</li>
-                    <li>Data is updated in real-time as sync operations complete</li>
-                    <li>Recipients and References track email threading relationships</li>
-                    <li>Thread Memberships represent email participation in threads</li>
+                <Section title="Notes" description="How these measurements are produced.">
+                  <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                    <li>Counts include all mailing lists that are currently enabled.</li>
+                    <li>Numbers update as sync jobs finish importing data.</li>
+                    <li>Recipients and references reflect threading relationships.</li>
+                    <li>Thread memberships represent participation within threads.</li>
                   </ul>
-                </Card>
-              </div>
-            ) : null}
+                </Section>
+              </>
+            )}
           </div>
         </div>
       </ScrollArea>
@@ -125,11 +115,11 @@ export function SettingsSystemStatistics() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="p-4 bg-muted rounded-lg border">
-      <p className="text-sm text-muted-foreground mb-1">{label}</p>
-      <p className="text-2xl font-semibold">{value}</p>
+    <div className="surface-muted px-3 py-3 rounded-sm text-sm">
+      <div className="text-xs uppercase tracking-[0.08em] text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold text-foreground">{value}</div>
     </div>
   );
 }

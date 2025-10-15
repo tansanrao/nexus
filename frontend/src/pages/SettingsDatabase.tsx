@@ -6,19 +6,19 @@ export function SettingsDatabase() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <ScrollArea className="flex-1">
-        <div className="p-6">
-          <div className="max-w-5xl mx-auto">
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold mb-2">Database Management</h1>
-              <p className="text-muted-foreground">
-                Manage data synchronization and database operations.
+        <div className="px-4 py-6 lg:px-8">
+          <div className="mx-auto flex max-w-4xl flex-col gap-6">
+            <header className="space-y-1">
+              <h1 className="text-xl font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Database
+              </h1>
+              <p className="text-sm text-muted-foreground/80">
+                Manage synchronization and low-level maintenance.
               </p>
-            </div>
+            </header>
 
-            <div className="space-y-6">
-              <SyncPanel />
-              <DatabasePanel />
-            </div>
+            <SyncPanel />
+            <DatabasePanel />
           </div>
         </div>
       </ScrollArea>

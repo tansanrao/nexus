@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Search, Mail } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import { Mail, Search } from 'lucide-react';
 import { api } from '../api/client';
 import type { Thread, ThreadSortBy, SortOrder, SearchType } from '../types';
 import { useTimezone } from '../contexts/TimezoneContext';
 import { useMailingList } from '../contexts/MailingListContext';
 import { formatDateInTimezone } from '../utils/timezone';
-import { formatDistanceToNow } from 'date-fns';
-import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Card } from './ui/card';
-import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { FilterPanel } from './mailinglist/FilterPanel';
+import { CompactButton } from './ui/compact-button';
 import { cn } from '@/lib/utils';
 
 export function ThreadListSidebar() {
@@ -34,11 +32,9 @@ export function ThreadListSidebar() {
   useEffect(() => {
     const loadThreads = async () => {
       if (!selectedMailingList) return;
-
       try {
         setLoading(true);
         let data: Thread[];
-
         if (activeSearch.trim()) {
           data = await api.threads.search(selectedMailingList, {
             search: activeSearch,
@@ -46,12 +42,11 @@ export function ThreadListSidebar() {
             page,
             limit,
             sort_by: sortBy,
-            order
+            order,
           });
         } else {
           data = await api.threads.list(selectedMailingList, { page, limit, sort_by: sortBy, order });
         }
-
         setThreads(data);
         setError(null);
       } catch (err) {
@@ -75,8 +70,8 @@ export function ThreadListSidebar() {
     setPage(1);
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+  const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
       handleSearch();
     }
   };
@@ -91,16 +86,13 @@ export function ThreadListSidebar() {
     setPage(1);
   };
 
-  const formatStartDate = (dateStr: string) => {
-    return formatDateInTimezone(dateStr, timezone, 'MMM d, yyyy');
-  };
+  const formatStartDate = (dateStr: string) =>
+    formatDateInTimezone(dateStr, timezone, 'MMM d, yyyy');
 
   const formatRelativeTime = (dateStr: string) => {
     try {
-      const date = new Date(dateStr);
-      return formatDistanceToNow(date, { addSuffix: true });
-    } catch (error) {
-      console.error('Error formatting relative time:', error);
+      return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
+    } catch {
       return dateStr;
     }
   };
@@ -108,53 +100,56 @@ export function ThreadListSidebar() {
   if (loading && threads.length === 0) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading threads...</div>
+        <span className="text-label">Loading threads…</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center p-4">
-        <Card className="p-6">
-          <div className="text-sm text-destructive">Error: {error}</div>
-        </Card>
+      <div className="h-full flex items-center justify-center px-4 text-center">
+        <span className="text-label text-danger">Error: {error}</span>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Search and filters */}
-      <div className="border-b p-3 space-y-3">
-        {/* Search bar */}
-        <div className="flex gap-2">
+    <div className="h-full flex flex-col bg-surface-muted">
+      <div className="surface-overlay mx-3 mt-3 rounded-md px-3 py-3 space-y-3">
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSearch();
+          }}
+        >
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               type="text"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onChange={(event) => setSearchInput(event.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Search..."
-              className="pl-9 h-9"
+              placeholder="Search subject or message text"
+              className="pl-9 h-9 text-sm bg-surface-base border border-surface-border/80"
             />
           </div>
-          <Button size="sm" onClick={handleSearch}>Search</Button>
+          <CompactButton type="submit" className="px-3">
+            Go
+          </CompactButton>
+        </form>
+
+        <div className="flex items-center justify-between">
+          <span className="text-label">
+            {activeSearch ? `Scope: ${searchType === 'subject' ? 'Subject' : 'Full text'}` : 'Recent threads'}
+          </span>
+          {activeSearch && (
+            <CompactButton onClick={handleClearSearch} className="px-2">
+              Clear
+            </CompactButton>
+          )}
         </div>
 
-        {activeSearch && (
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-xs text-muted-foreground">
-              Searching in {searchType === 'subject' ? 'subject' : 'full text'}
-            </div>
-            <Button variant="ghost" size="sm" onClick={handleClearSearch}>
-              Clear
-            </Button>
-          </div>
-        )}
-
-        {/* Filter panel */}
         <FilterPanel
           searchType={searchType}
           setSearchType={setSearchType}
@@ -166,75 +161,54 @@ export function ThreadListSidebar() {
         />
       </div>
 
-      {/* Thread list */}
-      <ScrollArea className="flex-1">
-        <div className="py-1">
+      <ScrollArea className="flex-1 mt-3">
+        <div className="space-y-2 px-3 pb-3">
           {threads.length === 0 ? (
-            <div className="p-8 text-center">
-              <Mail className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-xs text-muted-foreground">No threads found</p>
+            <div className="surface-muted px-4 py-6 text-center">
+              <Mail className="h-7 w-7 mx-auto text-muted-foreground mb-2" />
+              <p className="text-label">No threads found</p>
             </div>
           ) : (
-            <div className="space-y-0">
-              {threads.map((thread) => {
-                const isSelected = threadId === String(thread.id);
-                return (
-                  <Link
-                    key={thread.id}
-                    to={`/threads/${thread.id}`}
-                    className="block"
-                  >
-                    <div
-                      className={cn(
-                        "px-3 py-3 border-l-2 border-transparent hover:bg-accent/50 cursor-pointer transition-all duration-200",
-                        isSelected && "border-l-primary bg-accent"
-                      )}
-                    >
-                      {/* Row 1: Subject + Message count */}
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <h3 className="text-sm font-semibold line-clamp-1 flex-1">
-                          {thread.subject}
-                        </h3>
-                        <Badge variant="outline" className="text-xs h-5 px-1.5 shrink-0">
-                          {thread.message_count || 0}
-                        </Badge>
-                      </div>
-
-                      {/* Row 2: Metadata */}
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="truncate">{formatRelativeTime(thread.last_date)}</span>
-                        <span>•</span>
-                        <span className="truncate">Started {formatStartDate(thread.start_date)}</span>
+            threads.map((thread) => {
+              const isSelected = threadId === String(thread.id);
+              return (
+                <Link
+                  key={thread.id}
+                  to={`/threads/${thread.id}`}
+                  className={cn(
+                    "block rounded-md border border-transparent bg-surface-base/80 px-3 py-2 transition-all hover:border-surface-border/80 hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    isSelected && "border-accent-primary bg-surface-overlay shadow-sm"
+                  )}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 space-y-1">
+                      <h3 className="text-sm font-semibold leading-snug text-foreground line-clamp-2">
+                        {thread.subject}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+                        <span>{formatRelativeTime(thread.last_date)}</span>
+                        <span aria-hidden="true">•</span>
+                        <span>Started {formatStartDate(thread.start_date)}</span>
                       </div>
                     </div>
-                  </Link>
-                );
-              })}
-            </div>
+                    <span className="pill">{thread.message_count || 0}</span>
+                  </div>
+                </Link>
+              );
+            })
           )}
         </div>
       </ScrollArea>
 
-      {/* Pagination */}
-      <div className="border-t p-2">
-        <div className="flex justify-between items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-          >
+      <div className="mt-auto border-t border-border/60 px-3 py-3">
+        <div className="flex items-center justify-between text-label">
+          <CompactButton onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
             Prev
-          </Button>
-          <span className="text-xs text-muted-foreground">Page {page}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPage((p) => p + 1)}
-            disabled={threads.length < limit}
-          >
+          </CompactButton>
+          <span>Page {page}</span>
+          <CompactButton onClick={() => setPage((p) => p + 1)} disabled={threads.length < limit}>
             Next
-          </Button>
+          </CompactButton>
         </div>
       </div>
     </div>

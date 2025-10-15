@@ -6,13 +6,11 @@ import type { ThreadDetail } from '../types';
 import { useTimezone } from '../contexts/TimezoneContext';
 import { useMailingList } from '../contexts/MailingListContext';
 import { formatDateInTimezone } from '../utils/timezone';
-import { Button } from './ui/button';
-import { Card } from './ui/card';
-import { Badge } from './ui/badge';
-import { Separator } from './ui/separator';
 import { ScrollArea } from './ui/scroll-area';
-import { Avatar, AvatarFallback } from './ui/avatar';
+import { CompactButton } from './ui/compact-button';
 import { cn } from '@/lib/utils';
+
+type ThreadEmail = ThreadDetail['emails'][number];
 
 export function ThreadView() {
   const { threadId } = useParams<{ threadId: string }>();
@@ -26,10 +24,9 @@ export function ThreadView() {
   useEffect(() => {
     const loadThread = async () => {
       if (!threadId || !selectedMailingList) return;
-
       try {
         setLoading(true);
-        const data = await api.threads.get(selectedMailingList, parseInt(threadId));
+        const data = await api.threads.get(selectedMailingList, parseInt(threadId, 10));
         setThreadData(data);
         setError(null);
       } catch (err) {
@@ -42,19 +39,18 @@ export function ThreadView() {
     loadThread();
   }, [threadId, selectedMailingList]);
 
-  const formatDate = (dateStr: string) => {
-    return formatDateInTimezone(dateStr, timezone, 'MMM d, yyyy h:mm a');
-  };
+  const formatDate = (dateStr: string) =>
+    formatDateInTimezone(dateStr, timezone, 'MMM d, yyyy h:mm a');
 
   const toggleEmailCollapse = (emailId: number) => {
     setCollapsedEmails((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(emailId)) {
-        newSet.delete(emailId);
+      const next = new Set(prev);
+      if (next.has(emailId)) {
+        next.delete(emailId);
       } else {
-        newSet.add(emailId);
+        next.add(emailId);
       }
-      return newSet;
+      return next;
     });
   };
 
@@ -63,21 +59,12 @@ export function ThreadView() {
     setCollapsedEmails(new Set(threadData.emails.map((email) => email.id)));
   };
 
-  const expandAll = () => {
-    setCollapsedEmails(new Set());
-  };
-
-  const getInitials = (name: string | null, email: string) => {
-    if (name) {
-      return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-    }
-    return email.substring(0, 2).toUpperCase();
-  };
+  const expandAll = () => setCollapsedEmails(new Set());
 
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading thread...</div>
+        <span className="text-label">Loading thread…</span>
       </div>
     );
   }
@@ -85,152 +72,133 @@ export function ThreadView() {
   if (error || !threadData) {
     return (
       <div className="h-full flex items-center justify-center">
-        <Card className="p-6">
-          <div className="text-sm text-destructive">Error: {error || 'Thread not found'}</div>
-        </Card>
+        <div className="surface-muted px-6 py-4 text-label text-danger">
+          Error: {error || 'Thread not found'}
+        </div>
       </div>
     );
   }
 
+  const rootSubject = threadData.thread.subject;
+  const messageCount = threadData.thread.message_count || threadData.emails.length;
+
   return (
-    <div className="h-full flex flex-col">
-      {/* Thread header - Sticky */}
-      <div className="border-b bg-card/50 backdrop-blur px-6 py-4 sticky top-0 z-10">
-        {/* Subject line - larger */}
-        <h1 className="text-2xl font-bold mb-3 leading-tight">
-          {threadData.thread.subject}
-        </h1>
-
-        {/* Metadata bar */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Mail className="h-4 w-4" />
-              <span>{threadData.thread.message_count || 0} messages</span>
-            </div>
-            <Separator orientation="vertical" className="h-4" />
-            <span>Started {formatDate(threadData.thread.start_date)}</span>
-            <Separator orientation="vertical" className="h-4" />
-            <span>Last {formatDate(threadData.thread.last_date)}</span>
+    <div className="h-full flex flex-col bg-surface-base">
+      <header className="sticky top-0 z-10 border-b border-border/60 bg-surface-overlay/80 backdrop-blur px-4 lg:px-6 py-4">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-heading density-tight flex-1">{rootSubject}</h1>
+            <span className="pill">{messageCount} msgs</span>
           </div>
-
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={expandAll}>
-              <Maximize2 className="h-4 w-4 mr-1.5" />
-              Expand
-            </Button>
-            <Button variant="ghost" size="sm" onClick={collapseAll}>
-              <Minimize2 className="h-4 w-4 mr-1.5" />
-              Collapse
-            </Button>
+          <div className="flex flex-wrap items-center gap-3 text-label">
+            <span className="inline-flex items-center gap-1">
+              <Mail className="h-3.5 w-3.5" />
+              {threadData.thread.message_count || 0} messages
+            </span>
+            <span>Started {formatDate(threadData.thread.start_date)}</span>
+            <span>Last {formatDate(threadData.thread.last_date)}</span>
+            <span className="ml-auto flex gap-2">
+              <CompactButton onClick={expandAll}>
+                <Maximize2 className="h-3 w-3" />
+                Expand
+              </CompactButton>
+              <CompactButton onClick={collapseAll}>
+                <Minimize2 className="h-3 w-3" />
+                Collapse
+              </CompactButton>
+            </span>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Email messages */}
       <ScrollArea className="flex-1">
-        <div className="p-6">
-          <div className="space-y-4">
-            {threadData.emails.map((email) => {
-              const isCollapsed = collapsedEmails.has(email.id);
-              return (
-                <div
-                  key={email.id}
-                  style={{ marginLeft: `${email.depth * 24}px` }}
-                >
-                  <Card
-                    className={cn(
-                      "overflow-hidden transition-all",
-                      isCollapsed ? "shadow-sm hover:shadow-md" : "shadow hover:shadow-lg"
-                    )}
-                  >
-                    {/* Email header - always visible */}
-                    <button
-                      onClick={() => toggleEmailCollapse(email.id)}
-                      className="w-full text-left px-4 py-3 hover:bg-accent/30 transition-colors"
-                    >
-                      <div className="flex items-start gap-3">
-                        {/* Avatar - with ring */}
-                        <Avatar className="h-10 w-10 ring-2 ring-border flex-shrink-0">
-                          <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
-                            {getInitials(email.author_name, email.author_email)}
-                          </AvatarFallback>
-                        </Avatar>
+        <div className="px-3 lg:px-6 py-5 space-y-3">
+          {threadData.emails.length === 0 && (
+            <div className="surface-muted py-12 text-center text-label">
+              <Mail className="h-7 w-7 mx-auto mb-3 text-muted-foreground" />
+              No messages in this thread
+            </div>
+          )}
 
-                        <div className="flex-1 min-w-0">
-                          {/* Name & Time row */}
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <ChevronRight
-                                className={cn(
-                                  "h-4 w-4 text-muted-foreground flex-shrink-0 transition-transform duration-200",
-                                  !isCollapsed && "rotate-90"
-                                )}
-                              />
-                              <span className="font-semibold text-sm truncate">
-                                {email.author_name || email.author_email}
-                              </span>
-                              {/* Depth indicator badge for replies */}
-                              {email.depth > 0 && (
-                                <Badge variant="outline" className="text-xs h-4 px-1 flex-shrink-0">
-                                  ↳ {email.depth}
-                                </Badge>
-                              )}
-                            </div>
-                            <time className="text-xs text-muted-foreground whitespace-nowrap ml-2">
-                              {formatDate(email.date)}
-                            </time>
-                          </div>
-
-                          {/* Email - subtle */}
-                          <div className="text-xs text-muted-foreground ml-6">
-                            {email.author_email}
-                          </div>
-
-                          {/* Subject if different */}
-                          {email.subject !== threadData.thread.subject && (
-                            <div className="text-sm text-foreground ml-6 mt-2 font-medium">
-                              {email.subject}
-                            </div>
-                          )}
-
-                          {/* Preview when collapsed */}
-                          {isCollapsed && email.body && (
-                            <div className="text-sm text-muted-foreground ml-6 mt-2 line-clamp-2">
-                              {email.body.substring(0, 120)}...
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Body - only when expanded */}
-                    {!isCollapsed && (
-                      <>
-                        <Separator />
-                        <div className="px-4 py-4 bg-muted/20">
-                          <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
-                            {email.body || '(No message body)'}
-                          </pre>
-                        </div>
-                      </>
-                    )}
-                  </Card>
-                </div>
-              );
-            })}
-
-            {threadData.emails.length === 0 && (
-              <Card className="p-12">
-                <div className="text-center">
-                  <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-sm font-medium text-foreground">No messages in this thread</p>
-                </div>
-              </Card>
-            )}
-          </div>
+          {threadData.emails.map((email) => (
+            <MessagePanel
+              key={email.id}
+              email={email}
+              rootSubject={rootSubject}
+              collapsed={collapsedEmails.has(email.id)}
+              onToggle={() => toggleEmailCollapse(email.id)}
+              formatDate={formatDate}
+            />
+          ))}
         </div>
       </ScrollArea>
     </div>
+  );
+}
+
+interface MessagePanelProps {
+  email: ThreadEmail;
+  rootSubject: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  formatDate: (date: string) => string;
+}
+
+function MessagePanel({ email, rootSubject, collapsed, onToggle, formatDate }: MessagePanelProps) {
+  const depthOffset = Math.min(email.depth, 8) * 14;
+
+  return (
+    <article style={{ marginLeft: `${depthOffset}px` }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "surface w-full text-left px-4 py-3 transition-colors hover:border-accent-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+          collapsed ? "cursor-pointer" : "cursor-default"
+        )}
+        style={{ borderLeft: '3px solid var(--accent-primary)' }}
+      >
+        <div className="flex items-start gap-3">
+          <ChevronRight
+            className={cn(
+              "mt-0.5 h-3.5 w-3.5 text-muted-foreground transition-transform duration-150",
+              !collapsed && "rotate-90"
+            )}
+          />
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-tight text-foreground">
+              <span className="truncate">
+                {email.author_name || email.author_email}
+              </span>
+              {email.depth > 0 && (
+                <span className="pill">Reply {email.depth}</span>
+              )}
+            </div>
+            <div className="text-label">
+              {email.author_email}
+            </div>
+            {email.subject !== rootSubject && (
+              <div className="text-sm text-muted-foreground">
+                {email.subject}
+              </div>
+            )}
+            {collapsed && email.body && (
+              <p className="text-sm text-muted-foreground line-clamp-2">
+                {email.body}
+              </p>
+            )}
+          </div>
+          <time className="text-label whitespace-nowrap">
+            {formatDate(email.date)}
+          </time>
+        </div>
+      </button>
+
+      {!collapsed && (
+        <div className="border-l-2 border-accent-primary/50 bg-surface-muted px-5 sm:px-8 py-4 text-sm leading-relaxed font-mono whitespace-pre-wrap">
+          {email.body || '(No message body)'}
+        </div>
+      )}
+    </article>
   );
 }
