@@ -19,7 +19,6 @@ export function ThreadBrowser() {
     totalThreads,
     maxPage,
     filters,
-    pageSize,
     handleSearch,
     handleThreadSelect,
     handlePageChange,
@@ -65,9 +64,7 @@ export function ThreadBrowser() {
         searchQuery={searchQuery}
         totalThreads={totalThreads}
         maxPage={maxPage}
-        pageSize={pageSize}
       />
     </div>
   );
 }
-

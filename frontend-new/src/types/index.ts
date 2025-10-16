@@ -51,6 +51,8 @@ export interface Email {
   in_reply_to: string | null;
   body: string | null;
   created_at: string | null;
+  author_name: string | null;
+  author_email: string;
 }
 
 export interface Author {
@@ -76,3 +78,18 @@ export interface ThreadWithStarter extends Thread {
   starter_email: string;
 }
 
+export interface PageMetadata {
+  page: number;
+  size: number;
+  totalPages: number;
+  totalElements: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  page: PageMetadata;
+}
+
+export interface DataResponse<T> {
+  data: T;
+}

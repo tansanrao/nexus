@@ -5,184 +5,150 @@ import type {
   Email,
   AuthorWithStats,
   ThreadWithStarter,
+  PaginatedResponse,
+  DataResponse,
 } from '../types';
 import { getApiBaseUrl } from '../contexts/ApiConfigContext';
 
+type ThreadSortField = 'start_date' | 'last_date' | 'message_count';
+type SortOrder = 'asc' | 'desc';
+type ThreadSearchType = 'subject' | 'full_text';
+
+const API_PREFIX = '/api/v1';
+
 export class ApiClient {
-  private async fetchJson<T>(path: string): Promise<T> {
-    let baseUrl = getApiBaseUrl();
-    
-    // Remove trailing slash from baseUrl if present
-    baseUrl = baseUrl.replace(/\/$/, '');
-    
-    // If baseUrl ends with /api, remove it since our paths already include /api
-    // This handles migration from old frontend which stored URLs with /api
-    if (baseUrl.endsWith('/api')) {
-      baseUrl = baseUrl.slice(0, -4);
+  private getNormalizedBaseUrl(): string {
+    let baseUrl = getApiBaseUrl().trim();
+    baseUrl = baseUrl.replace(/\/+$/, '');
+
+    if (/\/api(?:\/v1)?$/i.test(baseUrl)) {
+      baseUrl = baseUrl.replace(/\/api(?:\/v1)?$/i, '');
     }
-    
-    const response = await fetch(`${baseUrl}${path}`);
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-    return response.json();
+
+    return baseUrl;
   }
 
-  private async fetchJsonWithHeaders<T>(path: string): Promise<{ data: T; headers: Headers }> {
-    let baseUrl = getApiBaseUrl();
-    baseUrl = baseUrl.replace(/\/$/, '');
-    if (baseUrl.endsWith('/api')) {
-      baseUrl = baseUrl.slice(0, -4);
+  private async fetchJson<T>(path: string): Promise<T> {
+    const baseUrl = this.getNormalizedBaseUrl();
+    const response = await fetch(`${baseUrl}${path}`, {
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
 
-    const response = await fetch(`${baseUrl}${path}`);
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-    const data = await response.json();
-    return { data, headers: response.headers };
+    return response.json() as Promise<T>;
   }
 
   async getMailingLists(): Promise<MailingList[]> {
-    return this.fetchJson<MailingList[]>('/api/admin/mailing-lists');
+    const result = await this.fetchJson<DataResponse<MailingList[]>>(
+      `${API_PREFIX}/admin/mailing-lists`
+    );
+    return result.data;
   }
 
   async getThreads(
     slug: string,
     page: number = 1,
-    limit: number = 50,
-    sortBy: 'start_date' | 'last_date' | 'message_count' = 'last_date',
-    order: 'asc' | 'desc' = 'desc'
-  ): Promise<Thread[]> {
+    size: number = 50,
+    sortBy: ThreadSortField = 'last_date',
+    order: SortOrder = 'desc'
+  ): Promise<PaginatedResponse<Thread>> {
     const params = new URLSearchParams({
       page: page.toString(),
-      limit: limit.toString(),
-      sort_by: sortBy,
+      size: size.toString(),
+      sortBy,
       order,
     });
-    return this.fetchJson<Thread[]>(`/api/${slug}/threads?${params}`);
-  }
 
-  async getThreadsWithTotal(
-    slug: string,
-    page: number = 1,
-    limit: number = 50,
-    sortBy: 'start_date' | 'last_date' | 'message_count' = 'last_date',
-    order: 'asc' | 'desc' = 'desc'
-  ): Promise<{ items: Thread[]; total: number | null }> {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      limit: limit.toString(),
-      sort_by: sortBy,
-      order,
-    });
-    const { data, headers } = await this.fetchJsonWithHeaders<Thread[]>(`/api/${slug}/threads?${params}`);
-    // Try common header names and Content-Range fallback
-    let total: number | null = null;
-    const totalHeader = headers.get('X-Total-Count') || headers.get('X-Total') || headers.get('Total-Count');
-    if (totalHeader) {
-      const parsed = parseInt(totalHeader, 10);
-      total = Number.isFinite(parsed) ? parsed : null;
-    }
-    if (total == null) {
-      const contentRange = headers.get('Content-Range'); // e.g., "items 0-49/1234"
-      if (contentRange) {
-        const match = contentRange.match(/\/(\d+)$/);
-        if (match && match[1]) {
-          const parsed = parseInt(match[1], 10);
-          total = Number.isFinite(parsed) ? parsed : null;
-        }
-      }
-    }
-    return { items: data, total: Number.isFinite(total) ? (total as number) : null };
+    return this.fetchJson<PaginatedResponse<Thread>>(
+      `${API_PREFIX}/${slug}/threads?${params.toString()}`
+    );
   }
 
   async searchThreads(
     slug: string,
-    search: string,
-    searchType: 'subject' | 'full_text' = 'subject',
+    query: string,
+    searchType: ThreadSearchType = 'subject',
     page: number = 1,
-    limit: number = 50,
-    sortBy: 'start_date' | 'last_date' | 'message_count' = 'last_date',
-    order: 'asc' | 'desc' = 'desc'
-  ): Promise<Thread[]> {
+    size: number = 50,
+    sortBy: ThreadSortField = 'last_date',
+    order: SortOrder = 'desc'
+  ): Promise<PaginatedResponse<Thread>> {
     const params = new URLSearchParams({
-      search,
-      search_type: searchType,
       page: page.toString(),
-      limit: limit.toString(),
-      sort_by: sortBy,
+      size: size.toString(),
+      sortBy,
       order,
     });
-    return this.fetchJson<Thread[]>(`/api/${slug}/threads/search?${params}`);
-  }
 
-  async searchThreadsWithTotal(
-    slug: string,
-    search: string,
-    searchType: 'subject' | 'full_text' = 'subject',
-    page: number = 1,
-    limit: number = 50,
-    sortBy: 'start_date' | 'last_date' | 'message_count' = 'last_date',
-    order: 'asc' | 'desc' = 'desc'
-  ): Promise<{ items: Thread[]; total: number | null }> {
-    const params = new URLSearchParams({
-      search,
-      search_type: searchType,
-      page: page.toString(),
-      limit: limit.toString(),
-      sort_by: sortBy,
-      order,
-    });
-    const { data, headers } = await this.fetchJsonWithHeaders<Thread[]>(`/api/${slug}/threads/search?${params}`);
-    let total: number | null = null;
-    const totalHeader = headers.get('X-Total-Count') || headers.get('X-Total') || headers.get('Total-Count');
-    if (totalHeader) {
-      const parsed = parseInt(totalHeader, 10);
-      total = Number.isFinite(parsed) ? parsed : null;
+    if (query.trim()) {
+      params.set('q', query.trim());
     }
-    if (total == null) {
-      const contentRange = headers.get('Content-Range');
-      if (contentRange) {
-        const match = contentRange.match(/\/(\d+)$/);
-        if (match && match[1]) {
-          const parsed = parseInt(match[1], 10);
-          total = Number.isFinite(parsed) ? parsed : null;
-        }
-      }
-    }
-    return { items: data, total: Number.isFinite(total) ? (total as number) : null };
+
+    params.set('searchType', searchType);
+
+    return this.fetchJson<PaginatedResponse<Thread>>(
+      `${API_PREFIX}/${slug}/threads/search?${params.toString()}`
+    );
   }
 
   async getThread(slug: string, threadId: number): Promise<ThreadDetail> {
-    return this.fetchJson<ThreadDetail>(`/api/${slug}/threads/${threadId}`);
+    return this.fetchJson<ThreadDetail>(`${API_PREFIX}/${slug}/threads/${threadId}`);
   }
 
   async getEmail(slug: string, emailId: number): Promise<Email> {
-    return this.fetchJson<Email>(`/api/${slug}/emails/${emailId}`);
+    return this.fetchJson<Email>(`${API_PREFIX}/${slug}/emails/${emailId}`);
   }
 
-  async searchAuthors(slug: string, search: string): Promise<AuthorWithStats[]> {
-    const params = new URLSearchParams({ search });
-    return this.fetchJson<AuthorWithStats[]>(`/api/${slug}/authors/search?${params}`);
+  async searchAuthors(
+    slug: string,
+    query: string,
+    page: number = 1,
+    size: number = 50,
+    sortBy?: string,
+    order?: SortOrder
+  ): Promise<PaginatedResponse<AuthorWithStats>> {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      size: size.toString(),
+    });
+
+    if (query.trim()) {
+      params.set('q', query.trim());
+    }
+    if (sortBy) {
+      params.set('sortBy', sortBy);
+    }
+    if (order) {
+      params.set('order', order);
+    }
+
+    return this.fetchJson<PaginatedResponse<AuthorWithStats>>(
+      `${API_PREFIX}/${slug}/authors?${params.toString()}`
+    );
   }
 
   async getAuthor(slug: string, authorId: number): Promise<AuthorWithStats> {
-    return this.fetchJson<AuthorWithStats>(`/api/${slug}/authors/${authorId}`);
+    return this.fetchJson<AuthorWithStats>(`${API_PREFIX}/${slug}/authors/${authorId}`);
   }
 
   async getAuthorThreadsStarted(
     slug: string,
     authorId: number,
     page: number = 1,
-    limit: number = 50
-  ): Promise<ThreadWithStarter[]> {
+    size: number = 50
+  ): Promise<PaginatedResponse<ThreadWithStarter>> {
     const params = new URLSearchParams({
       page: page.toString(),
-      limit: limit.toString(),
+      size: size.toString(),
     });
-    return this.fetchJson<ThreadWithStarter[]>(
-      `/api/${slug}/authors/${authorId}/threads-started?${params}`
+
+    return this.fetchJson<PaginatedResponse<ThreadWithStarter>>(
+      `${API_PREFIX}/${slug}/authors/${authorId}/threads-started?${params.toString()}`
     );
   }
 
@@ -190,20 +156,21 @@ export class ApiClient {
     slug: string,
     authorId: number,
     page: number = 1,
-    limit: number = 50
-  ): Promise<Thread[]> {
+    size: number = 50
+  ): Promise<PaginatedResponse<Thread>> {
     const params = new URLSearchParams({
       page: page.toString(),
-      limit: limit.toString(),
+      size: size.toString(),
     });
-    return this.fetchJson<Thread[]>(
-      `/api/${slug}/authors/${authorId}/threads-participated?${params}`
+
+    return this.fetchJson<PaginatedResponse<Thread>>(
+      `${API_PREFIX}/${slug}/authors/${authorId}/threads-participated?${params.toString()}`
     );
   }
 
   async testConnection(): Promise<boolean> {
     try {
-      await this.fetchJson('/api/admin/mailing-lists');
+      await this.getMailingLists();
       return true;
     } catch {
       return false;
@@ -211,6 +178,4 @@ export class ApiClient {
   }
 }
 
-// Default API client instance
 export const apiClient = new ApiClient();
-

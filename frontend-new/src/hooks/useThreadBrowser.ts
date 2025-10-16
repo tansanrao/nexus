@@ -2,14 +2,21 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-import type { Thread } from '../types';
+import type { Thread, PaginatedResponse } from '../types';
 import type { ThreadFilters } from '../components/ThreadListHeader';
 
+interface FetchThreadsParams {
+  mailingList: string;
+  page: number;
+  pageSize: number;
+  filters: ThreadFilters;
+  searchTerm: string;
+}
+
 interface UseThreadBrowserOptions {
-  authorId?: string;
-  threadsCreated?: Thread[] | null;
-  threadsParticipated?: Thread[] | null;
-  activeTab?: 'created' | 'participated';
+  fetchThreads?: (params: FetchThreadsParams) => Promise<PaginatedResponse<Thread>>;
+  reloadDeps?: unknown[];
+  pageSize?: number;
 }
 
 export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
@@ -28,22 +35,17 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     order: 'desc',
     searchType: 'subject',
   });
-  const pageSize = 50;
-
-  const {
-    authorId,
-    threadsCreated: providedThreadsCreated,
-    threadsParticipated: providedThreadsParticipated,
-    activeTab = 'created',
-  } = options;
+  const pageSize = options.pageSize ?? 50;
+  const reloadDeps = options.reloadDeps ?? [];
+  const customFetchThreads = options.fetchThreads;
 
   useEffect(() => {
     if (selectedMailingList) {
       setCurrentPage(1);
       loadThreads(1);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMailingList, authorId, activeTab, providedThreadsCreated, providedThreadsParticipated]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude loadThreads to avoid duplicate fetches when filters change
+  }, [selectedMailingList, customFetchThreads, ...reloadDeps]);
 
   // If URL contains ?thread=ID, select that thread and ensure it's loaded
   useEffect(() => {
@@ -63,7 +65,6 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
         }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, threads, selectedMailingList]);
 
   // Auto-select first thread when threads are loaded and no thread is selected
@@ -71,8 +72,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     if (threads.length > 0 && !selectedThread) {
       setSelectedThread(threads[0]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threads]);
+  }, [threads, selectedThread]);
 
   const loadThreads = useCallback(
     async (
@@ -87,128 +87,77 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
       const searchTerm = (overrideSearchQuery ?? searchQuery).trim();
 
       try {
-        let threadsData: Thread[] = [];
-        let page = requestedPage;
-        let totalFromApi: number | null = null;
-        let forcedLastPage = false;
+        let currentPageToFetch = requestedPage;
 
-        if (authorId) {
-          const sourceThreadsRaw =
-            activeTab === 'created' ? providedThreadsCreated : providedThreadsParticipated;
-
-          if (sourceThreadsRaw == null) {
-            setThreads([]);
-            setHasMore(false);
-            setMaxPage(1);
-            setTotalThreads(null);
-            setLoading(false);
-            return;
+        const fetchPage = async (targetPage: number) => {
+          if (customFetchThreads) {
+            return customFetchThreads({
+              mailingList: selectedMailingList,
+              page: targetPage,
+              pageSize,
+              filters: activeFilters,
+              searchTerm,
+            });
           }
-
-          let filteredThreads = [...sourceThreadsRaw];
 
           if (searchTerm) {
-            const searchLower = searchTerm.toLowerCase();
-            filteredThreads = filteredThreads.filter(thread =>
-              thread.subject.toLowerCase().includes(searchLower)
-            );
-          }
-
-          filteredThreads.sort((a, b) => {
-            let aValue: number;
-            let bValue: number;
-
-            switch (activeFilters.sortBy) {
-              case 'start_date':
-                aValue = new Date(a.start_date).getTime();
-                bValue = new Date(b.start_date).getTime();
-                break;
-              case 'message_count':
-                aValue = a.message_count || 0;
-                bValue = b.message_count || 0;
-                break;
-              case 'last_date':
-              default:
-                aValue = new Date(a.last_date).getTime();
-                bValue = new Date(b.last_date).getTime();
-                break;
-            }
-
-            return activeFilters.order === 'asc' ? aValue - bValue : bValue - aValue;
-          });
-
-          const startIndex = (page - 1) * pageSize;
-          const endIndex = startIndex + pageSize;
-          threadsData = filteredThreads.slice(startIndex, endIndex);
-          totalFromApi = filteredThreads.length;
-        } else {
-          const fetchPage = async (targetPage: number) => {
-            if (searchTerm) {
-              return apiClient.searchThreadsWithTotal(
-                selectedMailingList,
-                searchTerm,
-                activeFilters.searchType,
-                targetPage,
-                pageSize,
-                activeFilters.sortBy,
-                activeFilters.order
-              );
-            }
-            return apiClient.getThreadsWithTotal(
+            return apiClient.searchThreads(
               selectedMailingList,
+              searchTerm,
+              activeFilters.searchType,
               targetPage,
               pageSize,
               activeFilters.sortBy,
               activeFilters.order
             );
-          };
-
-          let currentPageToFetch = page;
-          let result = await fetchPage(currentPageToFetch);
-          threadsData = result.items;
-          totalFromApi = typeof result.total === 'number' ? result.total : null;
-
-          while (threadsData.length === 0 && currentPageToFetch > 1) {
-            forcedLastPage = true;
-            currentPageToFetch -= 1;
-            page = currentPageToFetch;
-            result = await fetchPage(currentPageToFetch);
-            threadsData = result.items;
-            totalFromApi = typeof result.total === 'number' ? result.total : null;
-
-            if (threadsData.length > 0 || currentPageToFetch === 1) {
-              break;
-            }
           }
+
+          return apiClient.getThreads(
+            selectedMailingList,
+            targetPage,
+            pageSize,
+            activeFilters.sortBy,
+            activeFilters.order
+          );
+        };
+
+        let result = await fetchPage(currentPageToFetch);
+        let { totalPages: totalPagesFromApi } = result.page;
+
+        if (totalPagesFromApi > 0 && currentPageToFetch > totalPagesFromApi) {
+          currentPageToFetch = totalPagesFromApi;
+          result = await fetchPage(currentPageToFetch);
+          totalPagesFromApi = result.page.totalPages;
         }
 
+        const threadsData = result.data;
+        const totalElements =
+          typeof result.page.totalElements === 'number'
+            ? result.page.totalElements
+            : threadsData.length;
+
+        let resolvedPage =
+          result.page.page && result.page.page > 0 ? result.page.page : currentPageToFetch;
+        if (totalElements === 0) {
+          resolvedPage = 1;
+        }
+
+        const totalPagesComputed =
+          totalPagesFromApi && totalPagesFromApi > 0
+            ? totalPagesFromApi
+            : totalElements > 0
+            ? Math.ceil(totalElements / pageSize)
+            : 0;
+        const normalizedMaxPage =
+          totalPagesComputed > 0 ? totalPagesComputed : threadsData.length > 0 ? resolvedPage : 1;
+        const hasMorePages =
+          totalPagesComputed > 0 ? resolvedPage < totalPagesComputed : threadsData.length === pageSize;
+
         setThreads(threadsData);
-
-        const shownItems = (page - 1) * pageSize + threadsData.length;
-        const hasMorePages = forcedLastPage
-          ? false
-          : totalFromApi != null
-          ? shownItems < totalFromApi
-          : threadsData.length === pageSize;
-        const nextMaxPage =
-          totalFromApi != null
-            ? Math.max(1, Math.ceil(totalFromApi / pageSize))
-            : forcedLastPage
-            ? page
-            : hasMorePages
-            ? page + 1
-            : page;
-        const resolvedTotal =
-          totalFromApi != null
-            ? totalFromApi
-            : hasMorePages
-            ? null
-            : shownItems;
-
         setHasMore(hasMorePages);
-        setMaxPage(nextMaxPage);
-        setTotalThreads(resolvedTotal);
-        setCurrentPage(page);
+        setMaxPage(normalizedMaxPage);
+        setTotalThreads(totalElements);
+        setCurrentPage(Math.max(1, resolvedPage));
       } catch (err) {
         console.error('Error loading threads:', err);
       } finally {
@@ -216,12 +165,10 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
       }
     },
     [
-      activeTab,
-      authorId,
       filters,
+      customFetchThreads,
+      currentPage,
       pageSize,
-      providedThreadsCreated,
-      providedThreadsParticipated,
       searchQuery,
       selectedMailingList,
     ]

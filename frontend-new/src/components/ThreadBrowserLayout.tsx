@@ -19,7 +19,6 @@ interface ThreadBrowserLayoutProps {
   totalThreads: number | null;
   maxPage: number;
   leftPanelHeader?: ReactNode;
-  pageSize?: number;
 }
 
 export function ThreadBrowserLayout({
@@ -37,7 +36,6 @@ export function ThreadBrowserLayout({
   totalThreads,
   maxPage,
   leftPanelHeader,
-  pageSize = 50,
 }: ThreadBrowserLayoutProps) {
   return (
     <div className="h-screen flex flex-col relative">
@@ -61,7 +59,6 @@ export function ThreadBrowserLayout({
                 searchQuery={searchQuery}
                 totalThreads={totalThreads}
                 maxPage={maxPage}
-                pageSize={pageSize}
               />
             </div>
           </div>

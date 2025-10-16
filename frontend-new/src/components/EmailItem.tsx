@@ -30,7 +30,7 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
     if (!body) return { cleanBody: '', parsedSubject: null };
     
     const lines = body.split('\n');
-    let cleanLines: string[] = [];
+    const cleanLines: string[] = [];
     let parsedSubject: string | null = null;
     
     for (let i = 0; i < lines.length; i++) {
@@ -134,4 +134,3 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
     </div>
   );
 }
-

@@ -19,7 +19,6 @@ interface ThreadListProps {
   searchQuery: string;
   totalThreads?: number | null;
   maxPage: number;
-  pageSize?: number;
 }
 
 export function ThreadList({
@@ -36,7 +35,6 @@ export function ThreadList({
   searchQuery,
   totalThreads,
   maxPage,
-  pageSize: _pageSize = 50,
 }: ThreadListProps) {
   if (loading) {
     return (
@@ -138,4 +136,3 @@ export function ThreadList({
     </div>
   );
 }
-

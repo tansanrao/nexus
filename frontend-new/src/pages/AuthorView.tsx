@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -6,7 +6,8 @@ import { ThreadBrowserLayout } from '../components/ThreadBrowserLayout';
 import { useThreadBrowser } from '../hooks/useThreadBrowser';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-import type { AuthorWithStats, Thread, ThreadWithStarter } from '../types';
+import type { AuthorWithStats, Thread, ThreadWithStarter, PaginatedResponse } from '../types';
+import type { ThreadFilters } from '../components/ThreadListHeader';
 
 interface AuthorViewProps {
   authorId: string;
@@ -20,6 +21,85 @@ export function AuthorView({ authorId }: AuthorViewProps) {
   const [threadsCreated, setThreadsCreated] = useState<ThreadWithStarter[] | null>(null);
   const [threadsParticipated, setThreadsParticipated] = useState<Thread[] | null>(null);
 
+  const fetchAuthorThreads = useCallback(
+    async ({
+      page,
+      pageSize,
+      filters: activeFilters,
+      searchTerm,
+    }: {
+      page: number;
+      pageSize: number;
+      filters: ThreadFilters;
+      searchTerm: string;
+    }) => {
+      const sourceThreadsRaw =
+        activeTab === 'created' ? threadsCreated : threadsParticipated;
+
+      if (!sourceThreadsRaw) {
+        return {
+          data: [],
+          page: {
+            page: 1,
+            size: pageSize,
+            totalPages: 0,
+            totalElements: 0,
+          },
+        };
+      }
+
+      let filteredThreads = [...sourceThreadsRaw];
+
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        filteredThreads = filteredThreads.filter(thread =>
+          thread.subject.toLowerCase().includes(searchLower)
+        );
+      }
+
+      filteredThreads.sort((a, b) => {
+        let aValue: number;
+        let bValue: number;
+
+        switch (activeFilters.sortBy) {
+          case 'start_date':
+            aValue = new Date(a.start_date).getTime();
+            bValue = new Date(b.start_date).getTime();
+            break;
+          case 'message_count':
+            aValue = a.message_count || 0;
+            bValue = b.message_count || 0;
+            break;
+          case 'last_date':
+          default:
+            aValue = new Date(a.last_date).getTime();
+            bValue = new Date(b.last_date).getTime();
+            break;
+        }
+
+        return activeFilters.order === 'asc' ? aValue - bValue : bValue - aValue;
+      });
+
+      const total = filteredThreads.length;
+      const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
+      const safePage =
+        totalPages > 0 ? Math.min(Math.max(page, 1), totalPages) : 1;
+      const startIndex = (safePage - 1) * pageSize;
+      const pageItems = filteredThreads.slice(startIndex, startIndex + pageSize) as Thread[];
+
+      return {
+        data: pageItems,
+        page: {
+          page: safePage,
+          size: pageSize,
+          totalPages,
+          totalElements: total,
+        },
+      };
+    },
+    [activeTab, threadsCreated, threadsParticipated]
+  );
+
   // Use the shared thread browser hook
   const {
     threads,
@@ -31,16 +111,13 @@ export function AuthorView({ authorId }: AuthorViewProps) {
     totalThreads,
     maxPage,
     filters,
-    pageSize,
     handleSearch,
     handleThreadSelect,
     handlePageChange,
     handleFiltersChange,
   } = useThreadBrowser({
-    authorId,
-    threadsCreated,
-    threadsParticipated,
-    activeTab,
+    fetchThreads: fetchAuthorThreads,
+    reloadDeps: [authorId, activeTab, threadsCreated, threadsParticipated],
   });
 
   const createdCountLabel = useMemo(() => {
@@ -53,6 +130,8 @@ export function AuthorView({ authorId }: AuthorViewProps) {
     return threadsParticipated.length;
   }, [threadsParticipated]);
 
+  const isAuthorThreadsLoading = threadsCreated === null || threadsParticipated === null;
+
   useEffect(() => {
     if (selectedMailingList && authorId) {
       loadAuthorData();
@@ -62,7 +141,7 @@ export function AuthorView({ authorId }: AuthorViewProps) {
 
   // Fetch all author threads so we can reuse the shared list features (search, sort, pagination).
   const fetchAllAuthorThreads = async <T,>(
-    fetchPage: (page: number, limit: number) => Promise<T[]>,
+    fetchPage: (page: number, size: number) => Promise<PaginatedResponse<T>>,
     pageSize: number,
     maxPages: number = 200
   ): Promise<T[]> => {
@@ -70,10 +149,11 @@ export function AuthorView({ authorId }: AuthorViewProps) {
     let page = 1;
 
     while (page <= maxPages) {
-      const items = await fetchPage(page, pageSize);
-      results.push(...items);
+      const response = await fetchPage(page, pageSize);
+      results.push(...response.data);
 
-      if (items.length < pageSize) {
+      const totalPages = response.page.totalPages;
+      if (page >= totalPages || response.data.length < pageSize) {
         break;
       }
 
@@ -101,12 +181,13 @@ export function AuthorView({ authorId }: AuthorViewProps) {
       const [authorData, created, participated] = await Promise.all([
         apiClient.getAuthor(mailingList, authorIdNumber),
         fetchAllAuthorThreads<ThreadWithStarter>(
-          (page, limit) => apiClient.getAuthorThreadsStarted(mailingList, authorIdNumber, page, limit),
+          (pageNumber, size) =>
+            apiClient.getAuthorThreadsStarted(mailingList, authorIdNumber, pageNumber, size),
           API_PAGE_SIZE
         ),
         fetchAllAuthorThreads<Thread>(
-          (page, limit) =>
-            apiClient.getAuthorThreadsParticipated(mailingList, authorIdNumber, page, limit),
+          (pageNumber, size) =>
+            apiClient.getAuthorThreadsParticipated(mailingList, authorIdNumber, pageNumber, size),
           API_PAGE_SIZE
         ),
       ]);
@@ -201,7 +282,7 @@ export function AuthorView({ authorId }: AuthorViewProps) {
   return (
     <ThreadBrowserLayout
       threads={threads}
-      loading={loading}
+      loading={loading || isAuthorThreadsLoading}
       selectedThreadId={selectedThread?.id || null}
       onThreadSelect={handleThreadSelect}
       currentPage={currentPage}
@@ -211,9 +292,8 @@ export function AuthorView({ authorId }: AuthorViewProps) {
       onFiltersChange={handleFiltersChange}
       onSearch={handleSearch}
       searchQuery={searchQuery}
-      totalThreads={totalThreads}
+      totalThreads={isAuthorThreadsLoading ? null : totalThreads}
       maxPage={maxPage}
-      pageSize={pageSize}
       leftPanelHeader={authorHeader}
     />
   );
