@@ -1,0 +1,256 @@
+@import "tailwindcss";
+
+@theme {
+  --radius: 0.5rem;
+}
+
+/* Light theme (default) - improved readability inspired by Hacker News */
+:root,
+.light {
+  /* Warm cream background instead of pure white - easier on the eyes */
+  --color-background: 40 23% 97%;
+  /* Dark text for primary content - good contrast */
+  --color-foreground: 0 0% 13%;
+  /* Slightly lighter background for cards */
+  --color-card: 40 23% 98%;
+  --color-card-foreground: 0 0% 13%;
+  /* Pure white for popovers to stand out */
+  --color-popover: 0 0% 100%;
+  --color-popover-foreground: 0 0% 13%;
+  /* Darker primary for emphasis */
+  --color-primary: 0 0% 13%;
+  --color-primary-foreground: 0 0% 98%;
+  /* Light gray background for secondary elements */
+  --color-secondary: 40 15% 94%;
+  --color-secondary-foreground: 0 0% 13%;
+  /* Subtle muted backgrounds */
+  --color-muted: 40 15% 94%;
+  /* Medium gray for secondary text - good hierarchy */
+  --color-muted-foreground: 0 0% 51%;
+  /* Very subtle accent background */
+  --color-accent: 40 20% 95%;
+  --color-accent-foreground: 0 0% 13%;
+  /* Destructive colors remain similar */
+  --color-destructive: 0 84.2% 60.2%;
+  --color-destructive-foreground: 0 0% 98%;
+  /* Subtle borders - not too strong */
+  --color-border: 40 15% 88%;
+  --color-input: 40 15% 88%;
+  --color-ring: 0 0% 13%;
+}
+
+/* Dark theme - improved readability with better text hierarchy */
+.dark {
+  /* Slightly lighter dark background - less harsh */
+  --color-background: 0 0% 10%;
+  /* Lighter text but not pure white - easier on eyes */
+  --color-foreground: 0 0% 90%;
+  /* Slightly elevated cards */
+  --color-card: 0 0% 12%;
+  --color-card-foreground: 0 0% 90%;
+  /* Elevated popovers */
+  --color-popover: 0 0% 12%;
+  --color-popover-foreground: 0 0% 90%;
+  /* Bright primary for emphasis */
+  --color-primary: 0 0% 90%;
+  --color-primary-foreground: 0 0% 10%;
+  /* Darker secondary elements */
+  --color-secondary: 0 0% 16%;
+  --color-secondary-foreground: 0 0% 90%;
+  /* Subtle muted elements */
+  --color-muted: 0 0% 16%;
+  /* Medium gray for secondary text - clear hierarchy */
+  --color-muted-foreground: 0 0% 60%;
+  /* Subtle accent backgrounds */
+  --color-accent: 0 0% 16%;
+  --color-accent-foreground: 0 0% 90%;
+  /* Destructive colors */
+  --color-destructive: 0 62.8% 30.6%;
+  --color-destructive-foreground: 0 0% 90%;
+  /* Subtle borders */
+  --color-border: 0 0% 20%;
+  --color-input: 0 0% 20%;
+  --color-ring: 0 0% 80%;
+}
+
+/* Hacker News theme - inspired by news.ycombinator.com */
+.hackernews {
+  --color-background: 25 100% 98%;
+  --color-foreground: 0 0% 0%;
+  --color-card: 25 100% 98%;
+  --color-card-foreground: 0 0% 0%;
+  --color-popover: 0 0% 100%;
+  --color-popover-foreground: 0 0% 0%;
+  --color-primary: 25 85% 55%;
+  --color-primary-foreground: 0 0% 0%;
+  --color-secondary: 0 0% 96%;
+  --color-secondary-foreground: 0 0% 0%;
+  --color-muted: 0 0% 96%;
+  --color-muted-foreground: 0 0% 45%;
+  --color-accent: 0 0% 96%;
+  --color-accent-foreground: 0 0% 0%;
+  --color-destructive: 0 84% 60%;
+  --color-destructive-foreground: 0 0% 98%;
+  --color-border: 0 0% 90%;
+  --color-input: 0 0% 90%;
+  --color-ring: 25 85% 55%;
+}
+
+/* Solarized Light theme */
+.solarized-light {
+  --color-background: 44 87% 94%;
+  --color-foreground: 192 81% 14%;
+  --color-card: 44 87% 94%;
+  --color-card-foreground: 192 81% 14%;
+  --color-popover: 44 87% 94%;
+  --color-popover-foreground: 192 81% 14%;
+  --color-primary: 205 69% 49%;
+  --color-primary-foreground: 44 87% 94%;
+  --color-secondary: 45 100% 92%;
+  --color-secondary-foreground: 192 81% 14%;
+  --color-muted: 45 100% 92%;
+  --color-muted-foreground: 194 14% 40%;
+  --color-accent: 45 100% 92%;
+  --color-accent-foreground: 192 81% 14%;
+  --color-destructive: 1 71% 52%;
+  --color-destructive-foreground: 44 87% 94%;
+  --color-border: 45 100% 85%;
+  --color-input: 45 100% 85%;
+  --color-ring: 205 69% 49%;
+}
+
+/* Solarized Dark theme */
+.solarized-dark {
+  --color-background: 192 100% 11%;
+  --color-foreground: 44 87% 94%;
+  --color-card: 192 100% 11%;
+  --color-card-foreground: 44 87% 94%;
+  --color-popover: 192 100% 11%;
+  --color-popover-foreground: 44 87% 94%;
+  --color-primary: 205 69% 49%;
+  --color-primary-foreground: 192 100% 11%;
+  --color-secondary: 192 81% 14%;
+  --color-secondary-foreground: 44 87% 94%;
+  --color-muted: 192 81% 14%;
+  --color-muted-foreground: 186 8% 55%;
+  --color-accent: 192 81% 14%;
+  --color-accent-foreground: 44 87% 94%;
+  --color-destructive: 1 71% 52%;
+  --color-destructive-foreground: 44 87% 94%;
+  --color-border: 192 81% 14%;
+  --color-input: 192 81% 14%;
+  --color-ring: 205 69% 49%;
+}
+
+body {
+  background-color: hsl(var(--color-background));
+  color: hsl(var(--color-foreground));
+  /* Better text rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  border-color: hsl(var(--color-border));
+}
+
+/* Improve readability of links */
+a {
+  color: hsl(var(--color-foreground));
+  text-decoration-color: hsl(var(--color-muted-foreground));
+}
+
+a:hover {
+  text-decoration-color: hsl(var(--color-foreground));
+}
+
+/* Force solid backgrounds on popovers and dropdown menus */
+[role="menu"],
+[role="dialog"],
+[data-radix-menu-content],
+[data-radix-dropdown-menu-content],
+[data-radix-select-content],
+[data-radix-dialog-content],
+[data-radix-popper-content-wrapper],
+.bg-popover {
+  background-color: hsl(var(--color-popover)) !important;
+  color: hsl(var(--color-popover-foreground)) !important;
+}
+
+/* Better focus states for accessibility */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid hsl(var(--color-ring));
+  outline-offset: 2px;
+}
+
+/* Prevent text cursor on icons and buttons - Force pointer cursor */
+button,
+button *,
+[role="button"],
+[role="button"] *,
+[role="menuitem"],
+[role="menuitem"] *,
+[type="button"],
+[type="button"] *,
+.cursor-pointer,
+.cursor-pointer * {
+  cursor: pointer !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
+
+button:disabled,
+button:disabled *,
+[role="button"]:disabled,
+[role="button"]:disabled *,
+[type="button"]:disabled,
+[type="button"]:disabled * {
+  cursor: not-allowed !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
+
+svg,
+svg *,
+span:has(svg),
+span:has(svg) * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  pointer-events: none !important;
+}
+
+/* Ensure input fields keep text cursor - Override above rules */
+input,
+input *,
+textarea,
+textarea *,
+[contenteditable="true"],
+[contenteditable="true"] * {
+  cursor: text !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  pointer-events: auto !important;
+}
+
+/* Subtle transitions for theme changes on key elements */
+body,
+[class*="bg-"],
+[class*="text-"],
+[class*="border-"],
+button,
+input,
+textarea {
+  transition: background-color 150ms ease-in-out, 
+              border-color 150ms ease-in-out, 
+              color 150ms ease-in-out;
+}
