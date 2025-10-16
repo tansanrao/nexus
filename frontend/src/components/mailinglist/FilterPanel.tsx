@@ -42,8 +42,8 @@ export function FilterPanel({
                 Subject
               </CompactButton>
               <CompactButton
-                active={searchType === 'full_text'}
-                onClick={() => setSearchType('full_text')}
+                active={searchType === 'fullText'}
+                onClick={() => setSearchType('fullText')}
               >
                 Full Text
               </CompactButton>

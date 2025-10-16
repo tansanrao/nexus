@@ -2,7 +2,13 @@ import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Search, SortAsc, SortDesc, Users } from 'lucide-react';
 import { api } from '../api/client';
-import type { AuthorWithStats, AuthorSortBy, SortOrder } from '../types';
+import type {
+  AuthorWithStats,
+  AuthorSortBy,
+  SortOrder,
+  PaginatedResponse,
+  PageMetadata,
+} from '../types';
 import { useMailingList } from '../contexts/MailingListContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -16,12 +22,13 @@ export function AuthorListSidebar() {
   const { selectedMailingList } = useMailingList();
   const [authors, setAuthors] = useState<AuthorWithStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pageInfo, setPageInfo] = useState<PageMetadata | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<AuthorSortBy>('email_count');
   const [order, setOrder] = useState<SortOrder>('desc');
-  const limit = 50;
+  const size = 50;
 
   useEffect(() => {
     const loadAuthors = async () => {
@@ -29,17 +36,19 @@ export function AuthorListSidebar() {
 
       try {
         setLoading(true);
-        const data = await api.authors.search(selectedMailingList, {
-          search: searchQuery || undefined,
+        const response: PaginatedResponse<AuthorWithStats> = await api.authors.search(selectedMailingList, {
+          q: searchQuery || undefined,
           page,
-          limit,
-          sort_by: sortBy,
+          size,
+          sortBy: sortBy,
           order,
         });
-        setAuthors(data);
+        setAuthors(response.data);
+        setPageInfo(response.page);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load authors');
+        setPageInfo(null);
       } finally {
         setLoading(false);
       }
@@ -51,6 +60,10 @@ export function AuthorListSidebar() {
 
     return () => clearTimeout(debounce);
   }, [searchQuery, page, sortBy, order, selectedMailingList]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedMailingList]);
 
   const handleSortChange = (newSortBy: AuthorSortBy) => {
     if (newSortBy === sortBy) {
@@ -237,7 +250,9 @@ export function AuthorListSidebar() {
             variant="outline"
             size="sm"
             onClick={() => setPage((p) => p + 1)}
-            disabled={authors.length < limit}
+            disabled={
+              !pageInfo || pageInfo.totalPages === 0 || pageInfo.page >= pageInfo.totalPages
+            }
           >
             Next
           </Button>

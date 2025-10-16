@@ -24,7 +24,7 @@ export function DatabasePanel() {
     const pollSyncStatus = async () => {
       try {
         const newStatus = await api.admin.sync.getStatus();
-        if (syncStatus?.is_running && !newStatus.is_running) {
+        if (syncStatus?.isRunning && !newStatus.isRunning) {
           await loadStatus();
         }
         setSyncStatus(newStatus);
@@ -35,7 +35,7 @@ export function DatabasePanel() {
 
     const interval = setInterval(pollSyncStatus, 3000);
     return () => clearInterval(interval);
-  }, [syncStatus?.is_running]);
+  }, [syncStatus?.isRunning]);
 
   const loadStatus = async () => {
     try {
@@ -69,7 +69,7 @@ export function DatabasePanel() {
     try {
       const result = await api.mailingLists.seed();
       setSeedSuccess(
-        `Seeded ${result.mailing_lists_created} lists, ${result.repositories_created} repos, ${result.partitions_created} partitions.`,
+        `Seeded ${result.mailingListsCreated} lists, ${result.repositoriesCreated} repos, ${result.partitionsCreated} partitions.`,
       );
       setTimeout(() => setSeedSuccess(null), 5000);
     } catch (err) {
@@ -132,24 +132,24 @@ export function DatabasePanel() {
             }
           >
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-              <Stat label="Authors" value={formatNumber(status.total_authors)} />
-              <Stat label="Emails" value={formatNumber(status.total_emails)} />
-              <Stat label="Threads" value={formatNumber(status.total_threads)} />
-              <Stat label="Recipients" value={formatNumber(status.total_recipients)} />
-              <Stat label="References" value={formatNumber(status.total_references)} />
+              <Stat label="Authors" value={formatNumber(status.totalAuthors)} />
+              <Stat label="Emails" value={formatNumber(status.totalEmails)} />
+              <Stat label="Threads" value={formatNumber(status.totalThreads)} />
+              <Stat label="Recipients" value={formatNumber(status.totalRecipients)} />
+              <Stat label="References" value={formatNumber(status.totalReferences)} />
               <Stat
                 label="Thread memberships"
-                value={formatNumber(status.total_thread_memberships)}
+                value={formatNumber(status.totalThreadMemberships)}
               />
             </div>
 
-            {status.date_range_start && status.date_range_end && (
+            {status.dateRangeStart && status.dateRangeEnd && (
               <div className="surface-muted px-3 py-3 text-[12px] text-muted-foreground">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="uppercase tracking-[0.08em]">Range</span>
-                  <span>{formatDate(status.date_range_start)}</span>
+                  <span>{formatDate(status.dateRangeStart)}</span>
                   <span aria-hidden="true">→</span>
-                  <span>{formatDate(status.date_range_end)}</span>
+                  <span>{formatDate(status.dateRangeEnd)}</span>
                 </div>
               </div>
             )}

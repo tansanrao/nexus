@@ -1,161 +1,226 @@
 import type {
-  Thread,
-  ThreadDetail,
-  EmailWithAuthor,
-  AuthorWithStats,
-  Stats,
-  GlobalSyncStatus,
-  DatabaseStatus,
-  AdminConfig,
-  ThreadQueryParams,
-  ThreadSearchParams,
   AuthorQueryParams,
-  ThreadWithStarter,
+  AuthorWithStats,
+  DataResponse,
+  DatabaseStatus,
+  EmailWithAuthor,
+  GlobalSyncStatus,
   MailingList,
   MailingListRepository,
+  PaginatedResponse,
+  Stats,
+  Thread,
+  ThreadDetail,
+  ThreadQueryParams,
+  ThreadSearchParams,
+  ThreadWithStarter,
+  AdminConfig,
 } from '../types';
 import { getApiBaseUrl } from '../contexts/ApiConfigContext';
 
-// Base API call function that supports mailing list context
-async function apiCall<T>(
-  mailingList: string,
-  endpoint: string,
-  options?: RequestInit
-): Promise<T> {
-  const API_BASE_URL = getApiBaseUrl();
-  const url = mailingList
-    ? `${API_BASE_URL}/${mailingList}${endpoint}`
-    : `${API_BASE_URL}${endpoint}`;
+type MessageResponse = { message: string };
+type ToggleResponse = { message: string; enabled: boolean };
+type SyncQueueResponse = { jobIds: number[]; message: string };
+type SeedResponse = {
+  message: string;
+  mailingListsCreated: number;
+  repositoriesCreated: number;
+  partitionsCreated: number;
+};
 
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(error.message || `API error: ${response.statusText}`);
-  }
-  return response.json();
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, '');
 }
 
-// Legacy fetchAPI for backward compatibility with admin endpoints
-async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const API_BASE_URL = getApiBaseUrl();
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(error.message || `API error: ${response.statusText}`);
+function normalizeEndpoint(endpoint: string): string {
+  return endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+}
+
+function buildQueryString(params: Record<string, unknown>): string {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') {
+      return;
+    }
+    search.set(key, String(value));
+  });
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers);
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
   }
-  return response.json();
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const errorBody = await response.json();
+      if (errorBody && typeof errorBody === 'object' && 'message' in errorBody) {
+        message = String(errorBody.message);
+      }
+    } catch {
+      // Ignore JSON parsing failures for error responses
+    }
+    throw new Error(message || `API error: ${response.statusText}`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function apiCall<T>(mailingList: string, endpoint: string, options?: RequestInit): Promise<T> {
+  const baseUrl = normalizeBaseUrl(getApiBaseUrl());
+  const path = normalizeEndpoint(endpoint);
+  const slug = encodeURIComponent(mailingList);
+  return request<T>(`${baseUrl}/${slug}${path}`, options);
+}
+
+async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const baseUrl = normalizeBaseUrl(getApiBaseUrl());
+  const path = normalizeEndpoint(endpoint);
+  return request<T>(`${baseUrl}${path}`, options);
 }
 
 export const api = {
-  // Mailing list endpoints
   mailingLists: {
-    list: (): Promise<MailingList[]> =>
-      fetchAPI('/admin/mailing-lists'),
+    list: async (): Promise<MailingList[]> => {
+      const response = await fetchAPI<DataResponse<MailingList[]>>('/admin/mailing-lists');
+      return response.data;
+    },
 
     get: (slug: string): Promise<MailingList> =>
-      fetchAPI(`/admin/mailing-lists/${slug}`),
+      fetchAPI(`/admin/mailing-lists/${encodeURIComponent(slug)}`),
 
     getRepositories: (slug: string): Promise<MailingListRepository[]> =>
-      fetchAPI(`/admin/mailing-lists/${slug}/repositories`),
+      fetchAPI(`/admin/mailing-lists/${encodeURIComponent(slug)}/repositories`),
 
-    toggle: (slug: string, enabled: boolean): Promise<{ message: string; enabled: boolean }> =>
-      fetchAPI(`/admin/mailing-lists/${slug}/toggle`, {
+    toggle: (slug: string, enabled: boolean): Promise<ToggleResponse> =>
+      fetchAPI(`/admin/mailing-lists/${encodeURIComponent(slug)}/toggle`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
       }),
 
-    seed: (): Promise<{ message: string; mailing_lists_created: number; repositories_created: number; partitions_created: number }> =>
+    seed: (): Promise<SeedResponse> =>
       fetchAPI('/admin/mailing-lists/seed', {
         method: 'POST',
       }),
   },
 
-  // Thread endpoints
   threads: {
-    list: (mailingList: string, params: ThreadQueryParams = {}): Promise<Thread[]> => {
-      const { page = 1, limit = 50, sort_by, order } = params;
-      const sortParam = sort_by ? `&sort_by=${sort_by}` : '';
-      const orderParam = order ? `&order=${order}` : '';
-      return apiCall(mailingList, `/threads?page=${page}&limit=${limit}${sortParam}${orderParam}`);
+    list: async (mailingList: string, params: ThreadQueryParams = {}): Promise<PaginatedResponse<Thread>> => {
+      const { page = 1, size = 50, sortBy, order } = params;
+      const query = buildQueryString({ page, size, sortBy, order });
+      return apiCall<PaginatedResponse<Thread>>(mailingList, `/threads${query}`);
     },
 
-    search: (mailingList: string, params: ThreadSearchParams = {}): Promise<Thread[]> => {
-      const { search, search_type = 'subject', page = 1, limit = 50, sort_by, order } = params;
-      const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
-      const searchTypeParam = `&search_type=${search_type}`;
-      const sortParam = sort_by ? `&sort_by=${sort_by}` : '';
-      const orderParam = order ? `&order=${order}` : '';
-      return apiCall(mailingList, `/threads/search?page=${page}&limit=${limit}${searchParam}${searchTypeParam}${sortParam}${orderParam}`);
+    search: async (mailingList: string, params: ThreadSearchParams = {}): Promise<PaginatedResponse<Thread>> => {
+      const {
+        q,
+        searchType = 'subject',
+        page = 1,
+        size = 50,
+        sortBy,
+        order,
+      } = params;
+      const query = buildQueryString({ q, searchType, page, size, sortBy, order });
+      return apiCall<PaginatedResponse<Thread>>(mailingList, `/threads/search${query}`);
     },
 
     get: (mailingList: string, threadId: number): Promise<ThreadDetail> =>
       apiCall(mailingList, `/threads/${threadId}`),
   },
 
-  // Email endpoints
   emails: {
     get: (mailingList: string, emailId: number): Promise<EmailWithAuthor> =>
       apiCall(mailingList, `/emails/${emailId}`),
   },
 
-  // Author endpoints
   authors: {
-    search: (mailingList: string, params: AuthorQueryParams = {}): Promise<AuthorWithStats[]> => {
-      const { search, page = 1, limit = 50, sort_by, order } = params;
-      const searchParam = search ? `&search=${encodeURIComponent(search)}` : '';
-      const sortParam = sort_by ? `&sort_by=${sort_by}` : '';
-      const orderParam = order ? `&order=${order}` : '';
-      return apiCall(mailingList, `/authors?page=${page}&limit=${limit}${searchParam}${sortParam}${orderParam}`);
+    search: async (mailingList: string, params: AuthorQueryParams = {}): Promise<PaginatedResponse<AuthorWithStats>> => {
+      const { q, page = 1, size = 50, sortBy, order } = params;
+      const query = buildQueryString({ q, page, size, sortBy, order });
+      return apiCall<PaginatedResponse<AuthorWithStats>>(mailingList, `/authors${query}`);
     },
 
     get: (mailingList: string, authorId: number): Promise<AuthorWithStats> =>
       apiCall(mailingList, `/authors/${authorId}`),
 
-    getEmails: (mailingList: string, authorId: number, page: number = 1, limit: number = 50): Promise<EmailWithAuthor[]> =>
-      apiCall(mailingList, `/authors/${authorId}/emails?page=${page}&limit=${limit}`),
+    getEmails: async (
+      mailingList: string,
+      authorId: number,
+      page: number = 1,
+      size: number = 50,
+    ): Promise<PaginatedResponse<EmailWithAuthor>> => {
+      const query = buildQueryString({ page, size });
+      return apiCall<PaginatedResponse<EmailWithAuthor>>(mailingList, `/authors/${authorId}/emails${query}`);
+    },
 
-    getThreadsStarted: (mailingList: string, authorId: number, page: number = 1, limit: number = 50): Promise<ThreadWithStarter[]> =>
-      apiCall(mailingList, `/authors/${authorId}/threads-started?page=${page}&limit=${limit}`),
+    getThreadsStarted: async (
+      mailingList: string,
+      authorId: number,
+      page: number = 1,
+      size: number = 50,
+    ): Promise<PaginatedResponse<ThreadWithStarter>> => {
+      const query = buildQueryString({ page, size });
+      return apiCall<PaginatedResponse<ThreadWithStarter>>(mailingList, `/authors/${authorId}/threads-started${query}`);
+    },
 
-    getThreadsParticipated: (mailingList: string, authorId: number, page: number = 1, limit: number = 50): Promise<Thread[]> =>
-      apiCall(mailingList, `/authors/${authorId}/threads-participated?page=${page}&limit=${limit}`),
+    getThreadsParticipated: async (
+      mailingList: string,
+      authorId: number,
+      page: number = 1,
+      size: number = 50,
+    ): Promise<PaginatedResponse<Thread>> => {
+      const query = buildQueryString({ page, size });
+      return apiCall<PaginatedResponse<Thread>>(mailingList, `/authors/${authorId}/threads-participated${query}`);
+    },
   },
 
-  // Stats endpoint
   stats: {
     get: (mailingList: string): Promise<Stats> =>
       apiCall(mailingList, '/stats'),
   },
 
-  // Admin endpoints
   admin: {
     sync: {
-      queue: (slugs: string[]): Promise<{ job_ids: number[]; message: string }> =>
+      queue: (slugs: string[]): Promise<SyncQueueResponse> =>
         fetchAPI('/admin/sync/queue', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mailing_list_slugs: slugs }),
+          body: JSON.stringify({ mailingListSlugs: slugs }),
         }),
 
       getStatus: (): Promise<GlobalSyncStatus> =>
         fetchAPI('/admin/sync/status'),
 
-      cancel: (): Promise<{ message: string }> =>
+      start: (): Promise<MessageResponse> =>
+        fetchAPI('/admin/sync/start', { method: 'POST' }),
+
+      cancel: (): Promise<MessageResponse> =>
         fetchAPI('/admin/sync/cancel', { method: 'POST' }),
     },
 
     database: {
-      reset: (): Promise<{ message: string }> =>
+      reset: (): Promise<MessageResponse> =>
         fetchAPI('/admin/database/reset', { method: 'POST' }),
 
       getStatus: (): Promise<DatabaseStatus> =>
         fetchAPI('/admin/database/status'),
-    },
 
-    config: {
-      get: (): Promise<AdminConfig> =>
-        fetchAPI('/admin/config'),
+      getConfig: (): Promise<AdminConfig> =>
+        fetchAPI('/admin/database/config'),
     },
   },
 };

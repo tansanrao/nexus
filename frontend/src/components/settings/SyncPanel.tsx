@@ -32,10 +32,10 @@ export function SyncPanel() {
     };
 
     void pollStatus();
-    const isActive = syncStatus?.is_running;
+    const isActive = syncStatus?.isRunning;
     const interval = setInterval(pollStatus, isActive ? 1000 : 5000);
     return () => clearInterval(interval);
-  }, [syncStatus?.is_running]);
+  }, [syncStatus?.isRunning]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -108,9 +108,9 @@ export function SyncPanel() {
     currentPage * ITEMS_PER_PAGE,
   );
 
-  const isRunning = syncStatus?.is_running ?? false;
-  const hasQueue = (syncStatus?.queued_jobs.length ?? 0) > 0;
-  const currentJob = syncStatus?.current_job ?? null;
+  const isRunning = syncStatus?.isRunning ?? false;
+  const hasQueue = (syncStatus?.queuedJobs.length ?? 0) > 0;
+  const currentJob = syncStatus?.currentJob ?? null;
 
   return (
     <div className="space-y-6">
@@ -164,10 +164,10 @@ export function SyncPanel() {
           </div>
         )}
 
-        {syncStatus && syncStatus.queued_jobs.length > 0 && (
+        {syncStatus && syncStatus.queuedJobs.length > 0 && (
           <div className="surface-muted px-3 py-2 text-[12px] text-muted-foreground uppercase tracking-[0.08em]">
-            {syncStatus.queued_jobs.length} job
-            {syncStatus.queued_jobs.length > 1 ? 's' : ''} in queue
+            {syncStatus.queuedJobs.length} job
+            {syncStatus.queuedJobs.length > 1 ? 's' : ''} in queue
           </div>
         )}
 
