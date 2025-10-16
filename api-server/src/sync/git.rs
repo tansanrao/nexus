@@ -55,8 +55,8 @@
 //! - Repository operations are read-only (no modifications)
 
 use gix::ObjectId;
-use std::path::PathBuf;
 use std::env;
+use std::path::PathBuf;
 
 /// Configuration for a single epoch repository.
 ///
@@ -64,7 +64,6 @@ use std::env;
 /// different time periods. Epochs are processed sequentially by order.
 #[derive(Debug, Clone)]
 pub struct RepoConfig {
-    #[allow(dead_code)]
     pub url: String,
     pub order: i32,
 }
@@ -82,7 +81,6 @@ pub struct RepoConfig {
 /// - `mirror_base_path`: Base path where grokmirror stores mirrors
 #[derive(Debug, Clone)]
 pub struct MailingListSyncConfig {
-    #[allow(dead_code)]
     pub list_id: i32,
     pub slug: String,
     pub repos: Vec<RepoConfig>,
@@ -95,8 +93,7 @@ impl MailingListSyncConfig {
         let mirror_base = env::var("MIRROR_BASE_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                let project_root = env::var("PROJECT_ROOT")
-                    .unwrap_or_else(|_| ".".to_string());
+                let project_root = env::var("PROJECT_ROOT").unwrap_or_else(|_| ".".to_string());
                 PathBuf::from(project_root).join("mirrors")
             });
 
@@ -226,6 +223,14 @@ impl GitManager {
     pub fn validate_all_mirrors(&self) -> Result<(), GitError> {
         for repo_config in &self.config.repos {
             let mirror_path = self.config.get_repo_mirror_path(repo_config.order);
+            log::debug!(
+                "Validating mirror for list {} ({}) epoch {} at {:?} (source: {})",
+                self.config.list_id,
+                self.config.slug,
+                repo_config.order,
+                mirror_path,
+                repo_config.url
+            );
             self.validate_mirror(&mirror_path)?;
         }
         Ok(())
@@ -236,7 +241,7 @@ impl GitManager {
     pub fn get_commits_for_epoch(
         &self,
         repo_order: i32,
-        since: Option<&str>
+        since: Option<&str>,
     ) -> Result<Vec<(String, String, i32)>, GitError> {
         let mirror_path = self.config.get_repo_mirror_path(repo_order);
         self.fetch_commits_after_checkpoint(&mirror_path, repo_order, since)
@@ -316,17 +321,24 @@ impl GitManager {
         let mut commits = Vec::new();
 
         // Iterate through all references
-        let references = repo.references()
+        let references = repo
+            .references()
             .map_err(|e| GitError::Other(format!("Failed to get references: {}", e)))?;
 
-        for reference in references.all()
+        for reference in references
+            .all()
             .map_err(|e| GitError::Other(format!("Failed to iterate references: {}", e)))?
         {
             let reference = reference
                 .map_err(|e| GitError::Other(format!("Failed to get reference: {}", e)))?;
 
             // Only process branch references
-            if !reference.name().category().map(|c| c == gix::refs::Category::LocalBranch).unwrap_or(false) {
+            if !reference
+                .name()
+                .category()
+                .map(|c| c == gix::refs::Category::LocalBranch)
+                .unwrap_or(false)
+            {
                 continue;
             }
 
@@ -358,7 +370,9 @@ impl GitManager {
 
                 // Check if 'm' file exists in the tree (public-inbox v2 format)
                 let has_email = tree.iter().any(|entry| {
-                    entry.map(|e| e.filename() == "m" && e.mode().is_blob()).unwrap_or(false)
+                    entry
+                        .map(|e| e.filename() == "m" && e.mode().is_blob())
+                        .unwrap_or(false)
                 });
 
                 if has_email {
@@ -366,14 +380,14 @@ impl GitManager {
                 }
 
                 // Walk commit ancestors
-                let ancestors = commit
-                    .ancestors()
-                    .all()
-                    .map_err(|e| GitError::Other(format!("Failed to create ancestor iterator: {}", e)))?;
+                let ancestors = commit.ancestors().all().map_err(|e| {
+                    GitError::Other(format!("Failed to create ancestor iterator: {}", e))
+                })?;
 
                 for info in ancestors {
-                    let info = info
-                        .map_err(|e| GitError::Other(format!("Failed to get ancestor info: {}", e)))?;
+                    let info = info.map_err(|e| {
+                        GitError::Other(format!("Failed to get ancestor info: {}", e))
+                    })?;
 
                     let ancestor_hash = info.id.to_hex().to_string();
 
@@ -387,17 +401,23 @@ impl GitManager {
 
                     let ancestor_commit = repo
                         .find_object(info.id)
-                        .map_err(|e| GitError::Other(format!("Failed to find ancestor object: {}", e)))?
+                        .map_err(|e| {
+                            GitError::Other(format!("Failed to find ancestor object: {}", e))
+                        })?
                         .try_into_commit()
-                        .map_err(|e| GitError::Other(format!("Failed to convert ancestor to commit: {}", e)))?;
+                        .map_err(|e| {
+                            GitError::Other(format!("Failed to convert ancestor to commit: {}", e))
+                        })?;
 
-                    let ancestor_tree = ancestor_commit
-                        .tree()
-                        .map_err(|e| GitError::Other(format!("Failed to get ancestor tree: {}", e)))?;
+                    let ancestor_tree = ancestor_commit.tree().map_err(|e| {
+                        GitError::Other(format!("Failed to get ancestor tree: {}", e))
+                    })?;
 
                     // In public-inbox v2 format, emails are stored in 'm' files
                     let has_email = ancestor_tree.iter().any(|entry| {
-                        entry.map(|e| e.filename() == "m" && e.mode().is_blob()).unwrap_or(false)
+                        entry
+                            .map(|e| e.filename() == "m" && e.mode().is_blob())
+                            .unwrap_or(false)
                     });
 
                     if has_email {
@@ -415,7 +435,12 @@ impl GitManager {
     }
 
     /// Get the blob data for a specific commit and path from a specific repository
-    pub fn get_blob_data(&self, commit_hash: &str, path: &str, repo_order: i32) -> Result<Vec<u8>, GitError> {
+    pub fn get_blob_data(
+        &self,
+        commit_hash: &str,
+        path: &str,
+        repo_order: i32,
+    ) -> Result<Vec<u8>, GitError> {
         let mirror_path = self.config.get_repo_mirror_path(repo_order);
         let repo = gix::open(&mirror_path)?;
 
@@ -438,8 +463,8 @@ impl GitManager {
         // Find the entry in the tree by iterating
         let mut found_entry = None;
         for entry in tree.iter() {
-            let entry = entry
-                .map_err(|e| GitError::Other(format!("Failed to iterate tree: {}", e)))?;
+            let entry =
+                entry.map_err(|e| GitError::Other(format!("Failed to iterate tree: {}", e)))?;
             if entry.filename() == path {
                 found_entry = Some(entry);
                 break;

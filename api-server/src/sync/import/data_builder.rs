@@ -3,7 +3,9 @@
 //! Transforms parsed emails into columnar data structures optimized for
 //! PostgreSQL UNNEST bulk insert operations.
 
-use crate::sync::import::data_structures::{ChunkCacheData, EmailsData, RecipientsData, ReferencesData};
+use crate::sync::import::data_structures::{
+    ChunkCacheData, EmailsData, RecipientsData, ReferencesData,
+};
 use crate::sync::parser::ParsedEmail;
 use crate::threading::extract_patch_series_info;
 use chrono::{DateTime, Utc};
@@ -21,7 +23,9 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Returns
 /// HashMap mapping email addresses to display names
-pub fn extract_unique_authors_from_chunk(chunk: &[(String, ParsedEmail, i32)]) -> HashMap<String, String> {
+pub fn extract_unique_authors_from_chunk(
+    chunk: &[(String, ParsedEmail, i32)],
+) -> HashMap<String, String> {
     let mut authors = HashMap::new();
 
     for (_, email, _) in chunk {
@@ -70,12 +74,11 @@ pub async fn build_email_batch_data(
         .into_iter()
         .collect();
 
-    let author_rows: Vec<(String, i32)> = sqlx::query_as(
-        "SELECT email, id FROM authors WHERE email = ANY($1)"
-    )
-    .bind(&unique_emails)
-    .fetch_all(pool)
-    .await?;
+    let author_rows: Vec<(String, i32)> =
+        sqlx::query_as("SELECT email, id FROM authors WHERE email = ANY($1)")
+            .bind(&unique_emails)
+            .fetch_all(pool)
+            .await?;
 
     let author_map: HashMap<String, i32> = author_rows.into_iter().collect();
 
@@ -264,11 +267,12 @@ pub fn extract_cache_data_from_chunk(
     for (_, email, _) in chunk {
         if let Some(&email_id) = email_id_map.get(&email.message_id) {
             let series_info = extract_patch_series_info(&email.subject);
-            let (series_id, series_number, series_total) = if let Some((sid, snum, stot)) = series_info {
-                (Some(sid), Some(snum), Some(stot))
-            } else {
-                (None, None, None)
-            };
+            let (series_id, series_number, series_total) =
+                if let Some((sid, snum, stot)) = series_info {
+                    (Some(sid), Some(snum), Some(stot))
+                } else {
+                    (None, None, None)
+                };
 
             cache_emails.push((
                 email_id,

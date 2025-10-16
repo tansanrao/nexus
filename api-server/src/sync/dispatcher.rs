@@ -48,13 +48,17 @@
 //! - **Change Detection**: SHA256 membership hashing skips unchanged threads
 //! - **Checkpoint Recovery**: Resume from last successful epoch
 
-use crate::sync::{SyncOrchestrator, queue::JobQueue, git::{MailingListSyncConfig, RepoConfig}};
 use crate::sync::bulk_import::BulkImporter;
 use crate::sync::database::checkpoint;
 use crate::sync::parser::ParsedEmail;
-use crate::threading::{MailingListCache, build_email_threads};
+use crate::sync::{
+    SyncOrchestrator,
+    git::{MailingListSyncConfig, RepoConfig},
+    queue::JobQueue,
+};
 use crate::threading::container::ThreadInfo;
-use rocket_db_pools::sqlx::{PgPool, Acquire};
+use crate::threading::{MailingListCache, build_email_threads};
+use rocket_db_pools::sqlx::{Acquire, PgPool};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -88,7 +92,11 @@ impl SyncDispatcher {
             // Get next job
             let job = match self.queue.get_next_job().await {
                 Ok(Some(j)) => {
-                    log::info!("dispatcher: claimed job {} for list {}", j.id, j.mailing_list_id);
+                    log::info!(
+                        "dispatcher: claimed job {} for list {}",
+                        j.id,
+                        j.mailing_list_id
+                    );
                     j
                 }
                 Ok(None) => {
@@ -171,31 +179,30 @@ impl SyncDispatcher {
             }
         };
 
-        log::info!("job {}: processing mailing list '{}' with {} repos (epochs)",
-            job_id, slug, repos.len());
+        log::info!(
+            "job {}: processing mailing list '{}' with {} repos (epochs)",
+            job_id,
+            slug,
+            repos.len()
+        );
 
         // Create sync configuration
         let git_config = MailingListSyncConfig::new(list_id, slug.clone(), repos.clone());
 
         // Phase 1: Initialize threading cache (determines full vs incremental sync)
-        let (cache, epochs_to_process, _is_full_sync) =
-            self.initialize_cache_for_sync(job_id, list_id, &repos).await?;
+        let (cache, epochs_to_process, _is_full_sync) = self
+            .initialize_cache_for_sync(job_id, list_id, &repos)
+            .await?;
 
         // Phase 2: Parse and import all epochs
-        let (total_emails_imported, epoch_checkpoints) = self.parse_and_import_epochs(
-            job_id,
-            list_id,
-            git_config,
-            &epochs_to_process,
-            &cache,
-        ).await?;
+        let (total_emails_imported, epoch_checkpoints) = self
+            .parse_and_import_epochs(job_id, list_id, git_config, &epochs_to_process, &cache)
+            .await?;
 
         // Phase 3: Build threads and insert to database
-        let (total_threads, total_memberships) = self.build_and_insert_threads(
-            job_id,
-            list_id,
-            &cache,
-        ).await?;
+        let (total_threads, total_memberships) = self
+            .build_and_insert_threads(job_id, list_id, &cache)
+            .await?;
 
         // Phase 4: Persist cache to disk for future incremental syncs
         self.persist_cache_to_storage(job_id, list_id, &cache).await;
@@ -204,14 +211,22 @@ impl SyncDispatcher {
         self.update_author_statistics(job_id, list_id).await?;
 
         // Phase 6: Save checkpoints
-        self.save_sync_checkpoints(job_id, list_id, &epoch_checkpoints).await?;
+        self.save_sync_checkpoints(job_id, list_id, &epoch_checkpoints)
+            .await?;
 
         // Complete job
-        self.queue.complete_job(job_id).await
+        self.queue
+            .complete_job(job_id)
+            .await
             .map_err(|e| format!("Failed to mark job complete: {}", e))?;
 
-        log::info!("job {}: complete - {} emails, {} threads, {} memberships",
-            job_id, total_emails_imported, total_threads, total_memberships);
+        log::info!(
+            "job {}: complete - {} emails, {} threads, {} memberships",
+            job_id,
+            total_emails_imported,
+            total_threads,
+            total_memberships
+        );
         Ok(())
     }
 
@@ -275,7 +290,12 @@ impl SyncDispatcher {
         let importer = BulkImporter::new(self.pool.clone(), mailing_list_id);
         let total = parsed_emails.len();
 
-        log::info!("importing {} emails for epoch {} in chunks of {}", total, epoch, CHUNK_SIZE);
+        log::info!(
+            "importing {} emails for epoch {} in chunks of {}",
+            total,
+            epoch,
+            CHUNK_SIZE
+        );
 
         // Tag emails with their epoch
         let emails_with_epoch: Vec<(String, ParsedEmail, i32)> = parsed_emails
@@ -290,21 +310,43 @@ impl SyncDispatcher {
         for (chunk_idx, chunk) in emails_with_epoch.chunks(CHUNK_SIZE).enumerate() {
             // Check for cancellation every 5 chunks (to avoid too many DB queries)
             if chunk_idx % 5 == 0 && self.queue.is_job_cancelled(job_id).await.unwrap_or(false) {
-                log::warn!("job {}: cancelled during import at chunk {}/{}", job_id, chunk_idx + 1, num_chunks);
+                log::warn!(
+                    "job {}: cancelled during import at chunk {}/{}",
+                    job_id,
+                    chunk_idx + 1,
+                    num_chunks
+                );
                 return Err("Job cancelled by user during import".to_string());
             }
 
-            log::debug!("importing chunk {}/{} ({} emails)", chunk_idx + 1, num_chunks, chunk.len());
+            log::debug!(
+                "importing chunk {}/{} ({} emails)",
+                chunk_idx + 1,
+                num_chunks,
+                chunk.len()
+            );
 
             let stats = importer
                 .import_chunk_with_epoch_cache(chunk, cache)
                 .await
-                .map_err(|e| format!("Import failed for epoch {} chunk {}: {}", epoch, chunk_idx + 1, e))?;
+                .map_err(|e| {
+                    format!(
+                        "Import failed for epoch {} chunk {}: {}",
+                        epoch,
+                        chunk_idx + 1,
+                        e
+                    )
+                })?;
 
             total_imported += stats.emails;
         }
 
-        log::info!("epoch {}: imported {} emails in {} chunks", epoch, total_imported, num_chunks);
+        log::info!(
+            "epoch {}: imported {} emails in {} chunks",
+            epoch,
+            total_imported,
+            num_chunks
+        );
         Ok(total_imported)
     }
 
@@ -371,26 +413,37 @@ impl SyncDispatcher {
         // Step 1: Get all data from unified cache (no merging needed!)
         let (all_email_data, all_references) = cache.get_all_for_threading();
 
-        log::info!("Threading data: {} emails, {} reference entries",
-            all_email_data.len(), all_references.len());
+        log::info!(
+            "Threading data: {} emails, {} reference entries",
+            all_email_data.len(),
+            all_references.len()
+        );
 
         // Step 2: Run JWZ algorithm (Rayon handles internal parallelism)
         log::info!("Running JWZ threading algorithm");
 
         let threads_to_create = build_email_threads(all_email_data, all_references);
 
-        log::info!("JWZ complete: {} threads identified", threads_to_create.len());
+        log::info!(
+            "JWZ complete: {} threads identified",
+            threads_to_create.len()
+        );
 
         // Step 3: Bulk insert threads and memberships
-        log::info!("Bulk inserting {} threads to database", threads_to_create.len());
+        log::info!(
+            "Bulk inserting {} threads to database",
+            threads_to_create.len()
+        );
 
-        let (thread_count, membership_count) = self.insert_thread_batch_with_memberships(
-            mailing_list_id,
-            threads_to_create,
-        ).await?;
+        let (thread_count, membership_count) = self
+            .insert_thread_batch_with_memberships(mailing_list_id, threads_to_create)
+            .await?;
 
-        log::info!("Threading complete: {} threads, {} memberships inserted",
-            thread_count, membership_count);
+        log::info!(
+            "Threading complete: {} threads, {} memberships inserted",
+            thread_count,
+            membership_count
+        );
 
         Ok((thread_count, membership_count))
     }
@@ -417,8 +470,16 @@ impl SyncDispatcher {
     /// 3. Calculate thread statistics (message_count, dates)
     fn prepare_thread_batch_data(
         threads_to_create: Vec<ThreadInfo>,
-    ) -> Vec<(String, String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, i32, Vec<u8>, HashMap<i32, i32>)> {
-        use sha2::{Sha256, Digest};
+    ) -> Vec<(
+        String,
+        String,
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
+        i32,
+        Vec<u8>,
+        HashMap<i32, i32>,
+    )> {
+        use sha2::{Digest, Sha256};
 
         let mut prepared_threads = Vec::new();
 
@@ -515,28 +576,37 @@ impl SyncDispatcher {
             return Ok((0, 0));
         }
 
-        let mut conn = self.pool.acquire().await
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
             .map_err(|e| format!("Failed to acquire connection: {}", e))?;
 
-        let mut tx = conn.begin().await
+        let mut tx = conn
+            .begin()
+            .await
             .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
         // Step 1: Prepare thread data (compute hashes and statistics)
-        log::debug!("Preparing {} threads for bulk insert", threads_to_create.len());
+        log::debug!(
+            "Preparing {} threads for bulk insert",
+            threads_to_create.len()
+        );
         let prepared_threads = Self::prepare_thread_batch_data(threads_to_create);
         let thread_count = prepared_threads.len();
 
         // Step 2: Query database for existing threads
         log::debug!("Checking existing threads");
 
-        let root_message_ids: Vec<String> = prepared_threads.iter()
+        let root_message_ids: Vec<String> = prepared_threads
+            .iter()
             .map(|(root_msg_id, ..)| root_msg_id.clone())
             .collect();
 
         let existing_threads: Vec<(String, i32, Option<Vec<u8>>)> = sqlx::query_as(
             r#"SELECT root_message_id, id, membership_hash
                FROM threads
-               WHERE mailing_list_id = $1 AND root_message_id = ANY($2)"#
+               WHERE mailing_list_id = $1 AND root_message_id = ANY($2)"#,
         )
         .bind(mailing_list_id)
         .bind(&root_message_ids)
@@ -573,12 +643,16 @@ impl SyncDispatcher {
             threads_to_upsert.push(thread);
         }
 
-        log::debug!("Skipped {} unchanged threads, upserting {} threads",
-            skipped_count, threads_to_upsert.len());
+        log::debug!(
+            "Skipped {} unchanged threads, upserting {} threads",
+            skipped_count,
+            threads_to_upsert.len()
+        );
 
         if threads_to_upsert.is_empty() {
             log::info!("All threads unchanged, skipping insert");
-            tx.commit().await
+            tx.commit()
+                .await
                 .map_err(|e| format!("Failed to commit transaction: {}", e))?;
             return Ok((thread_count, 0));
         }
@@ -594,7 +668,9 @@ impl SyncDispatcher {
         let mut message_counts = Vec::new();
         let mut membership_hashes = Vec::new();
 
-        for (root_msg_id, subject, start_date, last_date, message_count, membership_hash, _) in &threads_to_upsert {
+        for (root_msg_id, subject, start_date, last_date, message_count, membership_hash, _) in
+            &threads_to_upsert
+        {
             list_ids.push(mailing_list_id);
             root_msg_ids.push(root_msg_id.clone());
             subjects.push(subject.clone());
@@ -628,7 +704,10 @@ impl SyncDispatcher {
         .await
         .map_err(|e| format!("Failed to bulk insert threads: {}", e))?;
 
-        log::debug!("Bulk insert returned {} thread IDs", thread_ids_from_insert.len());
+        log::debug!(
+            "Bulk insert returned {} thread IDs",
+            thread_ids_from_insert.len()
+        );
 
         // Merge returned thread IDs with existing thread IDs
         for (root_msg_id, thread_id) in thread_ids_from_insert {
@@ -662,7 +741,7 @@ impl SyncDispatcher {
             sqlx::query(
                 r#"INSERT INTO thread_memberships (mailing_list_id, thread_id, email_id, depth)
                    SELECT * FROM UNNEST($1::int[], $2::int[], $3::int[], $4::int[])
-                   ON CONFLICT (mailing_list_id, thread_id, email_id) DO NOTHING"#
+                   ON CONFLICT (mailing_list_id, thread_id, email_id) DO NOTHING"#,
             )
             .bind(&membership_list_ids)
             .bind(&membership_thread_ids)
@@ -674,7 +753,8 @@ impl SyncDispatcher {
         }
 
         // Commit transaction
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| format!("Failed to commit transaction: {}", e))?;
 
         Ok((thread_count, membership_count))
@@ -703,21 +783,28 @@ impl SyncDispatcher {
     ) -> Result<(usize, usize), String> {
         // Check if job was cancelled before threading
         if self.queue.is_job_cancelled(job_id).await.unwrap_or(false) {
-            log::warn!("job {}: cancelled by user before threading, stopping", job_id);
+            log::warn!(
+                "job {}: cancelled by user before threading, stopping",
+                job_id
+            );
             return Err("Job cancelled by user".to_string());
         }
 
         log::info!("job {}: starting threading phase", job_id);
-        self.queue.update_phase(job_id, "threading").await
+        self.queue
+            .update_phase(job_id, "threading")
+            .await
             .map_err(|e| format!("Failed to update phase: {}", e))?;
 
-        let (total_threads, total_memberships) = self.build_threads_from_cache(
-            list_id,
-            cache,
-        ).await?;
+        let (total_threads, total_memberships) =
+            self.build_threads_from_cache(list_id, cache).await?;
 
-        log::info!("job {}: threading complete - {} threads, {} memberships",
-            job_id, total_threads, total_memberships);
+        log::info!(
+            "job {}: threading complete - {} threads, {} memberships",
+            job_id,
+            total_threads,
+            total_memberships
+        );
 
         Ok((total_threads, total_memberships))
     }
@@ -732,21 +819,15 @@ impl SyncDispatcher {
     /// - `job_id`: Current job ID for logging
     /// - `list_id`: Mailing list ID
     /// - `cache`: Threading cache to save
-    async fn persist_cache_to_storage(
-        &self,
-        job_id: i32,
-        list_id: i32,
-        cache: &MailingListCache,
-    ) {
+    async fn persist_cache_to_storage(&self, job_id: i32, list_id: i32, cache: &MailingListCache) {
         log::info!("job {}: saving unified cache to disk", job_id);
 
-        let cache_dir = std::env::var("THREADING_CACHE_BASE_PATH")
-            .unwrap_or_else(|_| "./cache".to_string());
+        let cache_dir =
+            std::env::var("THREADING_CACHE_BASE_PATH").unwrap_or_else(|_| "./cache".to_string());
 
-        let _ = cache.save_to_disk(&PathBuf::from(&cache_dir))
-            .map_err(|e| {
-                log::warn!("job {}: failed to save cache (non-fatal): {}", job_id, e);
-            });
+        let _ = cache.save_to_disk(&PathBuf::from(&cache_dir)).map_err(|e| {
+            log::warn!("job {}: failed to save cache (non-fatal): {}", job_id, e);
+        });
     }
 
     /// Update author activity statistics.
@@ -762,15 +843,13 @@ impl SyncDispatcher {
     ///
     /// - `Ok(())`: Statistics updated successfully
     /// - `Err(String)`: Update failure
-    async fn update_author_statistics(
-        &self,
-        job_id: i32,
-        list_id: i32,
-    ) -> Result<(), String> {
+    async fn update_author_statistics(&self, job_id: i32, list_id: i32) -> Result<(), String> {
         log::info!("job {}: updating author activity", job_id);
 
         let importer = BulkImporter::new(self.pool.clone(), list_id);
-        importer.update_author_activity().await
+        importer
+            .update_author_activity()
+            .await
             .map_err(|e| format!("Failed to update author activity: {}", e))?;
 
         Ok(())
@@ -841,7 +920,9 @@ impl SyncDispatcher {
         cache: &MailingListCache,
     ) -> Result<(usize, HashMap<i32, String>), String> {
         log::info!("job {}: starting sequential parsing & import phase", job_id);
-        self.queue.update_phase(job_id, "parsing").await
+        self.queue
+            .update_phase(job_id, "parsing")
+            .await
             .map_err(|e| format!("Failed to update phase: {}", e))?;
 
         let orchestrator = SyncOrchestrator::new(git_config, self.pool.clone(), list_id);
@@ -863,7 +944,8 @@ impl SyncDispatcher {
 
             // Get commits for this epoch
             let since = last_commits.get(&epoch).map(|s| s.as_str());
-            let commits = orchestrator.git_manager
+            let commits = orchestrator
+                .git_manager
                 .get_commits_for_epoch(epoch, since)
                 .map_err(|e| format!("Failed to get commits for epoch {}: {}", epoch, e))?;
 
@@ -872,25 +954,35 @@ impl SyncDispatcher {
                 continue;
             }
 
-            log::info!("job {}: epoch {} - {} commits", job_id, epoch, commits.len());
+            log::info!(
+                "job {}: epoch {} - {} commits",
+                job_id,
+                epoch,
+                commits.len()
+            );
 
             // Parse emails (Rayon parallel)
             let parsed = orchestrator.parse_all_parallel(commits.clone()).await?;
-            log::info!("job {}: epoch {} - parsed {} emails", job_id, epoch, parsed.len());
+            log::info!(
+                "job {}: epoch {} - parsed {} emails",
+                job_id,
+                epoch,
+                parsed.len()
+            );
 
             // Import and populate unified cache
-            let emails_imported = self.import_epoch_emails_to_database_and_cache(
-                job_id,
-                list_id,
-                parsed,
-                epoch,
-                cache,
-            ).await?;
+            let emails_imported = self
+                .import_epoch_emails_to_database_and_cache(job_id, list_id, parsed, epoch, cache)
+                .await?;
 
             total_emails_imported += emails_imported;
 
-            log::info!("job {}: epoch {} - imported {} emails, populated cache",
-                job_id, epoch, emails_imported);
+            log::info!(
+                "job {}: epoch {} - imported {} emails, populated cache",
+                job_id,
+                epoch,
+                emails_imported
+            );
 
             // Save checkpoint for this epoch
             if let Some((last_commit, _, _)) = commits.last() {
@@ -898,7 +990,11 @@ impl SyncDispatcher {
             }
         }
 
-        log::info!("job {}: parsing & import complete - {} total emails", job_id, total_emails_imported);
+        log::info!(
+            "job {}: parsing & import complete - {} total emails",
+            job_id,
+            total_emails_imported
+        );
 
         Ok((total_emails_imported, epoch_checkpoints))
     }
@@ -931,13 +1027,11 @@ impl SyncDispatcher {
     ) -> Result<(MailingListCache, Vec<i32>, bool), String> {
         log::info!("job {}: initializing unified cache", job_id);
 
-        let cache_dir = std::env::var("THREADING_CACHE_BASE_PATH")
-            .unwrap_or_else(|_| "./cache".to_string());
+        let cache_dir =
+            std::env::var("THREADING_CACHE_BASE_PATH").unwrap_or_else(|_| "./cache".to_string());
 
         // Enumerate all epochs for this mailing list
-        let all_epochs: Vec<i32> = repos.iter()
-            .map(|r| r.order)
-            .collect();
+        let all_epochs: Vec<i32> = repos.iter().map(|r| r.order).collect();
 
         // Determine sync type based on checkpoint existence
         // Checkpoints store the last processed commit hash for each epoch
@@ -955,7 +1049,8 @@ impl SyncDispatcher {
             vec![max - 1, max].into_iter().filter(|&e| e >= 0).collect()
         };
 
-        log::info!("job {}: {} sync - {} epochs to process",
+        log::info!(
+            "job {}: {} sync - {} epochs to process",
             job_id,
             if is_full_sync { "FULL" } else { "INCREMENTAL" },
             epochs_to_process.len()
@@ -971,7 +1066,10 @@ impl SyncDispatcher {
         } else {
             // Incremental sync: Load existing cache to preserve all historical email data
             // Try disk first (fast), fall back to database (slower but reliable)
-            log::info!("job {}: loading existing cache for incremental sync", job_id);
+            log::info!(
+                "job {}: loading existing cache for incremental sync",
+                job_id
+            );
             match MailingListCache::load_from_disk(list_id, &PathBuf::from(&cache_dir)) {
                 Ok(cache) => {
                     // Disk cache hit - fastest path
@@ -994,27 +1092,27 @@ impl SyncDispatcher {
         Ok((cache, epochs_to_process, is_full_sync))
     }
 
-    async fn load_mailing_list_configuration(&self, list_id: i32)
-        -> Result<(String, Vec<RepoConfig>), sqlx::Error> {
-
+    async fn load_mailing_list_configuration(
+        &self,
+        list_id: i32,
+    ) -> Result<(String, Vec<RepoConfig>), sqlx::Error> {
         // Get mailing list slug
-        let (slug,): (String,) = sqlx::query_as(
-            "SELECT slug FROM mailing_lists WHERE id = $1"
-        )
-        .bind(list_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let (slug,): (String,) = sqlx::query_as("SELECT slug FROM mailing_lists WHERE id = $1")
+            .bind(list_id)
+            .fetch_one(&self.pool)
+            .await?;
 
         // Get repositories ordered by repo_order
         let repos: Vec<(String, i32)> = sqlx::query_as(
             "SELECT repo_url, repo_order FROM mailing_list_repositories
-             WHERE mailing_list_id = $1 ORDER BY repo_order"
+             WHERE mailing_list_id = $1 ORDER BY repo_order",
         )
         .bind(list_id)
         .fetch_all(&self.pool)
         .await?;
 
-        let repo_configs = repos.into_iter()
+        let repo_configs = repos
+            .into_iter()
             .map(|(url, order)| RepoConfig { url, order })
             .collect();
 

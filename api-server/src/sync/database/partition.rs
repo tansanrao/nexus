@@ -34,7 +34,11 @@ use rocket_db_pools::sqlx::PgPool;
 ///
 /// # Returns
 /// `Ok(())` if all partitions are created successfully, error otherwise
-pub async fn create_mailing_list_partitions(pool: &PgPool, list_id: i32, slug: &str) -> Result<(), sqlx::Error> {
+pub async fn create_mailing_list_partitions(
+    pool: &PgPool,
+    list_id: i32,
+    slug: &str,
+) -> Result<(), sqlx::Error> {
     log::debug!("creating partitions: {} (id={})", slug, list_id);
 
     // Sanitize slug for use in table names (replace hyphens with underscores)
@@ -45,7 +49,8 @@ pub async fn create_mailing_list_partitions(pool: &PgPool, list_id: i32, slug: &
     // Create emails partition
     sqlx::query(&format!(
         r#"CREATE TABLE emails_{} PARTITION OF emails
-           FOR VALUES IN ({})"#, safe_slug, list_id
+           FOR VALUES IN ({})"#,
+        safe_slug, list_id
     ))
     .execute(pool)
     .await?;
@@ -53,7 +58,8 @@ pub async fn create_mailing_list_partitions(pool: &PgPool, list_id: i32, slug: &
     // Create threads partition
     sqlx::query(&format!(
         r#"CREATE TABLE threads_{} PARTITION OF threads
-           FOR VALUES IN ({})"#, safe_slug, list_id
+           FOR VALUES IN ({})"#,
+        safe_slug, list_id
     ))
     .execute(pool)
     .await?;
@@ -61,7 +67,8 @@ pub async fn create_mailing_list_partitions(pool: &PgPool, list_id: i32, slug: &
     // Create email_recipients partition
     sqlx::query(&format!(
         r#"CREATE TABLE email_recipients_{} PARTITION OF email_recipients
-           FOR VALUES IN ({})"#, safe_slug, list_id
+           FOR VALUES IN ({})"#,
+        safe_slug, list_id
     ))
     .execute(pool)
     .await?;
@@ -69,7 +76,8 @@ pub async fn create_mailing_list_partitions(pool: &PgPool, list_id: i32, slug: &
     // Create email_references partition
     sqlx::query(&format!(
         r#"CREATE TABLE email_references_{} PARTITION OF email_references
-           FOR VALUES IN ({})"#, safe_slug, list_id
+           FOR VALUES IN ({})"#,
+        safe_slug, list_id
     ))
     .execute(pool)
     .await?;
@@ -77,7 +85,8 @@ pub async fn create_mailing_list_partitions(pool: &PgPool, list_id: i32, slug: &
     // Create thread_memberships partition
     sqlx::query(&format!(
         r#"CREATE TABLE thread_memberships_{} PARTITION OF thread_memberships
-           FOR VALUES IN ({})"#, safe_slug, list_id
+           FOR VALUES IN ({})"#,
+        safe_slug, list_id
     ))
     .execute(pool)
     .await?;
@@ -105,24 +114,42 @@ pub async fn drop_mailing_list_partitions(pool: &PgPool, slug: &str) -> Result<(
     let safe_slug = slug.replace('-', "_");
 
     // Drop in reverse order of dependencies
-    sqlx::query(&format!("DROP TABLE IF EXISTS thread_memberships_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS email_references_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS email_recipients_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS threads_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS emails_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS authors_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
+    sqlx::query(&format!(
+        "DROP TABLE IF EXISTS thread_memberships_{} CASCADE",
+        safe_slug
+    ))
+    .execute(pool)
+    .await?;
+    sqlx::query(&format!(
+        "DROP TABLE IF EXISTS email_references_{} CASCADE",
+        safe_slug
+    ))
+    .execute(pool)
+    .await?;
+    sqlx::query(&format!(
+        "DROP TABLE IF EXISTS email_recipients_{} CASCADE",
+        safe_slug
+    ))
+    .execute(pool)
+    .await?;
+    sqlx::query(&format!(
+        "DROP TABLE IF EXISTS threads_{} CASCADE",
+        safe_slug
+    ))
+    .execute(pool)
+    .await?;
+    sqlx::query(&format!(
+        "DROP TABLE IF EXISTS emails_{} CASCADE",
+        safe_slug
+    ))
+    .execute(pool)
+    .await?;
+    sqlx::query(&format!(
+        "DROP TABLE IF EXISTS authors_{} CASCADE",
+        safe_slug
+    ))
+    .execute(pool)
+    .await?;
 
     log::debug!("partitions dropped: {}", slug);
     Ok(())

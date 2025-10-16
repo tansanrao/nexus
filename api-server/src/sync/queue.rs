@@ -1,7 +1,7 @@
-use rocket_db_pools::sqlx::{self, PgPool};
-use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use rocket_db_pools::sqlx::{self, PgPool};
 use rocket_okapi::okapi::schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct SyncJob {
@@ -21,7 +21,7 @@ impl JobQueue {
     /// Enqueue jobs for all enabled mailing lists
     pub async fn enqueue_all_enabled(&self) -> Result<Vec<i32>, sqlx::Error> {
         let list_ids: Vec<(i32,)> = sqlx::query_as(
-            "SELECT id FROM mailing_lists WHERE enabled = true ORDER BY sync_priority DESC"
+            "SELECT id FROM mailing_lists WHERE enabled = true ORDER BY sync_priority DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -40,7 +40,7 @@ impl JobQueue {
         let (id,): (i32,) = sqlx::query_as(
             r#"INSERT INTO sync_jobs (mailing_list_id, phase)
                VALUES ($1, 'waiting')
-               RETURNING id"#
+               RETURNING id"#,
         )
         .bind(mailing_list_id)
         .fetch_one(&self.pool)
@@ -58,18 +58,16 @@ impl JobQueue {
                WHERE phase = 'waiting'
                ORDER BY priority DESC, created_at ASC
                LIMIT 1
-               FOR UPDATE SKIP LOCKED"#
+               FOR UPDATE SKIP LOCKED"#,
         )
         .fetch_optional(&mut *tx)
         .await?;
 
         if let Some((id, mailing_list_id)) = job {
-            sqlx::query(
-                "UPDATE sync_jobs SET phase = 'parsing', started_at = NOW() WHERE id = $1"
-            )
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE sync_jobs SET phase = 'parsing', started_at = NOW() WHERE id = $1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
 
             tx.commit().await?;
 
@@ -84,25 +82,21 @@ impl JobQueue {
 
     /// Update job phase
     pub async fn update_phase(&self, job_id: i32, phase: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE sync_jobs SET phase = $1 WHERE id = $2"
-        )
-        .bind(phase)
-        .bind(job_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE sync_jobs SET phase = $1 WHERE id = $2")
+            .bind(phase)
+            .bind(job_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
 
     /// Mark job complete
     pub async fn complete_job(&self, job_id: i32) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE sync_jobs SET phase = 'done', completed_at = NOW() WHERE id = $1"
-        )
-        .bind(job_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE sync_jobs SET phase = 'done', completed_at = NOW() WHERE id = $1")
+            .bind(job_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -125,7 +119,7 @@ impl JobQueue {
         let result = sqlx::query(
             r#"UPDATE sync_jobs
                SET phase = 'done', completed_at = NOW()
-               WHERE phase = 'waiting'"#
+               WHERE phase = 'waiting'"#,
         )
         .execute(&self.pool)
         .await?;
@@ -138,7 +132,7 @@ impl JobQueue {
         let result = sqlx::query(
             r#"UPDATE sync_jobs
                SET phase = 'errored', completed_at = NOW(), error_message = 'Cancelled by user'
-               WHERE phase IN ('waiting', 'parsing', 'threading')"#
+               WHERE phase IN ('waiting', 'parsing', 'threading')"#,
         )
         .execute(&self.pool)
         .await?;
@@ -148,12 +142,10 @@ impl JobQueue {
 
     /// Check if a job was cancelled (for dispatcher to detect cancellation)
     pub async fn is_job_cancelled(&self, job_id: i32) -> Result<bool, sqlx::Error> {
-        let result: Option<(String,)> = sqlx::query_as(
-            "SELECT phase FROM sync_jobs WHERE id = $1"
-        )
-        .bind(job_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let result: Option<(String,)> = sqlx::query_as("SELECT phase FROM sync_jobs WHERE id = $1")
+            .bind(job_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         Ok(result.map(|(phase,)| phase == "errored").unwrap_or(false))
     }
@@ -175,7 +167,7 @@ impl JobQueue {
                FROM sync_jobs sj
                JOIN mailing_lists ml ON sj.mailing_list_id = ml.id
                WHERE sj.phase IN ('waiting', 'parsing', 'threading')
-               ORDER BY sj.priority DESC, sj.created_at ASC"#
+               ORDER BY sj.priority DESC, sj.created_at ASC"#,
         )
         .fetch_all(&self.pool)
         .await?;

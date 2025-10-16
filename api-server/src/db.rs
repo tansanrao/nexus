@@ -1,4 +1,4 @@
-use rocket_db_pools::{sqlx, Database};
+use rocket_db_pools::{Database, sqlx};
 
 #[derive(Database)]
 #[database("nexus_db")]

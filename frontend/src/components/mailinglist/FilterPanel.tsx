@@ -56,11 +56,11 @@ export function FilterPanel({
             </span>
             <div className="grid grid-cols-3 gap-1">
               <CompactButton
-                active={sortBy === 'last_date'}
-                onClick={() => onSortChange('last_date')}
+                active={sortBy === 'lastDate'}
+                onClick={() => onSortChange('lastDate')}
               >
                 Last
-                {sortBy === 'last_date' && (
+                {sortBy === 'lastDate' && (
                   order === 'desc' ? (
                     <SortDesc className="ml-1 h-3 w-3" />
                   ) : (
@@ -69,11 +69,11 @@ export function FilterPanel({
                 )}
               </CompactButton>
               <CompactButton
-                active={sortBy === 'start_date'}
-                onClick={() => onSortChange('start_date')}
+                active={sortBy === 'startDate'}
+                onClick={() => onSortChange('startDate')}
               >
                 Start
-                {sortBy === 'start_date' && (
+                {sortBy === 'startDate' && (
                   order === 'desc' ? (
                     <SortDesc className="ml-1 h-3 w-3" />
                   ) : (
@@ -82,11 +82,11 @@ export function FilterPanel({
                 )}
               </CompactButton>
               <CompactButton
-                active={sortBy === 'message_count'}
-                onClick={() => onSortChange('message_count')}
+                active={sortBy === 'messageCount'}
+                onClick={() => onSortChange('messageCount')}
               >
                 Count
-                {sortBy === 'message_count' && (
+                {sortBy === 'messageCount' && (
                   order === 'desc' ? (
                     <SortDesc className="ml-1 h-3 w-3" />
                   ) : (

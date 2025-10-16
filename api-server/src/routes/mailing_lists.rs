@@ -1,17 +1,19 @@
+//! Mailing list management endpoints used by administrative tooling.
+
 use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{MailingList, MailingListRepository, MailingListWithRepos, DataResponse};
+use crate::models::{DataResponse, MailingList, MailingListRepository, MailingListWithRepos};
 use crate::sync::create_mailing_list_partitions;
 use crate::sync::manifest::{fetch_manifest, parse_manifest};
-use rocket::serde::json::Json;
 use rocket::State;
-use rocket_db_pools::{sqlx, Connection};
+use rocket::serde::json::Json;
+use rocket_db_pools::{Connection, sqlx};
+use rocket_okapi::okapi::schemars::JsonSchema;
 use rocket_okapi::openapi;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use rocket_okapi::okapi::schemars::JsonSchema;
 
-/// Get all mailing lists
+/// Return every mailing list configured in the service.
 #[openapi(tag = "Mailing Lists")]
 #[get("/admin/mailing-lists")]
 pub async fn list_mailing_lists(
@@ -20,7 +22,7 @@ pub async fn list_mailing_lists(
     let lists: Vec<MailingList> = sqlx::query_as(
         r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
            FROM mailing_lists
-           ORDER BY sync_priority ASC, name ASC"#
+           ORDER BY sync_priority ASC, name ASC"#,
     )
     .fetch_all(&mut **db)
     .await?;
@@ -28,7 +30,7 @@ pub async fn list_mailing_lists(
     Ok(Json(DataResponse { data: lists }))
 }
 
-/// Get a specific mailing list by slug
+/// Retrieve a specific mailing list by slug.
 #[openapi(tag = "Mailing Lists")]
 #[get("/admin/mailing-lists/<slug>")]
 pub async fn get_mailing_list(
@@ -38,7 +40,7 @@ pub async fn get_mailing_list(
     let list: MailingList = sqlx::query_as(
         r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
            FROM mailing_lists
-           WHERE slug = $1"#
+           WHERE slug = $1"#,
     )
     .bind(&slug)
     .fetch_one(&mut **db)
@@ -48,7 +50,7 @@ pub async fn get_mailing_list(
     Ok(Json(list))
 }
 
-/// Get a mailing list with its repositories
+/// Retrieve a mailing list along with all configured repository shards.
 #[openapi(tag = "Mailing Lists")]
 #[get("/admin/mailing-lists/<slug>/repositories")]
 pub async fn get_mailing_list_with_repos(
@@ -59,7 +61,7 @@ pub async fn get_mailing_list_with_repos(
     let list: MailingList = sqlx::query_as(
         r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
            FROM mailing_lists
-           WHERE slug = $1"#
+           WHERE slug = $1"#,
     )
     .bind(&slug)
     .fetch_one(&mut **db)
@@ -71,30 +73,30 @@ pub async fn get_mailing_list_with_repos(
         r#"SELECT id, mailing_list_id, repo_url, repo_order, last_indexed_commit, created_at
            FROM mailing_list_repositories
            WHERE mailing_list_id = $1
-           ORDER BY repo_order ASC"#
+           ORDER BY repo_order ASC"#,
     )
     .bind(list.id)
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(MailingListWithRepos {
-        list,
-        repos,
-    }))
+    Ok(Json(MailingListWithRepos { list, repos }))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ToggleRequest {
+    /// Desired enabled state.
     enabled: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ToggleResponse {
+    /// Confirmation message.
     message: String,
+    /// The mailing list's enabled state after applying the change.
     enabled: bool,
 }
 
-/// Toggle a mailing list enabled/disabled status
+/// Toggle the enabled state for a mailing list.
 #[openapi(tag = "Mailing Lists")]
 #[patch("/admin/mailing-lists/<slug>/toggle", data = "<request>")]
 pub async fn toggle_mailing_list(
@@ -106,7 +108,7 @@ pub async fn toggle_mailing_list(
     sqlx::query(
         r#"UPDATE mailing_lists
            SET enabled = $1
-           WHERE slug = $2"#
+           WHERE slug = $2"#,
     )
     .bind(request.enabled)
     .bind(&slug)
@@ -117,7 +119,11 @@ pub async fn toggle_mailing_list(
         message: format!(
             "Mailing list '{}' has been {}",
             slug,
-            if request.enabled { "enabled" } else { "disabled" }
+            if request.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            }
         ),
         enabled: request.enabled,
     }))
@@ -125,6 +131,7 @@ pub async fn toggle_mailing_list(
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SeedResponse {
+    /// Summary message.
     message: String,
     #[serde(rename = "mailingListsCreated")]
     mailing_lists_created: usize,
@@ -134,9 +141,10 @@ pub struct SeedResponse {
     partitions_created: usize,
 }
 
-/// Seed all mailing lists from lore.kernel.org manifest
-/// This endpoint is idempotent - safe to run multiple times
-/// Dynamically fetches and parses the grokmirror manifest
+/// Seed mailing lists from the live grokmirror manifest.
+///
+/// This operation is idempotent—existing mailing lists and repositories are
+/// preserved, while new entries are inserted and missing partitions created.
 #[openapi(tag = "Mailing Lists")]
 #[post("/admin/mailing-lists/seed")]
 pub async fn seed_mailing_lists(
@@ -164,7 +172,7 @@ pub async fn seed_mailing_lists(
             r#"INSERT INTO mailing_lists (name, slug, description, enabled, sync_priority)
                VALUES ($1, $2, $3, false, 0)
                ON CONFLICT (slug) DO NOTHING
-               RETURNING id"#
+               RETURNING id"#,
         )
         .bind(&ml_seed.name)
         .bind(&ml_seed.slug)
@@ -191,7 +199,7 @@ pub async fn seed_mailing_lists(
                 r#"INSERT INTO mailing_list_repositories
                    (mailing_list_id, repo_url, repo_order, last_indexed_commit)
                    VALUES ($1, $2, $3, NULL)
-                   ON CONFLICT (mailing_list_id, repo_order) DO NOTHING"#
+                   ON CONFLICT (mailing_list_id, repo_order) DO NOTHING"#,
             )
             .bind(ml_id)
             .bind(&repo_shard.url)
@@ -222,7 +230,9 @@ pub async fn seed_mailing_lists(
 
     log::info!(
         "seed complete: {} lists, {} repos, {} partitions",
-        mailing_lists_created, repositories_created, partitions_created
+        mailing_lists_created,
+        repositories_created,
+        partitions_created
     );
 
     Ok(Json(SeedResponse {

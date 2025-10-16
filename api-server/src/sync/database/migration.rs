@@ -18,9 +18,7 @@ use rocket_db_pools::sqlx::PgPool;
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     log::info!("running database migrations");
 
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await?;
+    sqlx::migrate!("./migrations").run(pool).await?;
 
     log::info!("database migrations completed");
     Ok(())
@@ -98,9 +96,7 @@ pub async fn reset_database(pool: &PgPool) -> Result<(), sqlx::Error> {
     log::info!("all tables dropped, running migrations");
 
     // Run all migrations from scratch
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await?;
+    sqlx::migrate!("./migrations").run(pool).await?;
 
     log::info!("database schema created via migrations");
     log::info!("call /api/admin/mailing-lists/seed to populate lists");

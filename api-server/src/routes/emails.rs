@@ -1,12 +1,15 @@
-use rocket::serde::json::Json;
-use rocket::get;
-use rocket_db_pools::{sqlx, Connection};
+//! Email-centric endpoints.
+
+use rocket::{get, serde::json::Json};
+use rocket_db_pools::{Connection, sqlx};
 use rocket_okapi::openapi;
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
 use crate::models::EmailWithAuthor;
+use crate::routes::helpers::resolve_mailing_list_id;
 
+/// Retrieve a single email in the context of a mailing list.
 #[openapi(tag = "Emails")]
 #[get("/<slug>/emails/<email_id>")]
 pub async fn get_email(
@@ -14,13 +17,7 @@ pub async fn get_email(
     mut db: Connection<NexusDb>,
     email_id: i32,
 ) -> Result<Json<EmailWithAuthor>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
     let email = sqlx::query_as::<_, EmailWithAuthor>(
         r#"

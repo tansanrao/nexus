@@ -1,60 +1,44 @@
-use rocket::serde::json::Json;
-use rocket::get;
-use rocket_db_pools::{sqlx, Connection};
-use std::collections::HashMap;
-use rocket_okapi::openapi;
+//! Thread-focused REST endpoints.
+//!
+//! Provides listing, detail retrieval, and search capabilities for threads
+//! within a specific mailing list. Query parameters are parsed via helpers in
+//! [`crate::routes::params`] to keep OpenAPI metadata in sync with Rocket.
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{EmailHierarchy, Thread, ThreadDetail, SearchType, PaginatedResponse};
+use crate::models::{EmailHierarchy, PaginatedResponse, Thread, ThreadDetail};
+use crate::routes::{
+    helpers::resolve_mailing_list_id,
+    params::{ThreadListParams, ThreadSearchParams, ThreadSearchType},
+};
+use rocket::{get, serde::json::Json};
+use rocket_db_pools::{Connection, sqlx};
+use rocket_okapi::openapi;
+use std::collections::HashMap;
 
+/// List threads in a mailing list with pagination and sorting.
 #[openapi(tag = "Threads")]
-#[get("/<slug>/threads?<page>&<size>&<sortBy>&<order>")]
+#[get("/<slug>/threads?<params..>")]
 pub async fn list_threads(
     slug: String,
     mut db: Connection<NexusDb>,
-    page: Option<i64>,
-    size: Option<i64>,
-    #[allow(non_snake_case)]
-    sortBy: Option<String>,
-    order: Option<String>,
+    params: Option<ThreadListParams>,
 ) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let params = params.unwrap_or_default();
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
-    let page = page.unwrap_or(1);
-    let size = size.unwrap_or(50).min(100); // Max 100 items per page
+    let page = params.page();
+    let size = params.size();
     let offset = (page - 1) * size;
+    let sort_column = params.sort_column();
+    let sort_order = params.sort_order();
 
-    // Parse sort parameters with defaults
-    let sort_field = match sortBy.as_deref() {
-        Some("startDate") => "start_date",
-        Some("lastDate") => "last_date",
-        Some("messageCount") => "message_count",
-        _ => "last_date", // default
-    };
-
-    let sort_order = match order.as_deref() {
-        Some("asc") => "ASC",
-        Some("desc") => "DESC",
-        _ => "DESC", // default
-    };
-
-    // Get total count for pagination
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM threads WHERE mailing_list_id = $1"
-    )
-    .bind(mailing_list_id)
-    .fetch_one(&mut **db)
-    .await?;
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM threads WHERE mailing_list_id = $1")
+        .bind(mailing_list_id)
+        .fetch_one(&mut **db)
+        .await?;
     let total_elements = total.0;
 
-    // Build query with dynamic ORDER BY and mailing_list_id filter
     let query = format!(
         r#"
         SELECT id, mailing_list_id, root_message_id, subject, start_date, last_date,
@@ -64,7 +48,7 @@ pub async fn list_threads(
         ORDER BY {} {}
         LIMIT $2 OFFSET $3
         "#,
-        sort_field, sort_order
+        sort_column, sort_order
     );
 
     let threads = sqlx::query_as::<_, Thread>(&query)
@@ -74,9 +58,15 @@ pub async fn list_threads(
         .fetch_all(&mut **db)
         .await?;
 
-    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
+    Ok(Json(PaginatedResponse::new(
+        threads,
+        page,
+        size,
+        total_elements,
+    )))
 }
 
+/// Retrieve thread metadata and the threaded email hierarchy.
 #[openapi(tag = "Threads")]
 #[get("/<slug>/threads/<thread_id>")]
 pub async fn get_thread(
@@ -84,15 +74,8 @@ pub async fn get_thread(
     mut db: Connection<NexusDb>,
     thread_id: i32,
 ) -> Result<Json<ThreadDetail>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
-    // Get thread info
     let thread = sqlx::query_as::<_, Thread>(
         r#"
         SELECT id, mailing_list_id, root_message_id, subject, start_date, last_date,
@@ -106,7 +89,6 @@ pub async fn get_thread(
     .fetch_one(&mut **db)
     .await?;
 
-    // Get all emails in thread with author info and depth
     let mut emails = sqlx::query_as::<_, EmailHierarchy>(
         r#"
         SELECT
@@ -125,207 +107,101 @@ pub async fn get_thread(
     .fetch_all(&mut **db)
     .await?;
 
-    // Sort emails in thread order (depth-first traversal)
-    // This ensures each email appears immediately after its parent
     emails = sort_emails_by_thread_order(emails);
 
     Ok(Json(ThreadDetail { thread, emails }))
 }
 
-/// Sort emails in depth-first, pre-order traversal
-///
-/// This ensures that:
-/// 1. Each email appears immediately after its parent
-/// 2. Siblings are ordered by date
-/// 3. The tree structure is preserved for correct UI rendering
-fn sort_emails_by_thread_order(emails: Vec<EmailHierarchy>) -> Vec<EmailHierarchy> {
-    // Build a map of message_id -> email for quick lookup
-    let email_map: HashMap<String, &EmailHierarchy> = emails
-        .iter()
-        .map(|e| (e.message_id.clone(), e))
-        .collect();
-
-    // Build a map of parent message_id -> children emails
-    let mut children_map: HashMap<Option<String>, Vec<&EmailHierarchy>> = HashMap::new();
-    for email in &emails {
-        children_map
-            .entry(email.in_reply_to.clone())
-            .or_insert_with(Vec::new)
-            .push(email);
-    }
-
-    // Sort children by date within each parent
-    for children in children_map.values_mut() {
-        children.sort_by(|a, b| a.date.cmp(&b.date));
-    }
-
-    // Perform depth-first traversal starting from root (emails with no parent)
-    let mut result = Vec::new();
-
-    // Helper function to recursively add email and its children
-    fn add_email_and_children(
-        email: &EmailHierarchy,
-        children_map: &HashMap<Option<String>, Vec<&EmailHierarchy>>,
-        result: &mut Vec<EmailHierarchy>,
-    ) {
-        result.push(email.clone());
-
-        // Add children in date order
-        if let Some(children) = children_map.get(&Some(email.message_id.clone())) {
-            for child in children {
-                add_email_and_children(child, children_map, result);
-            }
-        }
-    }
-
-    // Start with emails that have no parent (roots)
-    if let Some(roots) = children_map.get(&None) {
-        for root in roots {
-            add_email_and_children(root, &children_map, &mut result);
-        }
-    }
-
-    // Handle orphans (emails whose parent is not in this thread - phantoms)
-    // These should be processed as sub-trees
-    for email in &emails {
-        if let Some(ref parent_msg_id) = email.in_reply_to {
-            if !email_map.contains_key(parent_msg_id) && !result.iter().any(|e| e.id == email.id) {
-                // This is an orphan - its parent (phantom) is not in this thread
-                add_email_and_children(email, &children_map, &mut result);
-            }
-        }
-    }
-
-    result
-}
-
+/// Search threads inside a mailing list by subject or full-text content.
 #[openapi(tag = "Threads")]
-#[get("/<slug>/threads/search?<q>&<searchType>&<page>&<size>&<sortBy>&<order>")]
+#[get("/<slug>/threads/search?<params..>")]
 pub async fn search_threads(
     slug: String,
     mut db: Connection<NexusDb>,
-    q: Option<String>,
-    #[allow(non_snake_case)]
-    searchType: Option<String>,
-    page: Option<i64>,
-    size: Option<i64>,
-    #[allow(non_snake_case)]
-    sortBy: Option<String>,
-    order: Option<String>,
+    params: Option<ThreadSearchParams>,
 ) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let params = params.unwrap_or_default();
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
-    let page = page.unwrap_or(1);
-    let size = size.unwrap_or(50).min(100);
+    let page = params.page();
+    let size = params.size();
+    let Some(search_term) = params.normalized_query() else {
+        return Ok(Json(PaginatedResponse::new(Vec::new(), page, size, 0)));
+    };
     let offset = (page - 1) * size;
+    let sort_column = params.sort_column();
+    let sort_order = params.sort_order();
+    let search_mode = params.search_type();
+    let search_pattern = format!("%{search_term}%");
 
-    // Parse sort parameters with defaults
-    let sort_field = match sortBy.as_deref() {
-        Some("startDate") => "start_date",
-        Some("lastDate") => "last_date",
-        Some("messageCount") => "message_count",
-        _ => "last_date", // default
-    };
+    let base_count_query = r#"
+        SELECT COUNT(DISTINCT t.id)
+        FROM threads t
+        LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
+        LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
+        WHERE t.mailing_list_id = $1
+    "#;
 
-    let sort_order = match order.as_deref() {
-        Some("asc") => "ASC",
-        Some("desc") => "DESC",
-        _ => "DESC", // default
-    };
-
-    // If no search term provided, return empty results
-    let Some(search_term) = q else {
-        return Ok(Json(PaginatedResponse::new(vec![], page, size, 0)));
-    };
-
-    // Parse search type, default to subject
-    let search_mode = match searchType.as_deref() {
-        Some("fullText") => SearchType::FullText,
-        _ => SearchType::Subject, // default
-    };
-
-    // Search in thread subjects and email bodies
-    let search_pattern = format!("%{}%", search_term.to_lowercase());
-
-    // Build count query based on search type
-    let count_query = match search_mode {
-        SearchType::Subject => {
+    let count_query = if matches!(search_mode, ThreadSearchType::FullText) {
+        format!(
             r#"
-            SELECT COUNT(DISTINCT t.id)
-            FROM threads t
-            LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
-            LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
-            WHERE t.mailing_list_id = $1
-              AND (LOWER(t.subject) LIKE $2
-               OR LOWER(e.subject) LIKE $2)
-            "#
-        }
-        SearchType::FullText => {
-            r#"
-            SELECT COUNT(DISTINCT t.id)
-            FROM threads t
-            LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
-            LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
-            WHERE t.mailing_list_id = $1
+            {}
               AND (LOWER(t.subject) LIKE $2
                OR LOWER(e.subject) LIKE $2
                OR LOWER(e.body) LIKE $2)
-            "#
-        }
+            "#,
+            base_count_query
+        )
+    } else {
+        format!(
+            r#"
+            {}
+              AND (LOWER(t.subject) LIKE $2
+               OR LOWER(e.subject) LIKE $2)
+            "#,
+            base_count_query
+        )
     };
 
-    let total: (i64,) = sqlx::query_as(count_query)
+    let total: (i64,) = sqlx::query_as(&count_query)
         .bind(mailing_list_id)
         .bind(&search_pattern)
         .fetch_one(&mut **db)
         .await?;
     let total_elements = total.0;
 
-    // Build query based on search type
-    let query = match search_mode {
-        SearchType::Subject => {
-            // Search only in subject lines (thread and email subjects)
-            format!(
-                r#"
-                SELECT DISTINCT t.id, t.mailing_list_id, t.root_message_id, t.subject, t.start_date, t.last_date,
-                       CAST(t.message_count AS INTEGER) as message_count
-                FROM threads t
-                LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
-                LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
-                WHERE t.mailing_list_id = $1
-                  AND (LOWER(t.subject) LIKE $2
-                   OR LOWER(e.subject) LIKE $2)
-                ORDER BY {} {}
-                LIMIT $3 OFFSET $4
-                "#,
-                sort_field, sort_order
-            )
-        }
-        SearchType::FullText => {
-            // Search in subject lines AND email bodies
-            format!(
-                r#"
-                SELECT DISTINCT t.id, t.mailing_list_id, t.root_message_id, t.subject, t.start_date, t.last_date,
-                       CAST(t.message_count AS INTEGER) as message_count
-                FROM threads t
-                LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
-                LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
-                WHERE t.mailing_list_id = $1
-                  AND (LOWER(t.subject) LIKE $2
-                   OR LOWER(e.subject) LIKE $2
-                   OR LOWER(e.body) LIKE $2)
-                ORDER BY {} {}
-                LIMIT $3 OFFSET $4
-                "#,
-                sort_field, sort_order
-            )
-        }
+    let base_select = r#"
+        SELECT DISTINCT t.id, t.mailing_list_id, t.root_message_id, t.subject, t.start_date, t.last_date,
+               CAST(t.message_count AS INTEGER) as message_count
+        FROM threads t
+        LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
+        LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
+        WHERE t.mailing_list_id = $1
+    "#;
+
+    let query = if matches!(search_mode, ThreadSearchType::FullText) {
+        format!(
+            r#"
+            {}
+              AND (LOWER(t.subject) LIKE $2
+               OR LOWER(e.subject) LIKE $2
+               OR LOWER(e.body) LIKE $2)
+            ORDER BY {} {}
+            LIMIT $3 OFFSET $4
+            "#,
+            base_select, sort_column, sort_order
+        )
+    } else {
+        format!(
+            r#"
+            {}
+              AND (LOWER(t.subject) LIKE $2
+               OR LOWER(e.subject) LIKE $2)
+            ORDER BY {} {}
+            LIMIT $3 OFFSET $4
+            "#,
+            base_select, sort_column, sort_order
+        )
     };
 
     let threads = sqlx::query_as::<_, Thread>(&query)
@@ -336,5 +212,60 @@ pub async fn search_threads(
         .fetch_all(&mut **db)
         .await?;
 
-    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
+    Ok(Json(PaginatedResponse::new(
+        threads,
+        page,
+        size,
+        total_elements,
+    )))
+}
+
+/// Sort emails into a depth-first order for deterministic thread rendering.
+fn sort_emails_by_thread_order(emails: Vec<EmailHierarchy>) -> Vec<EmailHierarchy> {
+    let email_map: HashMap<String, &EmailHierarchy> =
+        emails.iter().map(|e| (e.message_id.clone(), e)).collect();
+
+    let mut children_map: HashMap<Option<String>, Vec<&EmailHierarchy>> = HashMap::new();
+    for email in &emails {
+        children_map
+            .entry(email.in_reply_to.clone())
+            .or_insert_with(Vec::new)
+            .push(email);
+    }
+
+    for children in children_map.values_mut() {
+        children.sort_by(|a, b| a.date.cmp(&b.date));
+    }
+
+    let mut result = Vec::new();
+
+    fn add_email_and_children(
+        email: &EmailHierarchy,
+        children_map: &HashMap<Option<String>, Vec<&EmailHierarchy>>,
+        result: &mut Vec<EmailHierarchy>,
+    ) {
+        result.push(email.clone());
+
+        if let Some(children) = children_map.get(&Some(email.message_id.clone())) {
+            for child in children {
+                add_email_and_children(child, children_map, result);
+            }
+        }
+    }
+
+    if let Some(roots) = children_map.get(&None) {
+        for root in roots {
+            add_email_and_children(root, &children_map, &mut result);
+        }
+    }
+
+    for email in &emails {
+        if let Some(ref parent_msg_id) = email.in_reply_to {
+            if !email_map.contains_key(parent_msg_id) && !result.iter().any(|e| e.id == email.id) {
+                add_email_and_children(email, &children_map, &mut result);
+            }
+        }
+    }
+
+    result
 }

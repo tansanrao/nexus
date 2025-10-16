@@ -1,53 +1,43 @@
-use rocket::serde::json::Json;
-use rocket::get;
-use rocket_db_pools::{sqlx, Connection};
-use std::collections::HashMap;
-use rocket_okapi::openapi;
+//! Author-focused REST endpoints.
+//!
+//! These handlers expose summarized author statistics and activity for a given
+//! mailing list. They rely on shared pagination/query helpers to keep the query
+//! string contract stable and to provide rich OpenAPI metadata.
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{AuthorWithStats, EmailWithAuthor, ThreadWithStarter, Thread, PaginatedResponse};
+use crate::models::{
+    AuthorWithStats, EmailWithAuthor, PaginatedResponse, Thread, ThreadWithStarter,
+};
+use crate::routes::{
+    helpers::resolve_mailing_list_id,
+    params::{AuthorSearchParams, PaginationParams},
+};
+use rocket::{get, serde::json::Json};
+use rocket_db_pools::{Connection, sqlx};
+use rocket_okapi::openapi;
+use std::collections::HashMap;
 
+/// Search authors in a mailing list with filtering and sorting.
+///
+/// Supports case-insensitive filtering by email or canonical name as well as
+/// pagination and sorting options that map directly to the OpenAPI schema.
 #[openapi(tag = "Authors")]
-#[get("/<slug>/authors?<q>&<page>&<size>&<sortBy>&<order>")]
+#[get("/<slug>/authors?<params..>")]
 pub async fn search_authors(
     slug: String,
     mut db: Connection<NexusDb>,
-    q: Option<String>,
-    page: Option<i64>,
-    size: Option<i64>,
-    #[allow(non_snake_case)]
-    sortBy: Option<String>,
-    order: Option<String>,
+    params: Option<AuthorSearchParams>,
 ) -> Result<Json<PaginatedResponse<AuthorWithStats>>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let params = params.unwrap_or_default();
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
-    let page = page.unwrap_or(1);
-    let size = size.unwrap_or(50).min(100);
+    let page = params.page();
+    let size = params.size();
     let offset = (page - 1) * size;
-
-    // Parse sort parameters with defaults
-    let sort_field = match sortBy.as_deref() {
-        Some("canonicalName") => "canonical_name",
-        Some("email") => "email",
-        Some("emailCount") => "email_count",
-        Some("threadCount") => "thread_count",
-        Some("firstEmailDate") => "first_email_date",
-        Some("lastEmailDate") => "last_email_date",
-        _ => "email_count", // default: sort by most active
-    };
-
-    let sort_order = match order.as_deref() {
-        Some("asc") => "ASC",
-        Some("desc") => "DESC",
-        _ => "DESC", // default
-    };
+    let sort_column = params.sort_column();
+    let sort_order = params.sort_order();
+    let search_term = params.normalized_query();
 
     // Base query that gets authors active in this mailing list
     let base_query = r#"
@@ -75,9 +65,8 @@ pub async fn search_authors(
         last_email_date: Option<chrono::DateTime<chrono::Utc>>,
     }
 
-    // Get total count
-    let total_elements: i64 = if let Some(ref search_term) = q {
-        let search_pattern = format!("%{}%", search_term.to_lowercase());
+    let total_elements = if let Some(ref term) = search_term {
+        let search_pattern = format!("%{term}%");
         let count_query = r#"
             SELECT COUNT(*)
             FROM authors a
@@ -107,8 +96,8 @@ pub async fn search_authors(
         total.0
     };
 
-    let author_rows: Vec<AuthorRow> = if let Some(search_term) = q {
-        let search_pattern = format!("%{}%", search_term.to_lowercase());
+    let author_rows: Vec<AuthorRow> = if let Some(term) = search_term {
+        let search_pattern = format!("%{term}%");
         let query = format!(
             r#"
             {}
@@ -116,7 +105,7 @@ pub async fn search_authors(
             ORDER BY {} {}
             LIMIT $3 OFFSET $4
             "#,
-            base_query, sort_field, sort_order
+            base_query, sort_column, sort_order
         );
 
         sqlx::query_as::<_, AuthorRow>(&query)
@@ -133,7 +122,7 @@ pub async fn search_authors(
             ORDER BY {} {}
             LIMIT $2 OFFSET $3
             "#,
-            base_query, sort_field, sort_order
+            base_query, sort_column, sort_order
         );
 
         sqlx::query_as::<_, AuthorRow>(&query)
@@ -147,13 +136,12 @@ pub async fn search_authors(
     // Batch fetch mailing lists and name variations for all authors to avoid N+1 queries
     let author_ids: Vec<i32> = author_rows.iter().map(|r| r.id).collect();
 
-    // Fetch all mailing list slugs for all authors in one query
     let mailing_lists_data: Vec<(i32, String)> = if !author_ids.is_empty() {
         sqlx::query_as(
             r#"SELECT act.author_id, ml.slug
                FROM author_mailing_list_activity act
                JOIN mailing_lists ml ON act.mailing_list_id = ml.id
-               WHERE act.author_id = ANY($1)"#
+               WHERE act.author_id = ANY($1)"#,
         )
         .bind(&author_ids)
         .fetch_all(&mut **db)
@@ -162,11 +150,10 @@ pub async fn search_authors(
         Vec::new()
     };
 
-    // Fetch all name variations for all authors in one query
     let name_variations_data: Vec<(i32, String)> = if !author_ids.is_empty() {
         sqlx::query_as(
             "SELECT author_id, name FROM author_name_aliases
-             WHERE author_id = ANY($1) ORDER BY author_id, usage_count DESC"
+             WHERE author_id = ANY($1) ORDER BY author_id, usage_count DESC",
         )
         .bind(&author_ids)
         .fetch_all(&mut **db)
@@ -175,20 +162,25 @@ pub async fn search_authors(
         Vec::new()
     };
 
-    // Build lookup maps
     let mut mailing_lists_map: HashMap<i32, Vec<String>> = HashMap::new();
     for (author_id, slug) in mailing_lists_data {
-        mailing_lists_map.entry(author_id).or_insert_with(Vec::new).push(slug);
+        mailing_lists_map
+            .entry(author_id)
+            .or_insert_with(Vec::new)
+            .push(slug);
     }
 
     let mut name_variations_map: HashMap<i32, Vec<String>> = HashMap::new();
     for (author_id, name) in name_variations_data {
-        name_variations_map.entry(author_id).or_insert_with(Vec::new).push(name);
+        name_variations_map
+            .entry(author_id)
+            .or_insert_with(Vec::new)
+            .push(name);
     }
 
-    // Build final author list with enriched data
-    let authors: Vec<AuthorWithStats> = author_rows.into_iter().map(|row| {
-        AuthorWithStats {
+    let authors: Vec<AuthorWithStats> = author_rows
+        .into_iter()
+        .map(|row| AuthorWithStats {
             id: row.id,
             email: row.email,
             canonical_name: row.canonical_name,
@@ -199,13 +191,22 @@ pub async fn search_authors(
             first_email_date: row.first_email_date,
             last_email_date: row.last_email_date,
             mailing_lists: mailing_lists_map.get(&row.id).cloned().unwrap_or_default(),
-            name_variations: name_variations_map.get(&row.id).cloned().unwrap_or_default(),
-        }
-    }).collect();
+            name_variations: name_variations_map
+                .get(&row.id)
+                .cloned()
+                .unwrap_or_default(),
+        })
+        .collect();
 
-    Ok(Json(PaginatedResponse::new(authors, page, size, total_elements)))
+    Ok(Json(PaginatedResponse::new(
+        authors,
+        page,
+        size,
+        total_elements,
+    )))
 }
 
+/// Retrieve a specific author with mailing list context.
 #[openapi(tag = "Authors")]
 #[get("/<slug>/authors/<author_id>")]
 pub async fn get_author(
@@ -213,13 +214,7 @@ pub async fn get_author(
     mut db: Connection<NexusDb>,
     author_id: i32,
 ) -> Result<Json<AuthorWithStats>, ApiError> {
-    // Get mailing list ID from slug (for context, but we fetch global author)
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
     #[derive(Debug, sqlx::FromRow)]
     struct AuthorRow {
@@ -257,7 +252,7 @@ pub async fn get_author(
     let mailing_list_slugs: Vec<(String,)> = sqlx::query_as(
         r#"SELECT ml.slug FROM author_mailing_list_activity act
            JOIN mailing_lists ml ON act.mailing_list_id = ml.id
-           WHERE act.author_id = $1"#
+           WHERE act.author_id = $1"#,
     )
     .bind(author_id)
     .fetch_all(&mut **db)
@@ -265,7 +260,7 @@ pub async fn get_author(
 
     // Get name variations
     let name_variations: Vec<(String,)> = sqlx::query_as(
-        "SELECT name FROM author_name_aliases WHERE author_id = $1 ORDER BY usage_count DESC"
+        "SELECT name FROM author_name_aliases WHERE author_id = $1 ORDER BY usage_count DESC",
     )
     .bind(author_id)
     .fetch_all(&mut **db)
@@ -286,35 +281,28 @@ pub async fn get_author(
     }))
 }
 
+/// List the emails sent by a specific author in a mailing list.
 #[openapi(tag = "Authors")]
-#[get("/<slug>/authors/<author_id>/emails?<page>&<size>")]
+#[get("/<slug>/authors/<author_id>/emails?<params..>")]
 pub async fn get_author_emails(
     slug: String,
     mut db: Connection<NexusDb>,
     author_id: i32,
-    page: Option<i64>,
-    size: Option<i64>,
+    params: Option<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<EmailWithAuthor>>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let params = params.unwrap_or_default();
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
-    let page = page.unwrap_or(1);
-    let size = size.unwrap_or(50).min(100);
+    let page = params.page();
+    let size = params.size();
     let offset = (page - 1) * size;
 
-    // Get total count
-    let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM emails WHERE mailing_list_id = $1 AND author_id = $2"
-    )
-    .bind(mailing_list_id)
-    .bind(author_id)
-    .fetch_one(&mut **db)
-    .await?;
+    let total: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM emails WHERE mailing_list_id = $1 AND author_id = $2")
+            .bind(mailing_list_id)
+            .bind(author_id)
+            .fetch_one(&mut **db)
+            .await?;
     let total_elements = total.0;
 
     let emails = sqlx::query_as::<_, EmailWithAuthor>(
@@ -337,36 +325,35 @@ pub async fn get_author_emails(
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(PaginatedResponse::new(emails, page, size, total_elements)))
+    Ok(Json(PaginatedResponse::new(
+        emails,
+        page,
+        size,
+        total_elements,
+    )))
 }
 
+/// List threads started by the author within the mailing list.
 #[openapi(tag = "Authors")]
-#[get("/<slug>/authors/<author_id>/threads-started?<page>&<size>")]
+#[get("/<slug>/authors/<author_id>/threads-started?<params..>")]
 pub async fn get_author_threads_started(
     slug: String,
     mut db: Connection<NexusDb>,
     author_id: i32,
-    page: Option<i64>,
-    size: Option<i64>,
+    params: Option<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<ThreadWithStarter>>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let params = params.unwrap_or_default();
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
-    let page = page.unwrap_or(1);
-    let size = size.unwrap_or(50).min(100);
+    let page = params.page();
+    let size = params.size();
     let offset = (page - 1) * size;
 
-    // Get total count
     let total: (i64,) = sqlx::query_as(
         r#"SELECT COUNT(*)
            FROM threads t
            JOIN emails e ON t.root_message_id = e.message_id AND e.mailing_list_id = $1
-           WHERE t.mailing_list_id = $1 AND e.author_id = $2"#
+           WHERE t.mailing_list_id = $1 AND e.author_id = $2"#,
     )
     .bind(mailing_list_id)
     .bind(author_id)
@@ -374,7 +361,6 @@ pub async fn get_author_threads_started(
     .await?;
     let total_elements = total.0;
 
-    // Get threads where this author sent the root (first) message
     let threads = sqlx::query_as::<_, ThreadWithStarter>(
         r#"
         SELECT
@@ -396,37 +382,36 @@ pub async fn get_author_threads_started(
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
+    Ok(Json(PaginatedResponse::new(
+        threads,
+        page,
+        size,
+        total_elements,
+    )))
 }
 
+/// List threads where the author has participated (not necessarily started).
 #[openapi(tag = "Authors")]
-#[get("/<slug>/authors/<author_id>/threads-participated?<page>&<size>")]
+#[get("/<slug>/authors/<author_id>/threads-participated?<params..>")]
 pub async fn get_author_threads_participated(
     slug: String,
     mut db: Connection<NexusDb>,
     author_id: i32,
-    page: Option<i64>,
-    size: Option<i64>,
+    params: Option<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
-    // Get mailing list ID from slug
-    let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-        .bind(&slug)
-        .fetch_one(&mut **db)
-        .await
-        .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
-    let mailing_list_id = list.0;
+    let params = params.unwrap_or_default();
+    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
-    let page = page.unwrap_or(1);
-    let size = size.unwrap_or(50).min(100);
+    let page = params.page();
+    let size = params.size();
     let offset = (page - 1) * size;
 
-    // Get total count
     let total: (i64,) = sqlx::query_as(
         r#"SELECT COUNT(DISTINCT t.id)
            FROM threads t
            JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
            JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
-           WHERE t.mailing_list_id = $1 AND e.author_id = $2"#
+           WHERE t.mailing_list_id = $1 AND e.author_id = $2"#,
     )
     .bind(mailing_list_id)
     .bind(author_id)
@@ -434,7 +419,6 @@ pub async fn get_author_threads_participated(
     .await?;
     let total_elements = total.0;
 
-    // Get all threads where this author participated (sent any message)
     let threads = sqlx::query_as::<_, Thread>(
         r#"
         SELECT DISTINCT
@@ -455,5 +439,10 @@ pub async fn get_author_threads_participated(
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
+    Ok(Json(PaginatedResponse::new(
+        threads,
+        page,
+        size,
+        total_elements,
+    )))
 }

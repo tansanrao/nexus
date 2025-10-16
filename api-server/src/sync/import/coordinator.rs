@@ -7,7 +7,9 @@
 //! 4. Insert recipients and references in parallel
 //! 5. Populate threading cache
 
-use crate::sync::import::{data_builder, database_operations, data_structures::ChunkCacheData, stats::ImportStats};
+use crate::sync::import::{
+    data_builder, data_structures::ChunkCacheData, database_operations, stats::ImportStats,
+};
 use crate::sync::parser::ParsedEmail;
 use crate::threading::{EmailThreadingInfo, MailingListCache};
 use rocket_db_pools::sqlx::PgPool;
@@ -65,7 +67,8 @@ impl BulkImporter {
         let prepared_author_count = authors_data.len();
 
         let mut author_conn = self.pool.acquire().await?;
-        let author_count = database_operations::insert_authors_batch(&mut author_conn, authors_data).await?;
+        let author_count =
+            database_operations::insert_authors_batch(&mut author_conn, authors_data).await?;
         drop(author_conn); // Release connection
 
         log::trace!(
@@ -75,7 +78,8 @@ impl BulkImporter {
         );
 
         // Phase 2: Prepare and insert emails
-        let emails_data = data_builder::build_email_batch_data(&self.pool, self.mailing_list_id, chunk).await?;
+        let emails_data =
+            data_builder::build_email_batch_data(&self.pool, self.mailing_list_id, chunk).await?;
 
         log::trace!(
             "chunk: prepared {} emails for insertion (chunk size: {})",
@@ -84,8 +88,12 @@ impl BulkImporter {
         );
 
         let mut email_conn = self.pool.acquire().await?;
-        let email_count =
-            database_operations::insert_emails_batch(&mut email_conn, self.mailing_list_id, &emails_data).await?;
+        let email_count = database_operations::insert_emails_batch(
+            &mut email_conn,
+            self.mailing_list_id,
+            &emails_data,
+        )
+        .await?;
         drop(email_conn); // Release connection
 
         // Phase 3: Load email IDs and recipient author IDs in parallel
@@ -116,10 +124,12 @@ impl BulkImporter {
             },
             async {
                 if !recipient_emails_vec.is_empty() {
-                    sqlx::query_as::<_, (String, i32)>("SELECT email, id FROM authors WHERE email = ANY($1)")
-                        .bind(&recipient_emails_vec)
-                        .fetch_all(&self.pool)
-                        .await
+                    sqlx::query_as::<_, (String, i32)>(
+                        "SELECT email, id FROM authors WHERE email = ANY($1)",
+                    )
+                    .bind(&recipient_emails_vec)
+                    .fetch_all(&self.pool)
+                    .await
                 } else {
                     Ok(Vec::new())
                 }
@@ -127,11 +137,16 @@ impl BulkImporter {
         )?;
 
         let email_id_map: HashMap<String, i32> = email_id_rows.into_iter().collect();
-        let recipient_author_map: HashMap<String, i32> = recipient_author_rows.into_iter().collect();
+        let recipient_author_map: HashMap<String, i32> =
+            recipient_author_rows.into_iter().collect();
 
         // Phase 4: Prepare and insert recipients and references in parallel
-        let recipients_data =
-            data_builder::build_recipient_batch_data(self.mailing_list_id, chunk, &email_id_map, &recipient_author_map);
+        let recipients_data = data_builder::build_recipient_batch_data(
+            self.mailing_list_id,
+            chunk,
+            &email_id_map,
+            &recipient_author_map,
+        );
         let references_data =
             data_builder::build_reference_batch_data(self.mailing_list_id, chunk, &email_id_map);
 
@@ -143,7 +158,10 @@ impl BulkImporter {
 
         let (recipient_count, reference_count) = tokio::try_join!(
             database_operations::insert_recipients_batch(&mut recipient_conn, recipients_data),
-            database_operations::insert_references_batch(&mut reference_conn, references_data_clone),
+            database_operations::insert_references_batch(
+                &mut reference_conn,
+                references_data_clone
+            ),
         )?;
 
         // Phase 5: Extract cache data
@@ -185,8 +203,16 @@ impl BulkImporter {
 
         // Populate epoch cache with newly imported emails
         log::debug!("populating cache with {} emails", cache_data.emails.len());
-        for (email_id, message_id, subject, in_reply_to, date, series_id, series_number, series_total) in
-            cache_data.emails
+        for (
+            email_id,
+            message_id,
+            subject,
+            in_reply_to,
+            date,
+            series_id,
+            series_number,
+            series_total,
+        ) in cache_data.emails
         {
             cache.insert_email(
                 message_id.clone(),

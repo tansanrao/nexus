@@ -68,11 +68,11 @@ pub mod pg_config;
 pub mod queue;
 
 use crate::sync::git::{GitManager, MailingListSyncConfig};
-use crate::sync::parser::{parse_email, ParsedEmail};
+use crate::sync::parser::{ParsedEmail, parse_email};
 use rayon::prelude::*;
 use rocket_db_pools::sqlx::PgPool;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Re-export database functions for backward compatibility
 pub use database::{
@@ -104,7 +104,6 @@ impl SyncOrchestrator {
             mailing_list_id,
         }
     }
-
 
     /// Parse all commits in parallel using Rayon thread pool.
     ///
@@ -157,22 +156,21 @@ impl SyncOrchestrator {
         let parse_errors = Arc::new(AtomicUsize::new(0));
 
         let parsed = thread_pool.install(|| {
-            commits.par_iter()
+            commits
+                .par_iter()
                 .filter_map(|(commit, path, repo)| {
                     match self.git_manager.get_blob_data(commit, path, *repo) {
-                        Ok(blob) => {
-                            match parse_email(&blob) {
-                                Ok(email) => {
-                                    parse_success.fetch_add(1, Ordering::Relaxed);
-                                    Some((commit.clone(), email))
-                                }
-                                Err(e) => {
-                                    parse_errors.fetch_add(1, Ordering::Relaxed);
-                                    log::warn!("parse error for {}: {}", commit, e);
-                                    None
-                                }
+                        Ok(blob) => match parse_email(&blob) {
+                            Ok(email) => {
+                                parse_success.fetch_add(1, Ordering::Relaxed);
+                                Some((commit.clone(), email))
                             }
-                        }
+                            Err(e) => {
+                                parse_errors.fetch_add(1, Ordering::Relaxed);
+                                log::warn!("parse error for {}: {}", commit, e);
+                                None
+                            }
+                        },
                         Err(e) => {
                             parse_errors.fetch_add(1, Ordering::Relaxed);
                             log::warn!("blob error for {}: {}", commit, e);
@@ -183,11 +181,12 @@ impl SyncOrchestrator {
                 .collect()
         });
 
-        log::info!("parsing complete: {} ok, {} errors",
+        log::info!(
+            "parsing complete: {} ok, {} errors",
             parse_success.load(Ordering::Relaxed),
-            parse_errors.load(Ordering::Relaxed));
+            parse_errors.load(Ordering::Relaxed)
+        );
 
         Ok(parsed)
     }
-
 }

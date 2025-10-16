@@ -153,7 +153,7 @@ export interface AdminConfig {
 }
 
 // Query parameter types
-export type ThreadSortBy = 'start_date' | 'last_date' | 'message_count';
+export type ThreadSortBy = 'startDate' | 'lastDate' | 'messageCount';
 export type AuthorSortBy = 'canonical_name' | 'email' | 'email_count' | 'thread_count' | 'first_email_date' | 'last_email_date';
 export type SortOrder = 'asc' | 'desc';
 export type SearchType = 'subject' | 'fullText';

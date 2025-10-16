@@ -26,7 +26,7 @@ export function ThreadListSidebar() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState<ThreadSortBy>('last_date');
+  const [sortBy, setSortBy] = useState<ThreadSortBy>('lastDate');
   const [order, setOrder] = useState<SortOrder>('desc');
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
