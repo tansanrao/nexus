@@ -82,24 +82,17 @@ impl PgConfig {
         log::info!("running VACUUM ANALYZE to update statistics");
 
         // VACUUM ANALYZE must run outside a transaction
-        sqlx::query("VACUUM ANALYZE")
-            .execute(pool)
-            .await?;
+        sqlx::query("VACUUM ANALYZE").execute(pool).await?;
 
         Ok(())
     }
 
     /// Run VACUUM ANALYZE on specific tables
-    pub async fn vacuum_analyze_tables(
-        pool: &PgPool,
-        tables: &[&str],
-    ) -> Result<(), sqlx::Error> {
+    pub async fn vacuum_analyze_tables(pool: &PgPool, tables: &[&str]) -> Result<(), sqlx::Error> {
         for table in tables {
             log::debug!("running VACUUM ANALYZE on table: {}", table);
             let query = format!("VACUUM ANALYZE {}", table);
-            sqlx::query(&query)
-                .execute(pool)
-                .await?;
+            sqlx::query(&query).execute(pool).await?;
         }
 
         Ok(())
@@ -115,9 +108,7 @@ impl PgConfig {
             .fetch_one(pool)
             .await?;
 
-        let work_mem: (String,) = sqlx::query_as("SHOW work_mem")
-            .fetch_one(pool)
-            .await?;
+        let work_mem: (String,) = sqlx::query_as("SHOW work_mem").fetch_one(pool).await?;
 
         let maintenance_work_mem: (String,) = sqlx::query_as("SHOW maintenance_work_mem")
             .fetch_one(pool)

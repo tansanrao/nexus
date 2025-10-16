@@ -53,8 +53,9 @@
 //! - Memory-efficient (processes one email at a time)
 //! - No database I/O during parsing
 
-use chrono::{DateTime, Utc};
-use mailparse::{parse_mail, MailHeaderMap};
+use chrono::{DateTime, Duration, Utc};
+use mailparse::{MailHeaderMap, parse_mail};
+use thiserror::Error;
 
 /// Structured representation of a parsed email.
 ///
@@ -73,6 +74,30 @@ pub struct ParsedEmail {
     pub cc_addrs: Vec<(String, String)>, // (name, email)
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
+}
+
+/// Maximum tolerated clock skew for future-dated emails.
+const MAX_FUTURE_SKEW: Duration = Duration::hours(24);
+
+/// Errors that can be returned while parsing and validating an email.
+#[derive(Debug, Error)]
+pub enum ParseEmailError {
+    #[error("failed to parse MIME structure: {0}")]
+    MimeParse(#[from] mailparse::MailParseError),
+    #[error("missing Message-ID header")]
+    MissingMessageId,
+    #[error("missing author email for message {message_id}")]
+    MissingAuthorEmail { message_id: String },
+    #[error("missing Date header for message {message_id}")]
+    MissingDate { message_id: String },
+    #[error("invalid Date header `{raw}` for message {message_id}: {error}")]
+    InvalidDate {
+        message_id: String,
+        raw: String,
+        error: String,
+    },
+    #[error("future Date header `{raw}` for message {message_id}")]
+    FutureDate { message_id: String, raw: String },
 }
 
 /// Sanitize text by removing NUL bytes that PostgreSQL cannot store
@@ -280,7 +305,6 @@ fn extract_references(header_value: &str) -> Vec<String> {
 /// - Author email missing or empty
 ///
 /// Warnings logged (but not errors):
-/// - Unparseable date (uses current time)
 /// - Missing Subject (uses placeholder)
 /// - Missing body (empty string)
 /// - Missing recipients (empty vectors)
@@ -291,19 +315,18 @@ fn extract_references(header_value: &str) -> Vec<String> {
 /// - Called in parallel from Rayon thread pool
 /// - Typical parse time: 1-5ms per email
 /// - Memory usage: ~2x email size during parsing
-pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::Error>> {
+pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, ParseEmailError> {
     let parsed = parse_mail(blob_data).map_err(|e| {
         log::debug!("failed to parse MIME: {}", e);
-        e
+        ParseEmailError::MimeParse(e)
     })?;
 
     // Extract Message-ID (required)
-    let message_id = normalize_message_id(
-        parsed.headers.get_first_value("Message-ID")
-    ).ok_or_else(|| {
-        log::debug!("missing Message-ID header");
-        "Missing Message-ID"
-    })?;
+    let message_id = normalize_message_id(parsed.headers.get_first_value("Message-ID"))
+        .ok_or_else(|| {
+            log::debug!("missing Message-ID header");
+            ParseEmailError::MissingMessageId
+        })?;
 
     // Extract subject
     let subject = parsed
@@ -312,23 +335,14 @@ pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::
         .map(|s| sanitize_text(&s))
         .unwrap_or_else(|| "(No Subject)".to_string());
 
-    // Parse date - dateparser returns DateTime<FixedOffset>, convert to DateTime<Utc>
-    let date_str = parsed
-        .headers
-        .get_first_value("Date")
-        .unwrap_or_default();
-
-    let date = if let Ok(dt) = dateparser::parse(&date_str) {
-        dt.with_timezone(&Utc)
-    } else {
-        Utc::now()
-    };
+    let date = parse_email_date(
+        parsed.headers.get_first_value("Date"),
+        &message_id,
+        &subject,
+    )?;
 
     // Parse author
-    let from_str = parsed
-        .headers
-        .get_first_value("From")
-        .unwrap_or_default();
+    let from_str = parsed.headers.get_first_value("From").unwrap_or_default();
 
     let (author_name, author_email) = if let Ok(addrs) = mailparse::addrparse(&from_str) {
         if let Some(mailparse::MailAddr::Single(info)) = addrs.iter().next() {
@@ -343,16 +357,20 @@ pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::
     };
 
     if author_email.is_empty() {
-        log::debug!("email {} missing author", message_id);
-        return Err("Missing author email".into());
+        log::warn!(
+            "email {} ({}) missing author email, skipping",
+            message_id,
+            subject
+        );
+        return Err(ParseEmailError::MissingAuthorEmail {
+            message_id: message_id.clone(),
+        });
     }
 
     // Extract body
     let body = if parsed.subparts.is_empty() {
         // Single part message
-        parsed
-            .get_body()
-            .unwrap_or_default()
+        parsed.get_body().unwrap_or_default()
     } else {
         // Multipart message - find text/plain part
         let mut body_text = String::new();
@@ -385,9 +403,7 @@ pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::
         .unwrap_or_default();
 
     // Parse In-Reply-To
-    let in_reply_to = normalize_message_id(
-        parsed.headers.get_first_value("In-Reply-To")
-    );
+    let in_reply_to = normalize_message_id(parsed.headers.get_first_value("In-Reply-To"));
 
     // Parse References
     let references = parsed
@@ -413,6 +429,60 @@ pub fn parse_email(blob_data: &[u8]) -> Result<ParsedEmail, Box<dyn std::error::
         in_reply_to,
         references,
     })
+}
+
+fn parse_email_date(
+    raw_date: Option<String>,
+    message_id: &str,
+    subject: &str,
+) -> Result<DateTime<Utc>, ParseEmailError> {
+    let raw = raw_date.unwrap_or_default();
+    if raw.trim().is_empty() {
+        log::warn!(
+            "email {} ({}) missing Date header, skipping",
+            message_id,
+            subject
+        );
+        return Err(ParseEmailError::MissingDate {
+            message_id: message_id.to_string(),
+        });
+    }
+
+    match dateparser::parse(&raw) {
+        Ok(dt) => {
+            let utc = dt.with_timezone(&Utc);
+            let now = Utc::now();
+            if utc > now + MAX_FUTURE_SKEW {
+                log::warn!(
+                    "email {} ({}) has future date `{}` (> {} hours ahead), skipping",
+                    message_id,
+                    subject,
+                    raw,
+                    MAX_FUTURE_SKEW.num_hours()
+                );
+                Err(ParseEmailError::FutureDate {
+                    message_id: message_id.to_string(),
+                    raw,
+                })
+            } else {
+                Ok(utc)
+            }
+        }
+        Err(source) => {
+            log::warn!(
+                "email {} ({}) has invalid date `{}`, skipping: {}",
+                message_id,
+                subject,
+                raw,
+                source
+            );
+            Err(ParseEmailError::InvalidDate {
+                message_id: message_id.to_string(),
+                raw,
+                error: source.to_string(),
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -453,13 +523,51 @@ mod tests {
             normalize_subject("[PATCH v2 1/3] Add new feature"),
             "add new feature"
         );
-        assert_eq!(
-            normalize_subject("Re: Fwd: [RFC PATCH] Test"),
-            "test"
-        );
+        assert_eq!(normalize_subject("Re: Fwd: [RFC PATCH] Test"), "test");
         assert_eq!(
             normalize_subject("Re: Re: [PATCH v3] Important fix"),
             "important fix"
         );
+    }
+
+    #[test]
+    fn test_parse_email_rejects_missing_date() {
+        let raw = concat!(
+            "Message-ID: <missing-date@test>\r\n",
+            "Subject: Missing Date\r\n",
+            "From: Tester <tester@example.com>\r\n",
+            "\r\n",
+            "Body\r\n"
+        );
+
+        let err = parse_email(raw.as_bytes()).unwrap_err();
+        assert!(matches!(err, ParseEmailError::MissingDate { .. }));
+    }
+
+    #[test]
+    fn test_parse_email_rejects_invalid_date() {
+        let raw = concat!(
+            "Message-ID: <invalid-date@test>\r\n",
+            "Subject: Invalid Date\r\n",
+            "From: Tester <tester@example.com>\r\n",
+            "Date: not-a-real-date\r\n",
+            "\r\n",
+            "Body\r\n"
+        );
+
+        let err = parse_email(raw.as_bytes()).unwrap_err();
+        assert!(matches!(err, ParseEmailError::InvalidDate { .. }));
+    }
+
+    #[test]
+    fn test_parse_email_rejects_future_date() {
+        let future = Utc::now() + Duration::days(10);
+        let raw = format!(
+            "Message-ID: <future-date@test>\r\nSubject: Future Date\r\nFrom: Tester <tester@example.com>\r\nDate: {}\r\n\r\nBody\r\n",
+            future.to_rfc2822()
+        );
+
+        let err = parse_email(raw.as_bytes()).unwrap_err();
+        assert!(matches!(err, ParseEmailError::FutureDate { .. }));
     }
 }

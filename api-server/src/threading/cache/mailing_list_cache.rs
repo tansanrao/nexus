@@ -83,8 +83,8 @@ impl MailingListCache {
         }
 
         // Read and deserialize cache file
-        let serialized_data = std::fs::read(&cache_file_path)
-            .map_err(|e| CacheError::IoError(e.to_string()))?;
+        let serialized_data =
+            std::fs::read(&cache_file_path).map_err(|e| CacheError::IoError(e.to_string()))?;
 
         let stored: StoredMailingListCache = bincode::deserialize(&serialized_data)
             .map_err(|e| CacheError::DeserializeError(e.to_string()))?;
@@ -263,9 +263,7 @@ impl MailingListCache {
     /// Tuple of (email_data_map, reference_map) where:
     /// - email_data_map: email_id → EmailData
     /// - reference_map: email_id → Vec<referenced_message_ids>
-    pub fn get_all_for_threading(
-        &self,
-    ) -> (HashMap<i32, EmailData>, HashMap<i32, Vec<String>>) {
+    pub fn get_all_for_threading(&self) -> (HashMap<i32, EmailData>, HashMap<i32, Vec<String>>) {
         // Convert cached email info to EmailData format needed by JWZ algorithm
         let email_data_map = self
             .email_map

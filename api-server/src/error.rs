@@ -1,14 +1,14 @@
+use chrono::Utc;
 use rocket::http::Status;
 use rocket::response::{self, Responder};
 use rocket::{Request, Response};
-use serde::Serialize;
-use std::io::Cursor;
-use chrono::Utc;
+use rocket_okapi::OpenApiError;
 use rocket_okapi::r#gen::OpenApiGenerator;
 use rocket_okapi::okapi::openapi3::Responses;
-use rocket_okapi::response::OpenApiResponderInner;
 use rocket_okapi::okapi::schemars::{self, JsonSchema};
-use rocket_okapi::OpenApiError;
+use rocket_okapi::response::OpenApiResponderInner;
+use serde::Serialize;
+use std::io::Cursor;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -46,7 +46,7 @@ impl<'r> Responder<'r, 'static> for ApiError {
                 (
                     Status::InternalServerError,
                     "DATABASE_ERROR",
-                    "An internal database error occurred".to_string()
+                    "An internal database error occurred".to_string(),
                 )
             }
             ApiError::NotFound(msg) => {
@@ -63,7 +63,7 @@ impl<'r> Responder<'r, 'static> for ApiError {
                 (
                     Status::InternalServerError,
                     "INTERNAL_ERROR",
-                    "An internal server error occurred".to_string()
+                    "An internal server error occurred".to_string(),
                 )
             }
         };

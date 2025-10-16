@@ -1,49 +1,66 @@
+//! Administrative endpoints for sync scheduling and system status.
+
 use crate::error::ApiError;
+use crate::sync::pg_config::PgConfig;
 use crate::sync::queue::{JobQueue, JobStatusInfo};
 use crate::sync::reset_database;
-use crate::sync::pg_config::PgConfig;
-use rocket::serde::json::Json;
-use rocket::State;
+use rocket::{State, get, post, serde::json::Json};
 use rocket_db_pools::sqlx;
+use rocket_okapi::okapi::schemars::JsonSchema;
 use rocket_okapi::openapi;
 use serde::{Deserialize, Serialize};
-use rocket_okapi::okapi::schemars::JsonSchema;
 
+/// Request body for enqueuing sync jobs targeting specific mailing lists.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SyncRequest {
+    /// Mailing list slugs to process.
     #[serde(rename = "mailingListSlugs")]
     mailing_list_slugs: Vec<String>,
 }
 
+/// Response returned when sync jobs are queued.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SyncStartResponse {
+    /// Identifiers for the queued jobs.
     #[serde(rename = "jobIds")]
     job_ids: Vec<i32>,
+    /// Human-readable summary message.
     message: String,
 }
 
+/// Simplified representation of a queued job.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct QueuedJobInfo {
+    /// Job identifier.
     id: i32,
+    /// Mailing list identifier.
     #[serde(rename = "mailingListId")]
     mailing_list_id: i32,
+    /// Mailing list slug.
     #[serde(rename = "mailingListSlug")]
     mailing_list_slug: String,
+    /// Mailing list display name.
     #[serde(rename = "mailingListName")]
     mailing_list_name: String,
+    /// Position in the queue (1-based).
     position: i32,
 }
 
+/// Response describing the current sync queue.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SyncStatusResponse {
+    /// Currently running job, if any.
     #[serde(rename = "currentJob")]
     current_job: Option<JobStatusInfo>,
+    /// Jobs waiting in the queue.
     #[serde(rename = "queuedJobs")]
     queued_jobs: Vec<QueuedJobInfo>,
+    /// Indicates whether a job is actively running.
     #[serde(rename = "isRunning")]
     is_running: bool,
 }
 
+/// Aggregated statistics about the database state.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct DatabaseStatusResponse {
     #[serde(rename = "totalAuthors")]
@@ -64,28 +81,29 @@ pub struct DatabaseStatusResponse {
     date_range_end: Option<chrono::NaiveDateTime>,
 }
 
+/// Simple message wrapper for acknowledgement responses.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct MessageResponse {
+    /// Response text.
     message: String,
 }
 
-/// Start sync for all enabled mailing lists
+/// Enqueue sync jobs for every enabled mailing list.
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/start")]
-pub async fn start_sync(
-    pool: &State<sqlx::PgPool>,
-) -> Result<Json<MessageResponse>, ApiError> {
+pub async fn start_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
-    let job_ids = queue.enqueue_all_enabled()
+    let job_ids = queue
+        .enqueue_all_enabled()
         .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to enqueue jobs: {}", e)))?;
+        .map_err(|e| ApiError::InternalError(format!("Failed to enqueue jobs: {e}")))?;
 
     Ok(Json(MessageResponse {
         message: format!("Enqueued {} sync jobs", job_ids.len()),
     }))
 }
 
-/// Start sync for specific mailing lists
+/// Enqueue sync jobs for specific mailing lists.
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/queue", data = "<request>")]
 pub async fn queue_sync(
@@ -93,32 +111,32 @@ pub async fn queue_sync(
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<SyncStartResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
-
-    // Validate and get mailing list IDs
     let mut job_ids = Vec::new();
 
     for slug in &request.mailing_list_slugs {
-        let list: Option<(i32,)> = sqlx::query_as(
-            "SELECT id FROM mailing_lists WHERE slug = $1 AND enabled = true"
-        )
-        .bind(slug)
-        .fetch_optional(pool.inner())
-        .await?;
+        let list: Option<(i32,)> =
+            sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1 AND enabled = true")
+                .bind(slug)
+                .fetch_optional(pool.inner())
+                .await?;
 
         if let Some((id,)) = list {
-            let job_id = queue.enqueue_job(id)
+            let job_id = queue
+                .enqueue_job(id)
                 .await
-                .map_err(|e| ApiError::InternalError(format!("Failed to enqueue job: {}", e)))?;
+                .map_err(|e| ApiError::InternalError(format!("Failed to enqueue job: {e}")))?;
             job_ids.push(job_id);
         } else {
-            return Err(ApiError::BadRequest(
-                format!("Mailing list '{}' not found or disabled", slug)
-            ));
+            return Err(ApiError::BadRequest(format!(
+                "Mailing list '{slug}' not found or disabled"
+            )));
         }
     }
 
     if job_ids.is_empty() {
-        return Err(ApiError::BadRequest("No mailing lists specified".to_string()));
+        return Err(ApiError::BadRequest(
+            "No mailing lists specified".to_string(),
+        ));
     }
 
     Ok(Json(SyncStartResponse {
@@ -127,37 +145,34 @@ pub async fn queue_sync(
     }))
 }
 
-/// Get current sync status (running + queued jobs)
+/// Retrieve queue status and the currently running job.
 #[openapi(tag = "Admin")]
 #[get("/admin/sync/status")]
 pub async fn get_sync_status(
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<SyncStatusResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
-    let jobs = queue.get_all_jobs()
+    let jobs = queue
+        .get_all_jobs()
         .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to get sync status: {}", e)))?;
+        .map_err(|e| ApiError::InternalError(format!("Failed to get sync status: {e}")))?;
 
-    // Separate current job from queued jobs
     let mut current_job = None;
     let mut queued_jobs = Vec::new();
 
     for (idx, job) in jobs.iter().enumerate() {
-        match job.phase.as_str() {
-            "waiting" | "parsing" | "threading" => {
-                if current_job.is_none() {
-                    current_job = Some(job.clone());
-                } else {
-                    queued_jobs.push(QueuedJobInfo {
-                        id: job.id,
-                        mailing_list_id: job.mailing_list_id,
-                        mailing_list_slug: job.slug.clone(),
-                        mailing_list_name: job.name.clone(),
-                        position: (idx + 1) as i32,
-                    });
-                }
+        if matches!(job.phase.as_str(), "waiting" | "parsing" | "threading") {
+            if current_job.is_none() {
+                current_job = Some(job.clone());
+            } else {
+                queued_jobs.push(QueuedJobInfo {
+                    id: job.id,
+                    mailing_list_id: job.mailing_list_id,
+                    mailing_list_slug: job.slug.clone(),
+                    mailing_list_name: job.name.clone(),
+                    position: (idx + 1) as i32,
+                });
             }
-            _ => {}
         }
     }
 
@@ -170,43 +185,43 @@ pub async fn get_sync_status(
     }))
 }
 
-/// Cancel ALL sync jobs including currently running ones
+/// Cancel all sync jobs, including the active job if one is running.
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/cancel")]
-pub async fn cancel_sync(
-    pool: &State<sqlx::PgPool>,
-) -> Result<Json<MessageResponse>, ApiError> {
+pub async fn cancel_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
-    let cancelled_count = queue.cancel_all_jobs()
+    let cancelled_count = queue
+        .cancel_all_jobs()
         .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to cancel jobs: {}", e)))?;
+        .map_err(|e| ApiError::InternalError(format!("Failed to cancel jobs: {e}")))?;
 
     Ok(Json(MessageResponse {
-        message: format!("Cancelled {} job(s) (including running jobs)", cancelled_count),
+        message: format!(
+            "Cancelled {} job(s) (including running jobs)",
+            cancelled_count
+        ),
     }))
 }
 
-/// Reset the database (drop and recreate all tables)
+/// Drop and recreate the database schema.
 #[openapi(tag = "Admin")]
 #[post("/admin/database/reset")]
 pub async fn reset_db(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse>, ApiError> {
     reset_database(pool.inner())
         .await
-        .map_err(|e| ApiError::InternalError(format!("Database reset failed: {}", e)))?;
+        .map_err(|e| ApiError::InternalError(format!("Database reset failed: {e}")))?;
 
     Ok(Json(MessageResponse {
         message: "Database reset successfully".to_string(),
     }))
 }
 
-/// Get database statistics (global, not per mailing list)
-/// Queries are parallelized for faster response times
+/// Return aggregate statistics about the database.
 #[openapi(tag = "Admin")]
 #[get("/admin/database/status")]
 pub async fn get_database_status(
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<DatabaseStatusResponse>, ApiError> {
-    // Parallelize all independent COUNT queries for better performance
     let (
         total_authors,
         total_emails,
@@ -248,7 +263,7 @@ pub async fn get_database_status(
         },
         async {
             sqlx::query_as::<_, (Option<chrono::NaiveDateTime>, Option<chrono::NaiveDateTime>)>(
-                "SELECT MIN(date), MAX(date) FROM emails"
+                "SELECT MIN(date), MAX(date) FROM emails",
             )
             .fetch_one(pool.inner())
             .await
@@ -268,7 +283,7 @@ pub async fn get_database_status(
     }))
 }
 
-/// Get PostgreSQL configuration for monitoring
+/// Return PostgreSQL configuration details relevant for monitoring.
 #[openapi(tag = "Admin")]
 #[get("/admin/database/config")]
 pub async fn get_database_config(
@@ -276,7 +291,7 @@ pub async fn get_database_config(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let config = PgConfig::check_config(pool.inner())
         .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to get config: {}", e)))?;
+        .map_err(|e| ApiError::InternalError(format!("Failed to get config: {e}")))?;
 
     let json = serde_json::json!({
         "max_connections": config.max_connections,

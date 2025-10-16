@@ -4,7 +4,7 @@
 //! for efficient multi-row inserts.
 
 use crate::sync::import::data_structures::{EmailsData, RecipientsData, ReferencesData};
-use rocket_db_pools::sqlx::{pool::PoolConnection, Postgres};
+use rocket_db_pools::sqlx::{Postgres, pool::PoolConnection};
 use std::collections::HashMap;
 
 /// Insert a batch of authors into the database.
@@ -110,7 +110,9 @@ pub async fn insert_emails_batch(
     if rows_affected < count {
         log::debug!(
             "insert_emails_batch: tried to insert {} emails, but only {} were inserted ({} skipped due to conflicts)",
-            count, rows_affected, count - rows_affected
+            count,
+            rows_affected,
+            count - rows_affected
         );
     }
 

@@ -79,8 +79,7 @@ pub fn parse_manifest(manifest: &Manifest) -> Vec<MailingListFromManifest> {
         // Parse epoch/order from path
         // Handle both /slug/epoch and /slug/git/epoch.git formats
         let order = if parts.len() >= 2 {
-            let epoch_str = parts[parts.len() - 1]
-                .trim_end_matches(".git");
+            let epoch_str = parts[parts.len() - 1].trim_end_matches(".git");
             epoch_str.parse::<i32>().unwrap_or(0)
         } else {
             0
@@ -128,10 +127,7 @@ pub fn parse_manifest(manifest: &Manifest) -> Vec<MailingListFromManifest> {
     let mut result: Vec<MailingListFromManifest> = mailing_lists.into_values().collect();
     result.sort_by(|a, b| a.slug.cmp(&b.slug));
 
-    log::info!(
-        "parsed manifest: {} mailing lists",
-        result.len()
-    );
+    log::info!("parsed manifest: {} mailing lists", result.len());
 
     result
 }
