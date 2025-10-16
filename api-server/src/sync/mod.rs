@@ -1,6 +1,67 @@
+//! Mailing list synchronization system.
+//!
+//! This module provides a complete pipeline for synchronizing mailing list archives from
+//! public-inbox Git repositories into a PostgreSQL database with email threading.
+//!
+//! # Architecture Overview
+//!
+//! The sync system operates in a job-based architecture with the following components:
+//!
+//! ## Core Components
+//!
+//! - **`dispatcher`**: Orchestrates the entire sync lifecycle through a job queue system.
+//!   Claims jobs, coordinates all sync phases, and handles error recovery.
+//!
+//! - **`git`**: Manages Git repository operations including mirror validation, commit
+//!   discovery, and blob retrieval from public-inbox v2 format repositories.
+//!
+//! - **`parser`**: Parses raw email content from Git blobs into structured data with
+//!   proper header extraction, sanitization, and subject normalization for threading.
+//!
+//! - **`import`**: Handles bulk database imports with optimized batch operations,
+//!   author deduplication, and threading cache population.
+//!
+//! - **`database`**: Provides database utilities for partition management, checkpoints,
+//!   migrations, and cache persistence.
+//!
+//! - **`queue`**: Manages the sync job queue with job claiming, status updates, phase
+//!   tracking, and cancellation support.
+//!
+//! ## Data Flow
+//!
+//! The synchronization process follows this pipeline:
+//!
+//! 1. **Job Claiming**: Dispatcher claims a sync job from the queue
+//! 2. **Git Discovery**: Discover commits from mirrored repositories (per epoch)
+//! 3. **Parallel Parsing**: Parse emails using Rayon thread pool (CPU-bound)
+//! 4. **Batch Import**: Import emails to database in 25K chunks, populate threading cache
+//! 5. **Threading**: Run JWZ algorithm on complete cache to build thread hierarchy
+//! 6. **Persistence**: Save cache to disk and update database checkpoints
+//!
+//! ## Synchronization Modes
+//!
+//! - **Full Sync**: Process all epochs from scratch with empty cache (initial sync)
+//! - **Incremental Sync**: Process only last 2 epochs using existing cache (updates)
+//!
+//! ## Performance Characteristics
+//!
+//! - Rayon parallelization for CPU-bound parsing (uses all available cores)
+//! - 6 database connection pool for I/O-bound imports
+//! - 25,000 email chunks to balance memory usage and connection timeout prevention
+//! - Unified in-memory cache eliminates epoch merging overhead
+//! - SHA256 membership hashing for efficient thread change detection
+//!
+//! ## Epoch-Based Model
+//!
+//! Emails are organized into "epochs" (sequential repository orders). Each mailing list
+//! can have multiple epoch repositories, processed sequentially to maintain chronological
+//! ordering and enable checkpoint recovery.
+
 pub mod bulk_import;
+pub mod database;
 pub mod dispatcher;
 pub mod git;
+pub mod import;
 pub mod manifest;
 pub mod parser;
 pub mod pg_config;
@@ -13,7 +74,22 @@ use rocket_db_pools::sqlx::PgPool;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// Main synchronization orchestrator
+// Re-export database functions for backward compatibility
+pub use database::{
+    create_mailing_list_partitions, drop_mailing_list_partitions, load_last_indexed_commits,
+    reset_database, run_migrations, save_last_indexed_commits, save_last_threaded_at,
+};
+
+/// Main synchronization orchestrator for email parsing operations.
+///
+/// Coordinates Git blob retrieval and parallel email parsing using Rayon.
+/// This struct is used by the dispatcher during the parsing phase of sync jobs.
+///
+/// # Fields
+///
+/// - `git_manager`: Handles Git operations (commit discovery, blob retrieval)
+/// - `pool`: Database connection pool for potential future operations
+/// - `mailing_list_id`: Target mailing list identifier
 pub struct SyncOrchestrator {
     pub git_manager: GitManager,
     pool: PgPool,
@@ -30,7 +106,41 @@ impl SyncOrchestrator {
     }
 
 
-    /// Parse all commits in parallel using Rayon
+    /// Parse all commits in parallel using Rayon thread pool.
+    ///
+    /// This is the CPU-bound parsing phase that processes email blobs in parallel
+    /// to maximize throughput. Uses all available CPU cores via Rayon.
+    ///
+    /// # Arguments
+    ///
+    /// - `commits`: Vector of (commit_hash, path, repo_order) tuples to parse
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Vec<(String, ParsedEmail)>)`: Successfully parsed emails with their commit hashes
+    /// - `Err(String)`: Fatal error (e.g., failed to create thread pool)
+    ///
+    /// # Performance
+    ///
+    /// - Creates a Rayon thread pool with `num_cpus::get()` threads
+    /// - Processes commits in parallel using `par_iter()`
+    /// - Retrieves blobs from Git repositories (I/O per worker thread)
+    /// - Parses email content (CPU-intensive MIME parsing)
+    /// - Filters out parse errors (logged but not fatal)
+    ///
+    /// # Error Handling
+    ///
+    /// Individual email parse failures are logged as warnings but don't stop processing.
+    /// Only thread pool creation failures return an error. Parse success/error counts
+    /// are tracked and logged for monitoring.
+    ///
+    /// # Example Flow
+    ///
+    /// For 10,000 commits on an 8-core machine:
+    /// - Creates 8 worker threads
+    /// - Each thread processes ~1,250 commits
+    /// - Each thread: git blob retrieval → MIME parsing → validation
+    /// - Failed parses are skipped, successful ones collected
     async fn parse_all_parallel(
         &self,
         commits: Vec<(String, String, i32)>,
@@ -80,172 +190,4 @@ impl SyncOrchestrator {
         Ok(parsed)
     }
 
-}
-
-/// Run database migrations
-/// This is idempotent - migrations that have already been applied will be skipped
-pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
-    log::info!("running database migrations");
-
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await?;
-
-    log::info!("database migrations completed");
-    Ok(())
-}
-
-/// Reset database by dropping and recreating all tables
-/// This will drop ALL mailing list partitions as well
-pub async fn reset_database(pool: &PgPool) -> Result<(), sqlx::Error> {
-    log::info!("resetting database schema");
-
-    // Drop all existing tables in reverse order of dependencies
-    // PostgreSQL CASCADE will handle partitions
-    sqlx::query("DROP TABLE IF EXISTS thread_memberships CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS threads CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS email_recipients CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS email_references CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS emails CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS author_mailing_list_activity CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS author_name_aliases CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS authors CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS mailing_list_repositories CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS mailing_lists CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS sync_jobs CASCADE")
-        .execute(pool)
-        .await?;
-
-    // Drop the sqlx migrations tracking table to allow re-running migrations
-    sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations CASCADE")
-        .execute(pool)
-        .await?;
-
-    log::info!("all tables dropped, running migrations");
-
-    // Run all migrations from scratch
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await?;
-
-    log::info!("database schema created via migrations");
-    log::info!("call /api/admin/mailing-lists/seed to populate lists");
-    Ok(())
-}
-
-/// Create all partitions for a specific mailing list
-///
-/// NOTE: Indexes are NOT created here - they are automatically created by PostgreSQL
-/// when you create indexes on the parent partitioned table. This follows PostgreSQL
-/// best practices for partitioned tables.
-pub async fn create_mailing_list_partitions(pool: &PgPool, list_id: i32, slug: &str) -> Result<(), sqlx::Error> {
-    log::debug!("creating partitions: {} (id={})", slug, list_id);
-
-    // Sanitize slug for use in table names (replace hyphens with underscores)
-    let safe_slug = slug.replace('-', "_");
-
-    // Authors table is now global (not partitioned) - skip partition creation
-
-    // Create emails partition
-    sqlx::query(&format!(
-        r#"CREATE TABLE emails_{} PARTITION OF emails
-           FOR VALUES IN ({})"#, safe_slug, list_id
-    ))
-    .execute(pool)
-    .await?;
-
-    // Create threads partition
-    sqlx::query(&format!(
-        r#"CREATE TABLE threads_{} PARTITION OF threads
-           FOR VALUES IN ({})"#, safe_slug, list_id
-    ))
-    .execute(pool)
-    .await?;
-
-    // Create email_recipients partition
-    sqlx::query(&format!(
-        r#"CREATE TABLE email_recipients_{} PARTITION OF email_recipients
-           FOR VALUES IN ({})"#, safe_slug, list_id
-    ))
-    .execute(pool)
-    .await?;
-
-    // Create email_references partition
-    sqlx::query(&format!(
-        r#"CREATE TABLE email_references_{} PARTITION OF email_references
-           FOR VALUES IN ({})"#, safe_slug, list_id
-    ))
-    .execute(pool)
-    .await?;
-
-    // Create thread_memberships partition
-    sqlx::query(&format!(
-        r#"CREATE TABLE thread_memberships_{} PARTITION OF thread_memberships
-           FOR VALUES IN ({})"#, safe_slug, list_id
-    ))
-    .execute(pool)
-    .await?;
-
-    log::debug!("partitions created: {}", slug);
-    Ok(())
-}
-
-/// Drop all partitions for a specific mailing list
-#[allow(dead_code)]
-pub async fn drop_mailing_list_partitions(pool: &PgPool, slug: &str) -> Result<(), sqlx::Error> {
-    log::debug!("dropping partitions: {}", slug);
-    let safe_slug = slug.replace('-', "_");
-
-    // Drop in reverse order of dependencies
-    sqlx::query(&format!("DROP TABLE IF EXISTS thread_memberships_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS email_references_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS email_recipients_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS threads_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS emails_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-    sqlx::query(&format!("DROP TABLE IF EXISTS authors_{} CASCADE", safe_slug))
-        .execute(pool)
-        .await?;
-
-    log::debug!("partitions dropped: {}", slug);
-    Ok(())
 }

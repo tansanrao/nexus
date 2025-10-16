@@ -1,6 +1,6 @@
 import { SlidersHorizontal, SortAsc, SortDesc } from 'lucide-react';
-import { Button } from '../ui/button';
 import type { ThreadSortBy, SortOrder, SearchType } from '../../types';
+import { CompactButton } from '../ui/compact-button';
 
 interface FilterPanelProps {
   searchType: SearchType;
@@ -22,57 +22,42 @@ export function FilterPanel({
   onToggle,
 }: FilterPanelProps) {
   return (
-    <div className="space-y-3">
-      {/* Filter toggle button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onToggle}
-        className="w-full justify-start text-xs"
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5 mr-2" />
-        {isExpanded ? 'Hide' : 'Show'} Filters
-      </Button>
+    <div className="space-y-2">
+      <CompactButton onClick={onToggle} aria-expanded={isExpanded}>
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        <span>{isExpanded ? 'Hide filters' : 'Show filters'}</span>
+      </CompactButton>
 
-      {/* Collapsible filter content */}
       {isExpanded && (
-        <div className="space-y-3 animate-fade-in">
-          {/* Search type */}
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">
-              Search In:
-            </label>
-            <div className="flex gap-1">
-              <Button
-                variant={searchType === 'subject' ? 'default' : 'outline'}
-                size="sm"
+        <div className="space-y-3 border border-border/50 rounded-sm p-3 text-[12px] leading-tight">
+          <div className="space-y-2">
+            <span className="block uppercase tracking-[0.08em] text-[11px] text-muted-foreground">
+              Search In
+            </span>
+            <div className="grid grid-cols-2 gap-1">
+              <CompactButton
+                active={searchType === 'subject'}
                 onClick={() => setSearchType('subject')}
-                className="flex-1 h-8 text-xs"
               >
                 Subject
-              </Button>
-              <Button
-                variant={searchType === 'full_text' ? 'default' : 'outline'}
-                size="sm"
+              </CompactButton>
+              <CompactButton
+                active={searchType === 'full_text'}
                 onClick={() => setSearchType('full_text')}
-                className="flex-1 h-8 text-xs"
               >
                 Full Text
-              </Button>
+              </CompactButton>
             </div>
           </div>
 
-          {/* Sort controls */}
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-2 block">
-              Sort By:
-            </label>
-            <div className="flex gap-1">
-              <Button
-                variant={sortBy === 'last_date' ? 'secondary' : 'ghost'}
-                size="sm"
+          <div className="space-y-2">
+            <span className="block uppercase tracking-[0.08em] text-[11px] text-muted-foreground">
+              Sort By
+            </span>
+            <div className="grid grid-cols-3 gap-1">
+              <CompactButton
+                active={sortBy === 'last_date'}
                 onClick={() => onSortChange('last_date')}
-                className="flex-1 h-8 text-xs"
               >
                 Last
                 {sortBy === 'last_date' && (
@@ -82,12 +67,10 @@ export function FilterPanel({
                     <SortAsc className="ml-1 h-3 w-3" />
                   )
                 )}
-              </Button>
-              <Button
-                variant={sortBy === 'start_date' ? 'secondary' : 'ghost'}
-                size="sm"
+              </CompactButton>
+              <CompactButton
+                active={sortBy === 'start_date'}
                 onClick={() => onSortChange('start_date')}
-                className="flex-1 h-8 text-xs"
               >
                 Start
                 {sortBy === 'start_date' && (
@@ -97,12 +80,10 @@ export function FilterPanel({
                     <SortAsc className="ml-1 h-3 w-3" />
                   )
                 )}
-              </Button>
-              <Button
-                variant={sortBy === 'message_count' ? 'secondary' : 'ghost'}
-                size="sm"
+              </CompactButton>
+              <CompactButton
+                active={sortBy === 'message_count'}
                 onClick={() => onSortChange('message_count')}
-                className="flex-1 h-8 text-xs"
               >
                 Count
                 {sortBy === 'message_count' && (
@@ -112,7 +93,7 @@ export function FilterPanel({
                     <SortAsc className="ml-1 h-3 w-3" />
                   )
                 )}
-              </Button>
+              </CompactButton>
             </div>
           </div>
         </div>

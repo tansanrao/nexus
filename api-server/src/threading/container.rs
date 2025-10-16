@@ -3,8 +3,6 @@
 //! The JWZ algorithm uses a "container" abstraction to represent both real messages
 //! and "phantom" messages (messages referenced but not present in our dataset).
 
-use std::collections::HashMap;
-
 /// A container represents a node in the thread tree.
 ///
 /// Each container has:
@@ -129,39 +127,3 @@ impl ThreadInfo {
     }
 }
 
-/// Recursively collect all emails in a thread with their depths (DEPRECATED)
-///
-/// NOTE: This function is deprecated and replaced by collect_thread_emails_dashmap
-/// in jwz_algorithm.rs which works with DashMap for parallel processing.
-///
-/// This function performs a depth-first traversal of the thread tree,
-/// collecting all real emails (non-phantoms) and their depth in the tree.
-///
-/// ## Arguments
-///
-/// - `msg_id`: Message-ID of the current node to process
-/// - `id_table`: The complete container table
-/// - `email_data`: Map of email_id to EmailData
-/// - `depth`: Current depth in the tree (0 for root)
-/// - `result`: Output vector to accumulate (email_id, depth) pairs
-#[deprecated(note = "Use collect_thread_emails_dashmap in jwz_algorithm.rs instead")]
-#[allow(dead_code)]
-pub fn collect_thread_emails(
-    msg_id: &str,
-    id_table: &HashMap<String, Container>,
-    email_data: &HashMap<i32, EmailData>,
-    depth: i32,
-    result: &mut Vec<(i32, i32)>,
-) {
-    if let Some(container) = id_table.get(msg_id) {
-        // Add this email if it exists (not a phantom)
-        if let Some(email_id) = container.email_id {
-            result.push((email_id, depth));
-        }
-
-        // Recursively process all children
-        for child_msg_id in &container.children {
-            collect_thread_emails(child_msg_id, id_table, email_data, depth + 1, result);
-        }
-    }
-}

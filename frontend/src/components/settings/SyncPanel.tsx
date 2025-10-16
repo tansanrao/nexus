@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
 import type { GlobalSyncStatus, MailingList } from '../../types';
-import { Button } from '../ui/button';
-import { Card } from '../ui/card';
-import { Badge } from '../ui/badge';
+import { Section } from '../ui/section';
+import { CompactButton } from '../ui/compact-button';
+import { Input } from '../ui/input';
+import { cn } from '@/lib/utils';
+
+const ITEMS_PER_PAGE = 20;
 
 export function SyncPanel() {
   const [lists, setLists] = useState<MailingList[]>([]);
@@ -13,14 +16,11 @@ export function SyncPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showEnabledOnly, setShowEnabledOnly] = useState(false);
-  const itemsPerPage = 20;
 
-  // Load mailing lists on mount
   useEffect(() => {
-    loadMailingLists();
+    void loadMailingLists();
   }, []);
 
-  // Poll for sync status
   useEffect(() => {
     const pollStatus = async () => {
       try {
@@ -31,14 +31,15 @@ export function SyncPanel() {
       }
     };
 
-    pollStatus();
-
+    void pollStatus();
     const isActive = syncStatus?.is_running;
-    const pollInterval = isActive ? 1000 : 5000; // 1s when active, 5s when idle
-    const interval = setInterval(pollStatus, pollInterval);
-
+    const interval = setInterval(pollStatus, isActive ? 1000 : 5000);
     return () => clearInterval(interval);
   }, [syncStatus?.is_running]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, showEnabledOnly]);
 
   const loadMailingLists = async () => {
     try {
@@ -52,7 +53,6 @@ export function SyncPanel() {
   const handleToggle = async (slug: string, currentEnabled: boolean) => {
     try {
       await api.mailingLists.toggle(slug, !currentEnabled);
-      // Reload lists to reflect the change
       await loadMailingLists();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle mailing list');
@@ -60,8 +60,7 @@ export function SyncPanel() {
   };
 
   const handleStartSync = async () => {
-    const enabledSlugs = lists.filter(l => l.enabled).map(l => l.slug);
-
+    const enabledSlugs = lists.filter((l) => l.enabled).map((l) => l.slug);
     if (enabledSlugs.length === 0) {
       setError('No mailing lists are enabled for sync');
       return;
@@ -84,133 +83,162 @@ export function SyncPanel() {
     try {
       await api.admin.sync.cancel();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel sync');
+      setError(err instanceof Error ? err.message : 'Failed to cancel queue');
     } finally {
       setLoading(false);
     }
   };
 
-  const currentJob = syncStatus?.current_job;
-  const isRunning = syncStatus?.is_running || false;
-  const hasQueue = (syncStatus?.queued_jobs.length || 0) > 0;
+  const filteredLists = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return lists.filter((list) => {
+      const matches =
+        query.length === 0 ||
+        list.name.toLowerCase().includes(query) ||
+        list.slug.toLowerCase().includes(query) ||
+        (list.description?.toLowerCase().includes(query) ?? false);
+      const enabledMatch = !showEnabledOnly || list.enabled;
+      return matches && enabledMatch;
+    });
+  }, [lists, searchQuery, showEnabledOnly]);
 
-  // Filter and paginate lists
-  const filteredLists = lists.filter(list => {
-    const matchesSearch = searchQuery === '' ||
-      list.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      list.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (list.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
-
-    const matchesEnabledFilter = !showEnabledOnly || list.enabled;
-
-    return matchesSearch && matchesEnabledFilter;
-  });
-
-  const totalPages = Math.ceil(filteredLists.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredLists.length / ITEMS_PER_PAGE));
   const paginatedLists = filteredLists.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
   );
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, showEnabledOnly]);
+  const isRunning = syncStatus?.is_running ?? false;
+  const hasQueue = (syncStatus?.queued_jobs.length ?? 0) > 0;
+  const currentJob = syncStatus?.current_job ?? null;
 
   return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold">Data Synchronization</h2>
-        <div className="flex gap-3">
-          <Button
-            onClick={handleStartSync}
-            disabled={loading || isRunning}
-          >
-            {isRunning ? 'Syncing...' : 'Sync Now'}
-          </Button>
-          {(isRunning || hasQueue) && (
-            <Button
-              onClick={handleCancelSync}
-              disabled={loading}
-              variant="destructive"
-            >
-              Cancel Queue
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {error && (
-        <Card className="mb-4 p-4 bg-destructive/10 border-destructive">
-          <div className="text-sm text-destructive">{error}</div>
-        </Card>
-      )}
-
-      {/* Mailing Lists Selection */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-medium">Select Mailing Lists</h3>
-          <p className="text-sm text-muted-foreground">
-            {lists.filter(l => l.enabled).length} of {lists.length} enabled
+    <div className="space-y-6">
+      <Section
+        title="Sync jobs"
+        description="Queue updates for enabled mailing lists."
+        actions={
+          <div className="flex gap-2">
+            <CompactButton onClick={handleStartSync} disabled={loading || isRunning}>
+              {isRunning ? 'Syncing…' : 'Sync now'}
+            </CompactButton>
+            {(isRunning || hasQueue) && (
+              <CompactButton
+                onClick={handleCancelSync}
+                disabled={loading}
+                className="border-destructive/60 text-destructive hover:border-destructive hover:text-destructive"
+              >
+                Cancel queue
+              </CompactButton>
+            )}
+          </div>
+        }
+      >
+        {error && (
+          <p className="text-[12px] uppercase tracking-[0.08em] text-destructive">
+            {error}
           </p>
-        </div>
+        )}
 
-        {/* Search and Filters */}
-        <div className="flex gap-3 mb-4">
-          <input
+        {currentJob && (
+          <div className="surface-muted px-3 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-semibold">{currentJob.name}</div>
+                <div className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                  {currentJob.slug}
+                </div>
+              </div>
+              <span className={cn(
+                "rounded-sm border px-2 py-1 text-[11px] uppercase tracking-[0.08em]",
+                statusTone(currentJob.phase)
+              )}>
+                {phaseLabel(currentJob.phase)}
+              </span>
+            </div>
+            {currentJob.started_at && (
+              <div className="mt-2 text-[11px] text-muted-foreground">
+                Started {new Date(currentJob.started_at).toLocaleString()}
+              </div>
+            )}
+          </div>
+        )}
+
+        {syncStatus && syncStatus.queued_jobs.length > 0 && (
+          <div className="surface-muted px-3 py-2 text-[12px] text-muted-foreground uppercase tracking-[0.08em]">
+            {syncStatus.queued_jobs.length} job
+            {syncStatus.queued_jobs.length > 1 ? 's' : ''} in queue
+          </div>
+        )}
+
+        {!isRunning && !hasQueue && (
+          <p className="text-[12px] text-muted-foreground uppercase tracking-[0.08em]">
+            No sync jobs running. Enable lists below and start a sync.
+          </p>
+        )}
+      </Section>
+
+      <Section
+        title="Mailing lists"
+        description="Enable the lists you want to include in sync jobs."
+      >
+        <div className="flex flex-wrap gap-2">
+          <Input
             type="text"
-            placeholder="Search by name, slug, or description..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-ring focus:border-transparent"
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Filter by name, slug, or description"
+            className="h-8 flex-1 min-w-[180px] text-sm"
           />
-          <label className="flex items-center gap-2 px-4 py-2 border rounded-lg cursor-pointer hover:bg-accent">
+          <label className="inline-flex items-center gap-2 text-[12px] uppercase tracking-[0.08em] text-muted-foreground cursor-pointer">
             <input
               type="checkbox"
               checked={showEnabledOnly}
-              onChange={(e) => setShowEnabledOnly(e.target.checked)}
-              className="w-4 h-4 rounded focus:ring-ring"
+              onChange={(event) => setShowEnabledOnly(event.target.checked)}
+              className="h-4 w-4 rounded border border-border/70 bg-background"
             />
-            <span className="text-sm">Enabled only</span>
+            Enabled only
           </label>
         </div>
 
-        {/* Info banner */}
-        <Card className="mb-3 p-3 bg-primary/5 border-primary/20 text-sm">
-          <p><strong>Note:</strong> Grokmirror mirrors ALL lists automatically. The "enabled" toggle only controls which lists the API server will parse and import.</p>
-        </Card>
+        <div className="surface-muted px-3 py-2 text-[12px] text-muted-foreground">
+          Grokmirror mirrors all lists. The enabled toggle controls which lists the API parses.
+        </div>
 
-        {/* Mailing lists */}
-        <div className="space-y-2">
+        <div className="border border-border/60 rounded-sm divide-y divide-border/50 overflow-hidden">
           {paginatedLists.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              {searchQuery || showEnabledOnly ? 'No mailing lists match your filters' : 'No mailing lists available. Click "Seed Mailing Lists" in the Database panel.'}
+            <div className="px-3 py-6 text-center text-[12px] text-muted-foreground uppercase tracking-[0.08em]">
+              {searchQuery || showEnabledOnly
+                ? 'No mailing lists match your filters'
+                : 'No mailing lists available. Seed lists from the database panel.'}
             </div>
           ) : (
             paginatedLists.map((list) => (
               <div
                 key={list.id}
-                className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent"
+                className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm"
               >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <label className="flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={list.enabled}
-                      onChange={() => handleToggle(list.slug, list.enabled)}
-                      className="w-5 h-5 rounded focus:ring-ring"
-                      disabled={isRunning}
-                    />
-                    <span className="ml-3 font-medium">{list.name}</span>
-                  </label>
-                  <span className="text-xs text-muted-foreground font-mono">({list.slug})</span>
-                  {list.description && (
-                    <span className="text-sm text-muted-foreground truncate">- {list.description}</span>
-                  )}
-                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={list.enabled}
+                    onChange={() => handleToggle(list.slug, list.enabled)}
+                    className="h-4 w-4 rounded border border-border/70 bg-background"
+                    disabled={isRunning}
+                  />
+                  <span className="font-medium">{list.name}</span>
+                </label>
+                <span className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+                  ({list.slug})
+                </span>
+                {list.description && (
+                  <span className="text-xs text-muted-foreground flex-1 min-w-[120px] truncate">
+                    {list.description}
+                  </span>
+                )}
                 {list.last_synced_at && (
-                  <span className="text-xs text-muted-foreground whitespace-nowrap ml-3">
-                    Last synced: {new Date(list.last_synced_at).toLocaleString()}
+                  <span className="ml-auto text-xs text-muted-foreground whitespace-nowrap">
+                    Last synced {new Date(list.last_synced_at).toLocaleString()}
                   </span>
                 )}
               </div>
@@ -218,90 +246,52 @@ export function SyncPanel() {
           )}
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t">
-            <p className="text-sm text-muted-foreground">
-              Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredLists.length)} of {filteredLists.length}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+          <div className="flex items-center justify-between text-[12px] uppercase tracking-[0.08em] text-muted-foreground">
+            <span>
+              Showing {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredLists.length)}-
+              {Math.min(currentPage * ITEMS_PER_PAGE, filteredLists.length)} of {filteredLists.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <CompactButton
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                variant="outline"
-                size="sm"
               >
-                Previous
-              </Button>
-              <span className="px-3 py-1 text-sm flex items-center">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                Prev
+              </CompactButton>
+              <span>Page {currentPage} / {totalPages}</span>
+              <CompactButton
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                variant="outline"
-                size="sm"
               >
                 Next
-              </Button>
+              </CompactButton>
             </div>
           </div>
         )}
-      </div>
-
-      {/* Current Job Status */}
-      {currentJob && (
-        <div className="mb-6">
-          <h3 className="text-lg font-medium mb-3">Current Sync Job</h3>
-          <Card className="p-4 bg-primary/5 border-primary/20">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <p className="font-medium">{currentJob.name}</p>
-                <p className="text-sm text-muted-foreground mt-1">({currentJob.slug})</p>
-                {currentJob.started_at && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Started: {new Date(currentJob.started_at).toLocaleString()}
-                  </p>
-                )}
-              </div>
-              <PhaseBadge phase={currentJob.phase} />
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Queue */}
-      {syncStatus && syncStatus.queued_jobs.length > 0 && (
-        <div>
-          <Card className="p-4 bg-muted/50">
-            <p className="text-sm">
-              <span className="font-medium">{syncStatus.queued_jobs.length}</span> job{syncStatus.queued_jobs.length > 1 ? 's' : ''} in queue
-            </p>
-          </Card>
-        </div>
-      )}
-
-      {/* Idle state */}
-      {!isRunning && !hasQueue && (
-        <div className="text-center py-8 text-muted-foreground">
-          <p>No sync jobs running or queued</p>
-          <p className="text-sm mt-1">Select mailing lists above and click "Sync Now" to start</p>
-        </div>
-      )}
-    </Card>
+      </Section>
+    </div>
   );
 }
 
-function PhaseBadge({ phase }: { phase: string }) {
-  const config: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' }> = {
-    waiting: { label: 'Waiting', variant: 'secondary' },
-    parsing: { label: 'Parsing', variant: 'default' },
-    threading: { label: 'Threading', variant: 'default' },
-    done: { label: 'Done', variant: 'default' },
-    errored: { label: 'Error', variant: 'destructive' },
+function phaseLabel(phase: string) {
+  const map: Record<string, string> = {
+    waiting: 'Waiting',
+    parsing: 'Parsing',
+    threading: 'Threading',
+    done: 'Done',
+    errored: 'Error',
   };
-
-  const { label, variant } = config[phase] || config.waiting;
-  return <Badge variant={variant}>{label}</Badge>;
+  return map[phase] ?? 'Waiting';
 }
 
+function statusTone(phase: string) {
+  switch (phase) {
+    case 'errored':
+      return 'border-destructive/60 text-destructive';
+    case 'done':
+      return 'border-green-500/60 text-green-600';
+    default:
+      return 'border-border/60 text-muted-foreground';
+  }
+}

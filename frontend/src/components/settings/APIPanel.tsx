@@ -1,156 +1,143 @@
 import { useState } from 'react';
+import { Server } from 'lucide-react';
 import { useApiConfig } from '../../contexts/ApiConfigContext';
-import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Card } from '../ui/card';
-import { Server, Check, X } from 'lucide-react';
+import { Section } from '../ui/section';
+import { CompactButton } from '../ui/compact-button';
+
+type TestStatus = 'idle' | 'testing' | 'success' | 'error';
 
 export function APIPanel() {
   const { apiBaseUrl, setApiBaseUrl, resetToDefault, isDefault } = useApiConfig();
   const [inputValue, setInputValue] = useState(apiBaseUrl);
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testStatus, setTestStatus] = useState<TestStatus>('idle');
   const [testMessage, setTestMessage] = useState('');
 
   const hasChanges = inputValue !== apiBaseUrl;
+  const trimmedInput = inputValue.trim();
 
-  const handleSave = () => {
-    setApiBaseUrl(inputValue);
+  const save = () => {
+    if (!trimmedInput) {
+      return;
+    }
+    setApiBaseUrl(trimmedInput);
     setTestStatus('idle');
     setTestMessage('');
   };
 
-  const handleReset = () => {
+  const cancel = () => {
+    setInputValue(apiBaseUrl);
+    setTestStatus('idle');
+    setTestMessage('');
+  };
+
+  const reset = () => {
     resetToDefault();
     setInputValue(import.meta.env.VITE_API_URL || 'http://localhost:8000/api');
     setTestStatus('idle');
     setTestMessage('');
   };
 
-  const handleCancel = () => {
-    setInputValue(apiBaseUrl);
-  };
+  const testConnection = async () => {
+    if (!trimmedInput || testStatus === 'testing') {
+      return;
+    }
 
-  const handleTest = async () => {
     setTestStatus('testing');
-    setTestMessage('Testing connection...');
+    setTestMessage('Testing connection…');
 
     try {
-      const testUrl = inputValue.endsWith('/') ? inputValue.slice(0, -1) : inputValue;
-      const response = await fetch(`${testUrl}/admin/config`, {
+      const base = trimmedInput.endsWith('/') ? trimmedInput.slice(0, -1) : trimmedInput;
+      const response = await fetch(`${base}/admin/config`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
 
       if (response.ok) {
         setTestStatus('success');
-        setTestMessage('Connection successful!');
+        setTestMessage('Connection OK');
       } else {
         setTestStatus('error');
-        setTestMessage(`Connection failed: ${response.status} ${response.statusText}`);
+        setTestMessage(`HTTP ${response.status} ${response.statusText}`);
       }
-    } catch (error) {
+    } catch (err) {
       setTestStatus('error');
-      setTestMessage(`Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setTestMessage(err instanceof Error ? err.message : 'Unknown error');
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold mb-4">API Configuration</h2>
-        <p className="text-sm text-muted-foreground mb-6">
-          Configure the backend API endpoint. Change this if your backend server is running on a different host or port.
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        {/* API Base URL Input */}
-        <div>
-          <label htmlFor="api-base-url" className="block text-sm font-medium mb-2">
-            API Base URL
-          </label>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <Input
-                id="api-base-url"
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder="http://localhost:8000/api"
-                className="font-mono text-sm"
-              />
-            </div>
-            <Button
-              onClick={handleTest}
-              variant="outline"
-              disabled={!inputValue.trim() || testStatus === 'testing'}
-            >
-              <Server className="h-4 w-4 mr-2" />
-              Test
-            </Button>
-          </div>
-
-          {/* Test Status Message */}
-          {testStatus !== 'idle' && (
-            <div className="mt-2 flex items-center gap-2">
-              {testStatus === 'testing' && (
-                <div className="text-xs text-muted-foreground">{testMessage}</div>
-              )}
-              {testStatus === 'success' && (
-                <>
-                  <Check className="h-4 w-4 text-green-600" />
-                  <div className="text-xs text-green-600">{testMessage}</div>
-                </>
-              )}
-              {testStatus === 'error' && (
-                <>
-                  <X className="h-4 w-4 text-destructive" />
-                  <div className="text-xs text-destructive">{testMessage}</div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={handleSave}
-            disabled={!hasChanges || !inputValue.trim()}
+    <Section
+      title="API endpoint"
+      description="Point the UI at your backend service."
+      actions={
+        !isDefault && (
+          <CompactButton onClick={reset}>
+            Reset default
+          </CompactButton>
+        )
+      }
+    >
+      <div className="space-y-2">
+        <label htmlFor="api-base-url" className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
+          Base URL
+        </label>
+        <div className="flex gap-2">
+          <Input
+            id="api-base-url"
+            type="text"
+            value={inputValue}
+            onChange={(event) => setInputValue(event.target.value)}
+            placeholder="http://localhost:8000/api"
+            className="h-8 font-mono text-sm"
+          />
+          <CompactButton
+            onClick={testConnection}
+            disabled={!trimmedInput || testStatus === 'testing'}
+            className="min-w-[72px]"
           >
-            Save Changes
-          </Button>
-          {hasChanges && (
-            <Button onClick={handleCancel} variant="outline">
-              Cancel
-            </Button>
-          )}
-          {!isDefault && (
-            <Button onClick={handleReset} variant="outline">
-              Reset to Default
-            </Button>
-          )}
+            <Server className="h-3.5 w-3.5" />
+            Test
+          </CompactButton>
         </div>
-
-        {/* Current Configuration Display */}
-        <div className="pt-2">
-          <div className="text-xs text-muted-foreground">
-            Current API endpoint: <code className="font-mono bg-muted px-1.5 py-0.5 rounded">{apiBaseUrl}</code>
+        {testStatus !== 'idle' && (
+          <div
+            className="text-[11px] uppercase tracking-[0.08em]"
+            data-status={testStatus}
+          >
+            <span className={
+              testStatus === 'success'
+                ? 'text-green-600'
+                : testStatus === 'error'
+                  ? 'text-destructive'
+                  : 'text-muted-foreground'
+            }>
+              {testMessage}
+            </span>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Info Box */}
-      <Card className="p-4 bg-muted/50">
-        <h3 className="text-sm font-medium mb-2">About API Configuration</h3>
-        <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-          <li>The default endpoint is configured via the VITE_API_URL environment variable</li>
-          <li>Changes are saved to your browser's local storage</li>
-          <li>Use the "Test" button to verify connectivity before saving</li>
-          <li>The API URL should not include a trailing slash</li>
-          <li>You may need to refresh the page after changing the endpoint for all components to update</li>
-        </ul>
-      </Card>
-    </div>
+      <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.08em]">
+        <span className="text-muted-foreground">
+          Current:&nbsp;
+          <code className="font-mono text-foreground">{apiBaseUrl}</code>
+        </span>
+        <div className="ml-auto flex gap-2">
+          <CompactButton
+            onClick={save}
+            disabled={!hasChanges || !trimmedInput}
+            className="px-3"
+          >
+            Save
+          </CompactButton>
+          {hasChanges && (
+            <CompactButton onClick={cancel} className="px-3">
+              Cancel
+            </CompactButton>
+          )}
+        </div>
+      </div>
+    </Section>
   );
 }

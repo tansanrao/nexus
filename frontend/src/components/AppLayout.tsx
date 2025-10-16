@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { AppSidebar } from './layout/AppSidebar';
+import { AppHeader } from './layout/AppHeader';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -7,12 +7,9 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   return (
-    <div className="h-screen flex bg-background">
-      {/* Left: App Sidebar */}
-      <AppSidebar />
-
-      {/* Right: Sub-app Container */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="h-svh flex flex-col bg-background text-foreground text-sm">
+      <AppHeader />
+      <div className="flex-1 flex flex-col overflow-hidden bg-background">
         {children}
       </div>
     </div>
