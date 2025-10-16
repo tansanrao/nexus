@@ -1,11 +1,13 @@
 use rocket::serde::json::Json;
 use rocket::get;
 use rocket_db_pools::{sqlx, Connection};
+use rocket_okapi::openapi;
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
 use crate::models::EmailWithAuthor;
 
+#[openapi(tag = "Emails")]
 #[get("/<slug>/emails/<email_id>")]
 pub async fn get_email(
     slug: String,
