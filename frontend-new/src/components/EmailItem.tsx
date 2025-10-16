@@ -72,19 +72,17 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
   };
 
   const indentPx = Math.min((email.depth || 0) * 16, 8 * 16);
+  const indentationStyle = indentPx
+    ? { marginLeft: `${indentPx}px`, maxWidth: `calc(100% - ${indentPx}px)` }
+    : undefined;
 
   return (
-    <div
-      style={{ marginLeft: indentPx ? `${indentPx}px` : '0' }}
-    >
-      <div className={cn(
-        "px-2 py-2 rounded-sm transition-colors",
-        "hover:bg-accent/60"
-      )}>
+    <div style={indentationStyle}>
+      <div className="px-3 py-2 rounded-md transition-colors">
         {/* Header - always visible */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="w-full text-left cursor-pointer select-none"
+          className="w-full text-left cursor-pointer select-none focus:outline-none focus-visible:outline-none"
         >
           <div className="flex items-start gap-2">
             <ChevronRight
@@ -102,7 +100,10 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
                   {authorName}
                 </button>
                 {displaySubject && (
-                  <span className="text-sm text-foreground truncate flex-1 min-w-0">
+                  <span
+                    className="text-sm text-foreground flex-1 min-w-0 block max-w-[min(32rem,100%)] truncate"
+                    title={displaySubject}
+                  >
                     {displaySubject}
                   </span>
                 )}
@@ -121,7 +122,7 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
         {!isCollapsed && (
           <div className="ml-6 mt-2 space-y-2">
             {cleanBody && (
-              <pre className="text-sm whitespace-pre-wrap font-mono text-foreground leading-relaxed overflow-x-auto">
+              <pre className="text-sm whitespace-pre-wrap font-mono text-foreground leading-relaxed overflow-x-auto bg-surface-inset/70 p-3">
                 {cleanBody}
               </pre>
             )}

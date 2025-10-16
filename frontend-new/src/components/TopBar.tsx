@@ -33,7 +33,7 @@ export function TopBar({ onSearch, searchQuery }: TopBarProps) {
   }, []);
 
   return (
-    <div className="sticky top-0 z-40 w-full border-b bg-background backdrop-blur supports-[backdrop-filter]:bg-background/95">
+    <div className="sticky top-0 z-40 w-full border-b border-surface-border/60 bg-surface-base/95 backdrop-blur supports-[backdrop-filter]:bg-surface-base/80 shadow-sm">
       <div className="flex h-14 items-center justify-center px-4 relative">
         <div className="flex-1 max-w-md">
           <div className="relative">
@@ -46,7 +46,7 @@ export function TopBar({ onSearch, searchQuery }: TopBarProps) {
               value={localQuery}
               onChange={handleSearchChange}
             />
-            <kbd className="absolute right-2 top-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+            <kbd className="absolute right-2 top-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-surface-border/60 bg-surface-inset px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
               /
             </kbd>
           </div>
@@ -59,4 +59,3 @@ export function TopBar({ onSearch, searchQuery }: TopBarProps) {
     </div>
   );
 }
-

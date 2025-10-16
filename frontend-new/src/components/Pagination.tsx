@@ -67,18 +67,20 @@ export function Pagination({
   const pageNumbers = getPageNumbers();
 
   return (
-    <div className={cn(
-      "border-t p-2 flex items-center justify-between bg-background",
-      className
-    )}>
+    <div
+      className={cn(
+        "border-t border-surface-border/60 p-2 flex items-center justify-between bg-surface-inset/95 backdrop-blur supports-[backdrop-filter]:bg-surface-inset/80",
+        className
+      )}
+    >
       <button
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage === 1}
         className={cn(
-          'flex items-center gap-1 px-3 py-1.5 text-xs rounded border transition-colors select-none',
+          'flex items-center gap-1 px-3 py-1.5 text-xs rounded-md transition-colors select-none bg-transparent text-muted-foreground hover:text-foreground',
           currentPage === 1
-            ? 'opacity-50 cursor-not-allowed'
-            : 'hover:bg-accent cursor-pointer'
+            ? 'opacity-60 cursor-not-allowed'
+            : 'hover:bg-surface-inset cursor-pointer'
         )}
       >
         <ChevronLeft className="h-3 w-3" />
@@ -92,12 +94,12 @@ export function Pagination({
             onClick={() => typeof page === 'number' ? onPageChange(page) : undefined}
             disabled={page === '...'}
             className={cn(
-              'px-2 py-1 text-xs rounded transition-colors select-none min-w-[24px]',
+              'px-2 py-1 text-xs rounded-md transition-colors select-none min-w-[28px]',
               page === '...'
                 ? 'cursor-default text-muted-foreground'
                 : page === currentPage
                 ? 'bg-primary text-primary-foreground cursor-default'
-                : 'hover:bg-accent cursor-pointer text-muted-foreground hover:text-foreground'
+                : 'hover:bg-surface-inset cursor-pointer text-muted-foreground hover:text-foreground'
             )}
           >
             {page}
@@ -109,10 +111,10 @@ export function Pagination({
         onClick={() => onPageChange(currentPage + 1)}
         disabled={!hasMore}
         className={cn(
-          'flex items-center gap-1 px-3 py-1.5 text-xs rounded border transition-colors select-none',
+          'flex items-center gap-1 px-3 py-1.5 text-xs rounded-md transition-colors select-none bg-transparent text-muted-foreground hover:text-foreground',
           !hasMore
-            ? 'opacity-50 cursor-not-allowed'
-            : 'hover:bg-accent cursor-pointer'
+            ? 'opacity-60 cursor-not-allowed'
+            : 'hover:bg-surface-inset cursor-pointer'
         )}
       >
         Next

@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Filter, ArrowUpDown, Search } from 'lucide-react';
+import { Filter, ArrowUpDown, Search, ArrowDown, ArrowUp } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -67,7 +66,7 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
   };
 
   return (
-    <div className="border-b bg-background">
+    <div className="border-b border-surface-border/60 bg-surface-inset/95 backdrop-blur supports-[backdrop-filter]:bg-surface-inset/80">
       <div className="px-3 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2 group relative">
           <h2 className="text-sm font-semibold text-foreground">
@@ -91,14 +90,13 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
           {/* Sort Options */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 hover:underline">
                 <ArrowUpDown className="h-3 w-3" />
                 Sort
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <DropdownMenuContent align="end" className="w-52 space-y-1.5" onCloseAutoFocus={(e) => e.preventDefault()}>
               <DropdownMenuLabel>Sort By</DropdownMenuLabel>
-              <DropdownMenuSeparator />
               <DropdownMenuRadioGroup
                 value={filters.sortBy}
                 onValueChange={(value) => {
@@ -115,37 +113,47 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
                   {sortByLabels.message_count}
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
-              
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Order</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup
-                value={filters.order}
-                onValueChange={(value) => {
-                  onFiltersChange({ ...filters, order: value as ThreadFilters['order'] });
-                }}
-              >
-                <DropdownMenuRadioItem value="desc">
-                  {orderLabels.desc}
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="asc">
-                  {orderLabels.asc}
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
+              <div className="px-2 pt-1">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    Order
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">{orderLabels[filters.order]}</span>
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    variant={filters.order === 'desc' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1"
+                    onClick={() => onFiltersChange({ ...filters, order: 'desc' })}
+                  >
+                    <ArrowDown className="h-3.5 w-3.5" />
+                    Desc
+                  </Button>
+                  <Button
+                    variant={filters.order === 'asc' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1"
+                    onClick={() => onFiltersChange({ ...filters, order: 'asc' })}
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                    Asc
+                  </Button>
+                </div>
+              </div>
             </DropdownMenuContent>
           </DropdownMenu>
 
           {/* Filter Options */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 hover:underline">
                 <Filter className="h-3 w-3" />
                 Filter
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <DropdownMenuContent align="end" className="w-48 space-y-1" onCloseAutoFocus={(e) => e.preventDefault()}>
               <DropdownMenuLabel>Search Mode</DropdownMenuLabel>
-              <DropdownMenuSeparator />
               <DropdownMenuRadioGroup
                 value={filters.searchType}
                 onValueChange={(value) => {
@@ -184,4 +192,3 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
     </div>
   );
 }
-

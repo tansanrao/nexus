@@ -38,11 +38,11 @@ export function ThreadBrowserLayout({
   leftPanelHeader,
 }: ThreadBrowserLayoutProps) {
   return (
-    <div className="h-screen flex flex-col relative">
+    <div className="h-screen flex flex-col relative bg-background">
       <div className="flex-1 overflow-hidden">
-        <div className="h-full grid grid-cols-1 md:grid-cols-5 gap-0 bg-background">
+        <div className="h-full grid grid-cols-1 md:grid-cols-5 bg-background">
           {/* Left panel */}
-          <div className="md:col-span-2 border-r h-full overflow-hidden bg-card/90 flex flex-col">
+          <div className="md:col-span-2 h-full overflow-hidden bg-surface-inset flex flex-col border-r border-surface-border/60">
             {leftPanelHeader}
             <div className="flex-1 overflow-hidden">
               <ThreadList
@@ -64,7 +64,7 @@ export function ThreadBrowserLayout({
           </div>
           
           {/* Right panel */}
-          <div className="md:col-span-3 hidden md:block h-full overflow-hidden bg-background">
+          <div className="md:col-span-3 hidden md:flex h-full flex-col overflow-hidden bg-surface-inset border-l border-surface-border/60 min-w-0">
             <ThreadView threadId={selectedThreadId} />
           </div>
         </div>

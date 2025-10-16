@@ -64,8 +64,8 @@ export function ThreadView({ threadId }: ThreadViewProps) {
 
   if (!threadId) {
     return (
-      <div className="flex items-center justify-center h-full p-8">
-        <p className="text-muted-foreground text-sm">
+      <div className="flex items-center justify-center h-full p-8 bg-surface-inset">
+        <p className="text-muted-foreground text-sm text-center">
           Select a thread to view its details
         </p>
       </div>
@@ -74,8 +74,8 @@ export function ThreadView({ threadId }: ThreadViewProps) {
 
   if (loading) {
     return (
-      <div className="p-4 space-y-4">
-        <div className="border-b pb-3 animate-pulse">
+      <div className="p-6 space-y-4 bg-surface-inset h-full">
+        <div className="border-b border-surface-border/60 pb-3 animate-pulse">
           <div className="h-6 bg-muted rounded w-3/4 mb-2"></div>
           <div className="h-4 bg-muted/60 rounded w-1/2"></div>
         </div>
@@ -91,7 +91,7 @@ export function ThreadView({ threadId }: ThreadViewProps) {
 
   if (error || !threadDetail) {
     return (
-      <div className="flex items-center justify-center h-full p-8">
+      <div className="flex items-center justify-center h-full p-8 bg-surface-inset">
         <p className="text-destructive text-sm">{error || 'Thread not found'}</p>
       </div>
     );
@@ -100,11 +100,16 @@ export function ThreadView({ threadId }: ThreadViewProps) {
   const { thread } = threadDetail;
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-4">
+    <ScrollArea className="h-full bg-surface-inset min-w-0">
+      <div className="p-6">
         {/* Thread header */}
-        <div className="border-b pb-3 mb-4">
-          <h1 className="text-xl font-bold text-foreground truncate mb-2">{thread.subject}</h1>
+        <div className="border-b border-surface-border/60 pb-3 mb-4">
+          <h1
+            className="text-lg font-semibold text-foreground mb-2 leading-tight break-words max-w-[min(48rem,100%)]"
+            title={thread.subject}
+          >
+            {thread.subject}
+          </h1>
           <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
             <span>{thread.message_count || 0} {thread.message_count === 1 ? 'message' : 'messages'}</span>
             <span>•</span>
@@ -140,7 +145,7 @@ export function ThreadView({ threadId }: ThreadViewProps) {
         </div>
 
         {/* Emails */}
-        <div className="space-y-0">
+        <div className="space-y-2">
           {emails.map((email) => (
             <EmailItem
               key={email.id}
@@ -154,4 +159,3 @@ export function ThreadView({ threadId }: ThreadViewProps) {
     </ScrollArea>
   );
 }
-

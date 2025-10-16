@@ -29,7 +29,7 @@ export function ThreadBrowser() {
   // If showing author view, use different layout
   if (authorId) {
     return (
-      <div className="h-screen flex flex-col relative">
+      <div className="h-screen flex flex-col relative bg-background">
         {/* Floating settings buttons */}
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
           <ThemeToggle />
@@ -43,7 +43,7 @@ export function ThreadBrowser() {
   }
 
   return (
-    <div className="h-screen flex flex-col relative">
+    <div className="h-screen flex flex-col relative bg-background">
       {/* Floating settings buttons */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
         <ThemeToggle />

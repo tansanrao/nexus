@@ -40,8 +40,13 @@ export default {
           DEFAULT: 'hsl(var(--color-card) / 1)',
           foreground: 'hsl(var(--color-card-foreground) / 1)',
         },
+        surface: {
+          base: 'hsl(var(--color-panel-right) / 1)',
+          raised: 'hsl(var(--color-panel-left) / 1)',
+          inset: 'hsl(var(--color-panel-inset) / 1)',
+          border: 'hsl(var(--color-panel-border) / 1)',
+        },
       },
     },
   },
 }
-

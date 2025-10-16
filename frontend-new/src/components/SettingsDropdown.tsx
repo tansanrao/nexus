@@ -8,14 +8,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
 } from './ui/dropdown-menu';
 import { Input } from './ui/input';
 import { useApiConfig } from '../contexts/ApiConfigContext';
 import { apiClient } from '../lib/api';
 import type { MailingList } from '../types';
+import { cn } from '../lib/utils';
 
 export function SettingsDropdown() {
   const { apiBaseUrl, setApiBaseUrl, resetToDefault, isDefault, selectedMailingList, setSelectedMailingList } =
@@ -94,23 +92,34 @@ export function SettingsDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="data-[state=open]:bg-muted/80 data-[state=open]:text-foreground"
+        >
           <Settings className="h-5 w-5" />
           <span className="sr-only">Settings</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>Settings</DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="w-80 space-y-2.5">
+        <div className="flex items-start justify-between gap-3 px-1.5">
+          <div>
+            <DropdownMenuLabel className="px-0">Settings</DropdownMenuLabel>
+            <p className="text-[11px] text-muted-foreground">Configure data sources and defaults</p>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {selectedMailingList || 'No list'}
+          </div>
+        </div>
         <DropdownMenuSeparator />
 
-        {/* Mailing List Selector */}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <span>Mailing List</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-96 overflow-y-auto">
+        <DropdownMenuLabel className="text-[10px] text-muted-foreground">
+          Mailing Lists
+        </DropdownMenuLabel>
+        <div className="rounded-md border border-surface-border/60 bg-muted/20 p-1">
+          <div className="max-h-52 overflow-y-auto space-y-1">
             {loading ? (
-              <DropdownMenuItem disabled>Loading...</DropdownMenuItem>
+              <DropdownMenuItem disabled>Loading…</DropdownMenuItem>
             ) : mailingLists.filter((list) => list.enabled).length === 0 ? (
               <DropdownMenuItem disabled>No mailing lists available</DropdownMenuItem>
             ) : (
@@ -119,25 +128,39 @@ export function SettingsDropdown() {
                 .map((list) => (
                   <DropdownMenuItem
                     key={list.slug}
+                    className="flex-col items-start gap-1.5 rounded-md px-2.5 py-1.5 data-[highlighted]:bg-primary/10"
                     onClick={() => setSelectedMailingList(list.slug)}
                   >
-                    {selectedMailingList === list.slug && <Check className="mr-2 h-4 w-4" />}
-                    <span className={selectedMailingList !== list.slug ? 'ml-6' : ''}>
-                      {list.name}
-                    </span>
+                    <div className="flex w-full items-center gap-2">
+                      <Check
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0 transition-opacity",
+                          selectedMailingList === list.slug ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      <div className="flex flex-col">
+                        <span className="font-medium leading-none">{list.name}</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {list.description || 'No description provided'}
+                        </span>
+                      </div>
+                      <span className="ml-auto shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {list.slug}
+                      </span>
+                    </div>
                   </DropdownMenuItem>
                 ))
             )}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+          </div>
+        </div>
 
         <DropdownMenuSeparator />
 
         {/* API Configuration */}
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-[10px] text-muted-foreground">
           API Endpoint
         </DropdownMenuLabel>
-        <div className="px-2 py-2 space-y-2">
+        <div className="rounded-md bg-muted/30 px-2.5 py-2 space-y-2">
           <Input
             type="url"
             placeholder="http://localhost:8000"
@@ -145,11 +168,15 @@ export function SettingsDropdown() {
             onChange={(e) => setTempApiUrl(e.target.value)}
             className="h-8 text-xs"
           />
+          <div className="text-[11px] text-muted-foreground">
+            Active endpoint:
+            <span className="ml-1 font-medium text-foreground">{apiBaseUrl}</span>
+          </div>
           <div className="flex gap-1">
             <Button 
               onClick={handleSaveApiUrl} 
               size="sm" 
-              className="flex-1 h-7 text-xs min-w-0"
+              className="flex-1 h-7 text-xs min-w-0 hover:underline"
               disabled={savingUrl}
             >
               {savingUrl && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -159,7 +186,7 @@ export function SettingsDropdown() {
               onClick={handleTestConnection}
               size="sm"
               variant="outline"
-              className="flex-1 h-7 text-xs min-w-0"
+              className="flex-1 h-7 text-xs min-w-0 hover:underline"
               disabled={testingConnection}
             >
               {testingConnection && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -183,7 +210,7 @@ export function SettingsDropdown() {
               onClick={resetToDefault}
               size="sm"
               variant="ghost"
-              className="w-full h-7 text-xs"
+              className="w-full h-7 text-xs hover:underline"
             >
               Reset to Default
             </Button>
@@ -202,4 +229,3 @@ export function SettingsDropdown() {
     </DropdownMenu>
   );
 }
-

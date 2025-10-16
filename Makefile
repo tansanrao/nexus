@@ -1,4 +1,4 @@
-.PHONY: help build build-api build-frontend up up-frontend down restart logs logs-api logs-frontend logs-postgres ps clean clean-all shell-api shell-frontend shell-postgres health init seed
+.PHONY: help build build-api build-frontend up up-frontend frontend-up down restart logs logs-api logs-frontend logs-postgres ps clean clean-all shell-api shell-frontend shell-postgres health init seed
 
 # Default target
 help:
@@ -10,7 +10,8 @@ help:
 	@echo "  make build-frontend     - Build frontend image only"
 	@echo ""
 	@echo "  make up                 - Start all services"
-	@echo "  make up-frontend        - Start only frontend (with external API)"
+	@echo "  make up-frontend        - Start frontend dev server (hot reload)"
+	@echo "  make frontend-up        - Alias for up-frontend"
 	@echo "  make down               - Stop all services"
 	@echo "  make restart            - Restart all services"
 	@echo "  make ps                 - List running containers"
@@ -53,16 +54,12 @@ up:
 	@echo "Run 'make health' to check service health"
 	@echo "Run 'make init' to initialize the database"
 
-up-frontend:
-	VITE_API_URL=/api \
-	API_PROXY_TARGET=http://100.96.63.118:8000 \
-	docker compose up -d --build frontend
-	@echo ""
-	@echo "Frontend starting up..."
-	@echo "Frontend:   http://localhost:80"
-	@echo "API Proxy:  http://100.96.63.118:8000"
-	@echo ""
-	@echo "Run 'make logs-frontend' to view logs"
+FRONTEND_API_URL ?= http://100.96.63.118:8000
+
+up-frontend frontend-up:
+	@echo "Starting frontend dev server with API endpoint: $(FRONTEND_API_URL)"
+	@echo "Press Ctrl+C to stop."
+	cd frontend-new && VITE_API_URL=$(FRONTEND_API_URL) npm run dev -- --host
 
 down:
 	docker compose down

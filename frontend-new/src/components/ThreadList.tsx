@@ -38,7 +38,7 @@ export function ThreadList({
 }: ThreadListProps) {
   if (loading) {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col bg-surface-inset">
         <ThreadListHeader 
           filters={filters} 
           onFiltersChange={onFiltersChange} 
@@ -60,7 +60,7 @@ export function ThreadList({
 
   if (threads.length === 0) {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col bg-surface-inset">
         <ThreadListHeader 
           filters={filters} 
           onFiltersChange={onFiltersChange} 
@@ -81,7 +81,7 @@ export function ThreadList({
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-surface-inset">
       <ThreadListHeader 
         filters={filters} 
         onFiltersChange={onFiltersChange} 
@@ -94,9 +94,12 @@ export function ThreadList({
           {threads.map((thread) => (
             <div
               key={thread.id}
+              data-selected={selectedThreadId === thread.id}
               className={cn(
-                'px-3 py-2 border-l-2 border-transparent rounded-sm outline-none transition-colors duration-150 cursor-pointer select-none hover:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring',
-                selectedThreadId === thread.id && 'border-l-primary bg-black/10 dark:bg-white/5'
+                'px-3 py-2 border-l-2 border-l-transparent outline-none transition-all duration-150 cursor-pointer select-none',
+                'hover:bg-black/5 dark:hover:bg-white/10 hover:shadow-sm',
+                selectedThreadId === thread.id &&
+                  'border-l-primary bg-black/15 dark:bg-white/15 text-foreground shadow-sm'
               )}
               onClick={() => onThreadSelect(thread)}
               role="button"
@@ -105,7 +108,7 @@ export function ThreadList({
               aria-selected={selectedThreadId === thread.id}
             >
               <div className="flex items-start justify-between gap-2 mb-1">
-                <h3 className="text-sm font-semibold text-foreground leading-tight flex-1 line-clamp-2">
+                <h3 className="text-sm font-semibold text-foreground leading-tight flex-1 min-w-0 break-words line-clamp-2">
                   {thread.subject}
                 </h3>
                 <span className="text-xs text-muted-foreground shrink-0">

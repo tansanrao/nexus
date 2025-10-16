@@ -14,6 +14,15 @@ type ThreadSortField = 'start_date' | 'last_date' | 'message_count';
 type SortOrder = 'asc' | 'desc';
 type ThreadSearchType = 'subject' | 'full_text';
 
+interface AuthorThreadQueryParams {
+  page?: number;
+  size?: number;
+  sortBy?: ThreadSortField;
+  order?: SortOrder;
+  searchType?: ThreadSearchType;
+  query?: string;
+}
+
 const API_PREFIX = '/api/v1';
 
 export class ApiClient {
@@ -41,6 +50,31 @@ export class ApiClient {
     }
 
     return response.json() as Promise<T>;
+  }
+
+  private buildAuthorThreadQuery(params: AuthorThreadQueryParams): string {
+    const searchParams = new URLSearchParams();
+
+    if (typeof params.page === 'number') {
+      searchParams.set('page', params.page.toString());
+    }
+    if (typeof params.size === 'number') {
+      searchParams.set('size', params.size.toString());
+    }
+    if (params.sortBy) {
+      searchParams.set('sortBy', params.sortBy);
+    }
+    if (params.order) {
+      searchParams.set('order', params.order);
+    }
+    if (params.searchType) {
+      searchParams.set('searchType', params.searchType);
+    }
+    if (params.query && params.query.trim()) {
+      searchParams.set('q', params.query.trim());
+    }
+
+    return searchParams.toString();
   }
 
   async getMailingLists(): Promise<MailingList[]> {
@@ -139,32 +173,26 @@ export class ApiClient {
   async getAuthorThreadsStarted(
     slug: string,
     authorId: number,
-    page: number = 1,
-    size: number = 50
+    params: AuthorThreadQueryParams = {}
   ): Promise<PaginatedResponse<ThreadWithStarter>> {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      size: size.toString(),
-    });
+    const query = this.buildAuthorThreadQuery(params);
+    const suffix = query ? `?${query}` : '';
 
     return this.fetchJson<PaginatedResponse<ThreadWithStarter>>(
-      `${API_PREFIX}/${slug}/authors/${authorId}/threads-started?${params.toString()}`
+      `${API_PREFIX}/${slug}/authors/${authorId}/threads-started${suffix}`
     );
   }
 
   async getAuthorThreadsParticipated(
     slug: string,
     authorId: number,
-    page: number = 1,
-    size: number = 50
+    params: AuthorThreadQueryParams = {}
   ): Promise<PaginatedResponse<Thread>> {
-    const params = new URLSearchParams({
-      page: page.toString(),
-      size: size.toString(),
-    });
+    const query = this.buildAuthorThreadQuery(params);
+    const suffix = query ? `?${query}` : '';
 
     return this.fetchJson<PaginatedResponse<Thread>>(
-      `${API_PREFIX}/${slug}/authors/${authorId}/threads-participated?${params.toString()}`
+      `${API_PREFIX}/${slug}/authors/${authorId}/threads-participated${suffix}`
     );
   }
 

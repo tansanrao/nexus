@@ -6,7 +6,7 @@ import { ThreadBrowserLayout } from '../components/ThreadBrowserLayout';
 import { useThreadBrowser } from '../hooks/useThreadBrowser';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-import type { AuthorWithStats, Thread, ThreadWithStarter, PaginatedResponse } from '../types';
+import type { AuthorWithStats, Thread, PaginatedResponse } from '../types';
 import type { ThreadFilters } from '../components/ThreadListHeader';
 
 interface AuthorViewProps {
@@ -18,8 +18,21 @@ export function AuthorView({ authorId }: AuthorViewProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [author, setAuthor] = useState<AuthorWithStats | null>(null);
   const [activeTab, setActiveTab] = useState<'created' | 'participated'>('created');
-  const [threadsCreated, setThreadsCreated] = useState<ThreadWithStarter[] | null>(null);
-  const [threadsParticipated, setThreadsParticipated] = useState<Thread[] | null>(null);
+  const [createdTotal, setCreatedTotal] = useState<number | null>(null);
+  const [participatedTotal, setParticipatedTotal] = useState<number | null>(null);
+
+  const getEmptyPage = useCallback(
+    (page: number, size: number): PaginatedResponse<Thread> => ({
+      data: [],
+      page: {
+        page,
+        size,
+        totalPages: 0,
+        totalElements: 0,
+      },
+    }),
+    []
+  );
 
   const fetchAuthorThreads = useCallback(
     async ({
@@ -27,77 +40,61 @@ export function AuthorView({ authorId }: AuthorViewProps) {
       pageSize,
       filters: activeFilters,
       searchTerm,
+      mailingList,
     }: {
+      mailingList: string;
       page: number;
       pageSize: number;
       filters: ThreadFilters;
       searchTerm: string;
     }) => {
-      const sourceThreadsRaw =
-        activeTab === 'created' ? threadsCreated : threadsParticipated;
+      const activeMailingList = selectedMailingList ?? mailingList;
+      const authorIdNumber = parseInt(authorId, 10);
 
-      if (!sourceThreadsRaw) {
-        return {
-          data: [],
-          page: {
-            page: 1,
-            size: pageSize,
-            totalPages: 0,
-            totalElements: 0,
-          },
-        };
+      if (!activeMailingList || !Number.isFinite(authorIdNumber)) {
+        return getEmptyPage(page, pageSize);
       }
 
-      let filteredThreads = [...sourceThreadsRaw];
+      const query = searchTerm.trim();
+      const baseParams = {
+        page,
+        size: pageSize,
+        sortBy: activeFilters.sortBy,
+        order: activeFilters.order,
+        searchType: activeFilters.searchType,
+        query,
+      };
 
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase();
-        filteredThreads = filteredThreads.filter(thread =>
-          thread.subject.toLowerCase().includes(searchLower)
-        );
-      }
+      const shouldUpdateTotals = query.length === 0;
 
-      filteredThreads.sort((a, b) => {
-        let aValue: number;
-        let bValue: number;
-
-        switch (activeFilters.sortBy) {
-          case 'start_date':
-            aValue = new Date(a.start_date).getTime();
-            bValue = new Date(b.start_date).getTime();
-            break;
-          case 'message_count':
-            aValue = a.message_count || 0;
-            bValue = b.message_count || 0;
-            break;
-          case 'last_date':
-          default:
-            aValue = new Date(a.last_date).getTime();
-            bValue = new Date(b.last_date).getTime();
-            break;
+      try {
+        if (activeTab === 'created') {
+          const response = await apiClient.getAuthorThreadsStarted(
+            activeMailingList,
+            authorIdNumber,
+            baseParams
+          );
+          if (shouldUpdateTotals) {
+            setCreatedTotal(response.page.totalElements);
+          }
+          return response as PaginatedResponse<Thread>;
         }
 
-        return activeFilters.order === 'asc' ? aValue - bValue : bValue - aValue;
-      });
-
-      const total = filteredThreads.length;
-      const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
-      const safePage =
-        totalPages > 0 ? Math.min(Math.max(page, 1), totalPages) : 1;
-      const startIndex = (safePage - 1) * pageSize;
-      const pageItems = filteredThreads.slice(startIndex, startIndex + pageSize) as Thread[];
-
-      return {
-        data: pageItems,
-        page: {
-          page: safePage,
-          size: pageSize,
-          totalPages,
-          totalElements: total,
-        },
-      };
+        const response = await apiClient.getAuthorThreadsParticipated(
+          activeMailingList,
+          authorIdNumber,
+          baseParams
+        );
+        if (shouldUpdateTotals) {
+          setParticipatedTotal(response.page.totalElements);
+        }
+        return response;
+      } catch (err) {
+        console.error('Error fetching author threads:', err);
+        return getEmptyPage(page, pageSize);
+      }
     },
-    [activeTab, threadsCreated, threadsParticipated]
+    [activeTab, authorId, getEmptyPage, selectedMailingList]
   );
 
   // Use the shared thread browser hook
@@ -117,54 +114,26 @@ export function AuthorView({ authorId }: AuthorViewProps) {
     handleFiltersChange,
   } = useThreadBrowser({
     fetchThreads: fetchAuthorThreads,
-    reloadDeps: [authorId, activeTab, threadsCreated, threadsParticipated],
+    reloadDeps: [authorId, activeTab],
   });
 
   const createdCountLabel = useMemo(() => {
-    if (threadsCreated === null) return '...';
-    return threadsCreated.length;
-  }, [threadsCreated]);
+    if (createdTotal === null) return '...';
+    return createdTotal;
+  }, [createdTotal]);
 
   const participatedCountLabel = useMemo(() => {
-    if (threadsParticipated === null) return '...';
-    return threadsParticipated.length;
-  }, [threadsParticipated]);
+    if (participatedTotal === null) return '...';
+    return participatedTotal;
+  }, [participatedTotal]);
 
-  const isAuthorThreadsLoading = threadsCreated === null || threadsParticipated === null;
+  const isAuthorThreadsLoading =
+    author === null || createdTotal === null || participatedTotal === null;
 
   useEffect(() => {
-    if (selectedMailingList && authorId) {
-      loadAuthorData();
+    if (!selectedMailingList || !authorId) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMailingList, authorId]);
-
-  // Fetch all author threads so we can reuse the shared list features (search, sort, pagination).
-  const fetchAllAuthorThreads = async <T,>(
-    fetchPage: (page: number, size: number) => Promise<PaginatedResponse<T>>,
-    pageSize: number,
-    maxPages: number = 200
-  ): Promise<T[]> => {
-    const results: T[] = [];
-    let page = 1;
-
-    while (page <= maxPages) {
-      const response = await fetchPage(page, pageSize);
-      results.push(...response.data);
-
-      const totalPages = response.page.totalPages;
-      if (page >= totalPages || response.data.length < pageSize) {
-        break;
-      }
-
-      page += 1;
-    }
-
-    return results;
-  };
-
-  const loadAuthorData = async () => {
-    if (!selectedMailingList || !authorId) return;
 
     const mailingList = selectedMailingList;
     const authorIdNumber = parseInt(authorId, 10);
@@ -172,43 +141,42 @@ export function AuthorView({ authorId }: AuthorViewProps) {
       console.warn('Invalid author id for author view:', authorId);
       return;
     }
-    const API_PAGE_SIZE = 100; // API caps author thread pagination at 100 items
 
-    setThreadsCreated(null);
-    setThreadsParticipated(null);
+    setAuthor(null);
+    setCreatedTotal(null);
+    setParticipatedTotal(null);
 
-    try {
-      const [authorData, created, participated] = await Promise.all([
-        apiClient.getAuthor(mailingList, authorIdNumber),
-        fetchAllAuthorThreads<ThreadWithStarter>(
-          (pageNumber, size) =>
-            apiClient.getAuthorThreadsStarted(mailingList, authorIdNumber, pageNumber, size),
-          API_PAGE_SIZE
-        ),
-        fetchAllAuthorThreads<Thread>(
-          (pageNumber, size) =>
-            apiClient.getAuthorThreadsParticipated(mailingList, authorIdNumber, pageNumber, size),
-          API_PAGE_SIZE
-        ),
-      ]);
-      setAuthor(authorData);
-      setThreadsCreated(created);
-      setThreadsParticipated(participated);
+    const loadAuthorData = async () => {
+      try {
+        const [authorData, createdPage, participatedPage] = await Promise.all([
+          apiClient.getAuthor(mailingList, authorIdNumber),
+          apiClient.getAuthorThreadsStarted(mailingList, authorIdNumber, { page: 1, size: 1 }),
+          apiClient.getAuthorThreadsParticipated(mailingList, authorIdNumber, { page: 1, size: 1 }),
+        ]);
 
-      // Auto-select the first tab that has threads
-      setActiveTab((prevTab) => {
-        if (created.length > 0) {
-          return 'created';
-        }
-        if (participated.length > 0) {
-          return 'participated';
-        }
-        return prevTab;
-      });
-    } catch (err) {
-      console.error('Error loading author:', err);
-    }
-  };
+        setAuthor(authorData);
+        setCreatedTotal(createdPage.page.totalElements);
+        setParticipatedTotal(participatedPage.page.totalElements);
+
+        setActiveTab((prevTab) => {
+          if (createdPage.page.totalElements > 0) {
+            return 'created';
+          }
+          if (participatedPage.page.totalElements > 0) {
+            return 'participated';
+          }
+          return prevTab;
+        });
+      } catch (err) {
+        console.error('Error loading author:', err);
+        setAuthor(null);
+        setCreatedTotal(0);
+        setParticipatedTotal(0);
+      }
+    };
+
+    loadAuthorData();
+  }, [selectedMailingList, authorId]);
 
   const handleTabChange = (tab: 'created' | 'participated') => {
     setActiveTab(tab);
@@ -222,7 +190,7 @@ export function AuthorView({ authorId }: AuthorViewProps) {
 
   // Create the author header component
   const authorHeader = author ? (
-    <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div className="border-b border-surface-border/60 bg-surface-raised/95 backdrop-blur supports-[backdrop-filter]:bg-surface-raised/80 shadow-sm">
       <div className="p-3">
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
@@ -254,13 +222,13 @@ export function AuthorView({ authorId }: AuthorViewProps) {
       </div>
       
       {/* Tabs */}
-      <div className="flex border-t">
+      <div className="flex border-t border-surface-border/60 bg-surface-raised/80">
         <button
           onClick={() => handleTabChange('created')}
           className={`flex-1 px-3 py-2 text-sm font-medium border-b-2 transition-all duration-150 ${
             activeTab === 'created'
-              ? 'border-primary text-foreground bg-background/50'
-              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-background/30'
+              ? 'border-primary text-foreground bg-surface-inset'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-surface-inset/60'
           }`}
         >
           Created ({createdCountLabel})
@@ -269,8 +237,8 @@ export function AuthorView({ authorId }: AuthorViewProps) {
           onClick={() => handleTabChange('participated')}
           className={`flex-1 px-3 py-2 text-sm font-medium border-b-2 transition-all duration-150 ${
             activeTab === 'participated'
-              ? 'border-primary text-foreground bg-background/50'
-              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-background/30'
+              ? 'border-primary text-foreground bg-surface-inset'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-surface-inset/60'
           }`}
         >
           Participated ({participatedCountLabel})
