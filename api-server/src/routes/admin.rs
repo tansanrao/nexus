@@ -5,53 +5,72 @@ use crate::sync::pg_config::PgConfig;
 use rocket::serde::json::Json;
 use rocket::State;
 use rocket_db_pools::sqlx;
+use rocket_okapi::openapi;
 use serde::{Deserialize, Serialize};
+use rocket_okapi::okapi::schemars::JsonSchema;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct SyncRequest {
+    #[serde(rename = "mailingListSlugs")]
     mailing_list_slugs: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct SyncStartResponse {
+    #[serde(rename = "jobIds")]
     job_ids: Vec<i32>,
     message: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct QueuedJobInfo {
     id: i32,
+    #[serde(rename = "mailingListId")]
     mailing_list_id: i32,
+    #[serde(rename = "mailingListSlug")]
     mailing_list_slug: String,
+    #[serde(rename = "mailingListName")]
     mailing_list_name: String,
     position: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct SyncStatusResponse {
+    #[serde(rename = "currentJob")]
     current_job: Option<JobStatusInfo>,
+    #[serde(rename = "queuedJobs")]
     queued_jobs: Vec<QueuedJobInfo>,
+    #[serde(rename = "isRunning")]
     is_running: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct DatabaseStatusResponse {
+    #[serde(rename = "totalAuthors")]
     total_authors: i64,
+    #[serde(rename = "totalEmails")]
     total_emails: i64,
+    #[serde(rename = "totalThreads")]
     total_threads: i64,
+    #[serde(rename = "totalRecipients")]
     total_recipients: i64,
+    #[serde(rename = "totalReferences")]
     total_references: i64,
+    #[serde(rename = "totalThreadMemberships")]
     total_thread_memberships: i64,
+    #[serde(rename = "dateRangeStart")]
     date_range_start: Option<chrono::NaiveDateTime>,
+    #[serde(rename = "dateRangeEnd")]
     date_range_end: Option<chrono::NaiveDateTime>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct MessageResponse {
     message: String,
 }
 
 /// Start sync for all enabled mailing lists
+#[openapi(tag = "Admin")]
 #[post("/admin/sync/start")]
 pub async fn start_sync(
     pool: &State<sqlx::PgPool>,
@@ -67,6 +86,7 @@ pub async fn start_sync(
 }
 
 /// Start sync for specific mailing lists
+#[openapi(tag = "Admin")]
 #[post("/admin/sync/queue", data = "<request>")]
 pub async fn queue_sync(
     request: Json<SyncRequest>,
@@ -108,6 +128,7 @@ pub async fn queue_sync(
 }
 
 /// Get current sync status (running + queued jobs)
+#[openapi(tag = "Admin")]
 #[get("/admin/sync/status")]
 pub async fn get_sync_status(
     pool: &State<sqlx::PgPool>,
@@ -150,6 +171,7 @@ pub async fn get_sync_status(
 }
 
 /// Cancel ALL sync jobs including currently running ones
+#[openapi(tag = "Admin")]
 #[post("/admin/sync/cancel")]
 pub async fn cancel_sync(
     pool: &State<sqlx::PgPool>,
@@ -165,6 +187,7 @@ pub async fn cancel_sync(
 }
 
 /// Reset the database (drop and recreate all tables)
+#[openapi(tag = "Admin")]
 #[post("/admin/database/reset")]
 pub async fn reset_db(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse>, ApiError> {
     reset_database(pool.inner())
@@ -178,6 +201,7 @@ pub async fn reset_db(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse
 
 /// Get database statistics (global, not per mailing list)
 /// Queries are parallelized for faster response times
+#[openapi(tag = "Admin")]
 #[get("/admin/database/status")]
 pub async fn get_database_status(
     pool: &State<sqlx::PgPool>,
@@ -245,6 +269,7 @@ pub async fn get_database_status(
 }
 
 /// Get PostgreSQL configuration for monitoring
+#[openapi(tag = "Admin")]
 #[get("/admin/database/config")]
 pub async fn get_database_config(
     pool: &State<sqlx::PgPool>,

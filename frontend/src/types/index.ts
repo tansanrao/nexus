@@ -6,7 +6,7 @@ export interface MailingList {
   description: string | null;
   enabled: boolean;
   sync_priority: number;
-  created_at: string;
+  created_at: string | null;
   last_synced_at: string | null;
 }
 
@@ -20,6 +20,22 @@ export interface MailingListRepository {
 
 export interface MailingListWithRepos extends MailingList {
   repositories: MailingListRepository[];
+}
+
+export interface DataResponse<T> {
+  data: T;
+}
+
+export interface PageMetadata {
+  page: number;
+  size: number;
+  totalPages: number;
+  totalElements: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  page: PageMetadata;
 }
 
 // Core entity types
@@ -108,27 +124,27 @@ export interface JobStatusInfo {
 
 export interface QueuedJob {
   id: number;
-  mailing_list_id: number;
-  mailing_list_slug: string;
-  mailing_list_name: string;
+  mailingListId: number;
+  mailingListSlug: string;
+  mailingListName: string;
   position: number;
 }
 
 export interface GlobalSyncStatus {
-  current_job: JobStatusInfo | null;
-  queued_jobs: QueuedJob[];
-  is_running: boolean;
+  currentJob: JobStatusInfo | null;
+  queuedJobs: QueuedJob[];
+  isRunning: boolean;
 }
 
 export interface DatabaseStatus {
-  total_authors: number;
-  total_emails: number;
-  total_threads: number;
-  total_recipients: number;
-  total_references: number;
-  total_thread_memberships: number;
-  date_range_start: string | null;
-  date_range_end: string | null;
+  totalAuthors: number;
+  totalEmails: number;
+  totalThreads: number;
+  totalRecipients: number;
+  totalReferences: number;
+  totalThreadMemberships: number;
+  dateRangeStart: string | null;
+  dateRangeEnd: string | null;
 }
 
 export interface AdminConfig {
@@ -140,29 +156,29 @@ export interface AdminConfig {
 export type ThreadSortBy = 'start_date' | 'last_date' | 'message_count';
 export type AuthorSortBy = 'canonical_name' | 'email' | 'email_count' | 'thread_count' | 'first_email_date' | 'last_email_date';
 export type SortOrder = 'asc' | 'desc';
-export type SearchType = 'subject' | 'full_text';
+export type SearchType = 'subject' | 'fullText';
 
 export interface ThreadQueryParams {
   page?: number;
-  limit?: number;
-  sort_by?: ThreadSortBy;
+  size?: number;
+  sortBy?: ThreadSortBy;
   order?: SortOrder;
 }
 
 export interface ThreadSearchParams {
-  search?: string;
-  search_type?: SearchType;
+  q?: string;
+  searchType?: SearchType;
   page?: number;
-  limit?: number;
-  sort_by?: ThreadSortBy;
+  size?: number;
+  sortBy?: ThreadSortBy;
   order?: SortOrder;
 }
 
 export interface AuthorQueryParams {
-  search?: string;
+  q?: string;
   page?: number;
-  limit?: number;
-  sort_by?: AuthorSortBy;
+  size?: number;
+  sortBy?: AuthorSortBy;
   order?: SortOrder;
 }
 

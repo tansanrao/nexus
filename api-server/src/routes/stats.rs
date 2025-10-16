@@ -1,11 +1,13 @@
 use rocket::serde::json::Json;
 use rocket::get;
 use rocket_db_pools::{sqlx, Connection};
+use rocket_okapi::openapi;
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
 use crate::models::Stats;
 
+#[openapi(tag = "Stats")]
 #[get("/<slug>/stats")]
 pub async fn get_stats(
     slug: String,

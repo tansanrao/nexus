@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use rocket_db_pools::sqlx::FromRow;
+use rocket_okapi::okapi::schemars::{self, JsonSchema};
 
 // ===== Mailing List Models =====
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 pub struct MailingList {
     pub id: i32,
     pub name: String,
@@ -16,7 +17,7 @@ pub struct MailingList {
     pub last_synced_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 pub struct MailingListRepository {
     pub id: i32,
     pub mailing_list_id: i32,
@@ -26,7 +27,7 @@ pub struct MailingListRepository {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct MailingListWithRepos {
     #[serde(flatten)]
     pub list: MailingList,
@@ -35,7 +36,7 @@ pub struct MailingListWithRepos {
 
 // ===== Core Data Models (Partitioned by mailing_list_id) =====
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 #[allow(dead_code)]
 pub struct Author {
     pub id: i32,
@@ -45,7 +46,7 @@ pub struct Author {
     pub last_seen: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 #[allow(dead_code)]
 pub struct AuthorNameAlias {
     pub id: i32,
@@ -56,7 +57,7 @@ pub struct AuthorNameAlias {
     pub last_seen: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 #[allow(dead_code)]
 pub struct AuthorMailingListActivity {
     pub author_id: i32,
@@ -67,7 +68,7 @@ pub struct AuthorMailingListActivity {
     pub thread_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 #[allow(dead_code)]
 pub struct Email {
     pub id: i32,
@@ -82,7 +83,7 @@ pub struct Email {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 pub struct Thread {
     pub id: i32,
     pub mailing_list_id: i32,
@@ -93,7 +94,7 @@ pub struct Thread {
     pub message_count: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 #[allow(dead_code)]
 pub struct ThreadMembership {
     pub mailing_list_id: i32,
@@ -102,7 +103,7 @@ pub struct ThreadMembership {
     pub depth: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 #[allow(dead_code)]
 pub struct EmailRecipient {
     pub id: i32,
@@ -114,7 +115,7 @@ pub struct EmailRecipient {
 
 // ===== Extended Structs for API Responses =====
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 pub struct EmailWithAuthor {
     pub id: i32,
     pub mailing_list_id: i32,
@@ -130,13 +131,13 @@ pub struct EmailWithAuthor {
     pub author_email: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ThreadDetail {
     pub thread: Thread,
     pub emails: Vec<EmailHierarchy>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 pub struct EmailHierarchy {
     pub id: i32,
     pub mailing_list_id: i32,
@@ -153,7 +154,7 @@ pub struct EmailHierarchy {
     pub depth: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AuthorWithStats {
     pub id: i32,
     pub email: String,
@@ -168,7 +169,7 @@ pub struct AuthorWithStats {
     pub name_variations: Vec<String>, // List of name variations used
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 pub struct Stats {
     pub total_emails: i64,
     pub total_threads: i64,
@@ -179,7 +180,7 @@ pub struct Stats {
 
 // ===== Search Types =====
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchType {
     Subject,
@@ -194,7 +195,7 @@ impl Default for SearchType {
 
 // ===== Author Thread Participation =====
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
 pub struct ThreadWithStarter {
     pub id: i32,
     pub mailing_list_id: i32,
@@ -206,4 +207,50 @@ pub struct ThreadWithStarter {
     pub starter_id: i32,
     pub starter_name: Option<String>,
     pub starter_email: String,
+}
+
+// ===== API Response Wrappers =====
+
+/// Pagination metadata following REST best practices
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PageMetadata {
+    pub page: i64,
+    pub size: i64,
+    #[serde(rename = "totalPages")]
+    pub total_pages: i64,
+    #[serde(rename = "totalElements")]
+    pub total_elements: i64,
+}
+
+/// Paginated response wrapper for list endpoints
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PaginatedResponse<T> {
+    pub data: Vec<T>,
+    pub page: PageMetadata,
+}
+
+impl<T> PaginatedResponse<T> {
+    pub fn new(data: Vec<T>, page: i64, size: i64, total_elements: i64) -> Self {
+        let total_pages = if size > 0 {
+            (total_elements + size - 1) / size
+        } else {
+            0
+        };
+
+        Self {
+            data,
+            page: PageMetadata {
+                page,
+                size,
+                total_pages,
+                total_elements,
+            },
+        }
+    }
+}
+
+/// Simple data wrapper for non-paginated list endpoints
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DataResponse<T> {
+    pub data: T,
 }

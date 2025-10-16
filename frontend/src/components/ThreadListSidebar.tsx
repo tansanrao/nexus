@@ -3,7 +3,14 @@ import { Link, useParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { Mail, Search } from 'lucide-react';
 import { api } from '../api/client';
-import type { Thread, ThreadSortBy, SortOrder, SearchType } from '../types';
+import type {
+  Thread,
+  ThreadSortBy,
+  SortOrder,
+  SearchType,
+  PageMetadata,
+  PaginatedResponse,
+} from '../types';
 import { useTimezone } from '../contexts/TimezoneContext';
 import { useMailingList } from '../contexts/MailingListContext';
 import { formatDateInTimezone } from '../utils/timezone';
@@ -15,6 +22,7 @@ import { cn } from '@/lib/utils';
 
 export function ThreadListSidebar() {
   const [threads, setThreads] = useState<Thread[]>([]);
+  const [pageInfo, setPageInfo] = useState<PageMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -27,30 +35,32 @@ export function ThreadListSidebar() {
   const { threadId } = useParams<{ threadId: string }>();
   const { selectedMailingList } = useMailingList();
   const { timezone } = useTimezone();
-  const limit = 50;
+  const size = 50;
 
   useEffect(() => {
     const loadThreads = async () => {
       if (!selectedMailingList) return;
       try {
         setLoading(true);
-        let data: Thread[];
+        let response: PaginatedResponse<Thread>;
         if (activeSearch.trim()) {
-          data = await api.threads.search(selectedMailingList, {
-            search: activeSearch,
-            search_type: searchType,
+          response = await api.threads.search(selectedMailingList, {
+            q: activeSearch,
+            searchType: searchType,
             page,
-            limit,
-            sort_by: sortBy,
+            size,
+            sortBy: sortBy,
             order,
           });
         } else {
-          data = await api.threads.list(selectedMailingList, { page, limit, sort_by: sortBy, order });
+          response = await api.threads.list(selectedMailingList, { page, size, sortBy: sortBy, order });
         }
-        setThreads(data);
+        setThreads(response.data);
+        setPageInfo(response.page);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load threads');
+        setPageInfo(null);
       } finally {
         setLoading(false);
       }
@@ -58,6 +68,10 @@ export function ThreadListSidebar() {
 
     loadThreads();
   }, [page, sortBy, order, activeSearch, searchType, selectedMailingList]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedMailingList]);
 
   const handleSearch = () => {
     setActiveSearch(searchInput);
@@ -206,7 +220,12 @@ export function ThreadListSidebar() {
             Prev
           </CompactButton>
           <span>Page {page}</span>
-          <CompactButton onClick={() => setPage((p) => p + 1)} disabled={threads.length < limit}>
+          <CompactButton
+            onClick={() => setPage((p) => p + 1)}
+            disabled={
+              !pageInfo || pageInfo.totalPages === 0 || pageInfo.page >= pageInfo.totalPages
+            }
+          >
             Next
           </CompactButton>
         </div>

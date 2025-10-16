@@ -75,24 +75,24 @@ export function SettingsSystemStatistics() {
               <>
                 <Section title="Database records" description="Total counts across indexed data.">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                    <Stat label="Authors" value={formatNumber(status.total_authors)} />
-                    <Stat label="Emails" value={formatNumber(status.total_emails)} />
-                    <Stat label="Threads" value={formatNumber(status.total_threads)} />
-                    <Stat label="Recipients" value={formatNumber(status.total_recipients)} />
-                    <Stat label="References" value={formatNumber(status.total_references)} />
-                    <Stat label="Thread memberships" value={formatNumber(status.total_thread_memberships)} />
+                    <Stat label="Authors" value={formatNumber(status.totalAuthors)} />
+                    <Stat label="Emails" value={formatNumber(status.totalEmails)} />
+                    <Stat label="Threads" value={formatNumber(status.totalThreads)} />
+                    <Stat label="Recipients" value={formatNumber(status.totalRecipients)} />
+                    <Stat label="References" value={formatNumber(status.totalReferences)} />
+                    <Stat label="Thread memberships" value={formatNumber(status.totalThreadMemberships)} />
                   </div>
                 </Section>
 
-                {status.date_range_start && status.date_range_end && (
+                {status.dateRangeStart && status.dateRangeEnd && (
                   <Section title="Data range" description="Time span covered by the indexed dataset.">
                     <div className="surface-muted px-3 py-3 text-sm">
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="text-muted-foreground">Earliest:</span>
-                        <span className="font-medium">{formatDate(status.date_range_start)}</span>
+                        <span className="font-medium">{formatDate(status.dateRangeStart)}</span>
                         <span className="text-muted-foreground" aria-hidden="true">→</span>
                         <span className="text-muted-foreground">Latest:</span>
-                        <span className="font-medium">{formatDate(status.date_range_end)}</span>
+                        <span className="font-medium">{formatDate(status.dateRangeEnd)}</span>
                       </div>
                     </div>
                   </Section>

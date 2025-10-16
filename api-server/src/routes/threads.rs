@@ -2,20 +2,23 @@ use rocket::serde::json::Json;
 use rocket::get;
 use rocket_db_pools::{sqlx, Connection};
 use std::collections::HashMap;
+use rocket_okapi::openapi;
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{EmailHierarchy, Thread, ThreadDetail, SearchType};
+use crate::models::{EmailHierarchy, Thread, ThreadDetail, SearchType, PaginatedResponse};
 
-#[get("/<slug>/threads?<page>&<limit>&<sort_by>&<order>")]
+#[openapi(tag = "Threads")]
+#[get("/<slug>/threads?<page>&<size>&<sortBy>&<order>")]
 pub async fn list_threads(
     slug: String,
     mut db: Connection<NexusDb>,
     page: Option<i64>,
-    limit: Option<i64>,
-    sort_by: Option<String>,
+    size: Option<i64>,
+    #[allow(non_snake_case)]
+    sortBy: Option<String>,
     order: Option<String>,
-) -> Result<Json<Vec<Thread>>, ApiError> {
+) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
     // Get mailing list ID from slug
     let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
         .bind(&slug)
@@ -25,14 +28,14 @@ pub async fn list_threads(
     let mailing_list_id = list.0;
 
     let page = page.unwrap_or(1);
-    let limit = limit.unwrap_or(50).min(100); // Max 100 items per page
-    let offset = (page - 1) * limit;
+    let size = size.unwrap_or(50).min(100); // Max 100 items per page
+    let offset = (page - 1) * size;
 
     // Parse sort parameters with defaults
-    let sort_field = match sort_by.as_deref() {
-        Some("start_date") => "start_date",
-        Some("last_date") => "last_date",
-        Some("message_count") => "message_count",
+    let sort_field = match sortBy.as_deref() {
+        Some("startDate") => "start_date",
+        Some("lastDate") => "last_date",
+        Some("messageCount") => "message_count",
         _ => "last_date", // default
     };
 
@@ -41,6 +44,15 @@ pub async fn list_threads(
         Some("desc") => "DESC",
         _ => "DESC", // default
     };
+
+    // Get total count for pagination
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM threads WHERE mailing_list_id = $1"
+    )
+    .bind(mailing_list_id)
+    .fetch_one(&mut **db)
+    .await?;
+    let total_elements = total.0;
 
     // Build query with dynamic ORDER BY and mailing_list_id filter
     let query = format!(
@@ -57,14 +69,15 @@ pub async fn list_threads(
 
     let threads = sqlx::query_as::<_, Thread>(&query)
         .bind(mailing_list_id)
-        .bind(limit)
+        .bind(size)
         .bind(offset)
         .fetch_all(&mut **db)
         .await?;
 
-    Ok(Json(threads))
+    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
 }
 
+#[openapi(tag = "Threads")]
 #[get("/<slug>/threads/<thread_id>")]
 pub async fn get_thread(
     slug: String,
@@ -186,17 +199,20 @@ fn sort_emails_by_thread_order(emails: Vec<EmailHierarchy>) -> Vec<EmailHierarch
     result
 }
 
-#[get("/<slug>/threads/search?<search>&<search_type>&<page>&<limit>&<sort_by>&<order>")]
+#[openapi(tag = "Threads")]
+#[get("/<slug>/threads/search?<q>&<searchType>&<page>&<size>&<sortBy>&<order>")]
 pub async fn search_threads(
     slug: String,
     mut db: Connection<NexusDb>,
-    search: Option<String>,
-    search_type: Option<String>,
+    q: Option<String>,
+    #[allow(non_snake_case)]
+    searchType: Option<String>,
     page: Option<i64>,
-    limit: Option<i64>,
-    sort_by: Option<String>,
+    size: Option<i64>,
+    #[allow(non_snake_case)]
+    sortBy: Option<String>,
     order: Option<String>,
-) -> Result<Json<Vec<Thread>>, ApiError> {
+) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
     // Get mailing list ID from slug
     let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
         .bind(&slug)
@@ -206,14 +222,14 @@ pub async fn search_threads(
     let mailing_list_id = list.0;
 
     let page = page.unwrap_or(1);
-    let limit = limit.unwrap_or(50).min(100);
-    let offset = (page - 1) * limit;
+    let size = size.unwrap_or(50).min(100);
+    let offset = (page - 1) * size;
 
     // Parse sort parameters with defaults
-    let sort_field = match sort_by.as_deref() {
-        Some("start_date") => "start_date",
-        Some("last_date") => "last_date",
-        Some("message_count") => "message_count",
+    let sort_field = match sortBy.as_deref() {
+        Some("startDate") => "start_date",
+        Some("lastDate") => "last_date",
+        Some("messageCount") => "message_count",
         _ => "last_date", // default
     };
 
@@ -224,18 +240,52 @@ pub async fn search_threads(
     };
 
     // If no search term provided, return empty results
-    let Some(search_term) = search else {
-        return Ok(Json(vec![]));
+    let Some(search_term) = q else {
+        return Ok(Json(PaginatedResponse::new(vec![], page, size, 0)));
     };
 
     // Parse search type, default to subject
-    let search_mode = match search_type.as_deref() {
-        Some("full_text") => SearchType::FullText,
+    let search_mode = match searchType.as_deref() {
+        Some("fullText") => SearchType::FullText,
         _ => SearchType::Subject, // default
     };
 
     // Search in thread subjects and email bodies
     let search_pattern = format!("%{}%", search_term.to_lowercase());
+
+    // Build count query based on search type
+    let count_query = match search_mode {
+        SearchType::Subject => {
+            r#"
+            SELECT COUNT(DISTINCT t.id)
+            FROM threads t
+            LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
+            LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
+            WHERE t.mailing_list_id = $1
+              AND (LOWER(t.subject) LIKE $2
+               OR LOWER(e.subject) LIKE $2)
+            "#
+        }
+        SearchType::FullText => {
+            r#"
+            SELECT COUNT(DISTINCT t.id)
+            FROM threads t
+            LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
+            LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
+            WHERE t.mailing_list_id = $1
+              AND (LOWER(t.subject) LIKE $2
+               OR LOWER(e.subject) LIKE $2
+               OR LOWER(e.body) LIKE $2)
+            "#
+        }
+    };
+
+    let total: (i64,) = sqlx::query_as(count_query)
+        .bind(mailing_list_id)
+        .bind(&search_pattern)
+        .fetch_one(&mut **db)
+        .await?;
+    let total_elements = total.0;
 
     // Build query based on search type
     let query = match search_mode {
@@ -281,10 +331,10 @@ pub async fn search_threads(
     let threads = sqlx::query_as::<_, Thread>(&query)
         .bind(mailing_list_id)
         .bind(&search_pattern)
-        .bind(limit)
+        .bind(size)
         .bind(offset)
         .fetch_all(&mut **db)
         .await?;
 
-    Ok(Json(threads))
+    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
 }

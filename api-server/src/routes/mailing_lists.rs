@@ -1,19 +1,22 @@
 use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{MailingList, MailingListRepository, MailingListWithRepos};
+use crate::models::{MailingList, MailingListRepository, MailingListWithRepos, DataResponse};
 use crate::sync::create_mailing_list_partitions;
 use crate::sync::manifest::{fetch_manifest, parse_manifest};
 use rocket::serde::json::Json;
 use rocket::State;
 use rocket_db_pools::{sqlx, Connection};
+use rocket_okapi::openapi;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use rocket_okapi::okapi::schemars::JsonSchema;
 
 /// Get all mailing lists
+#[openapi(tag = "Mailing Lists")]
 #[get("/admin/mailing-lists")]
 pub async fn list_mailing_lists(
     mut db: Connection<NexusDb>,
-) -> Result<Json<Vec<MailingList>>, ApiError> {
+) -> Result<Json<DataResponse<Vec<MailingList>>>, ApiError> {
     let lists: Vec<MailingList> = sqlx::query_as(
         r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
            FROM mailing_lists
@@ -22,10 +25,11 @@ pub async fn list_mailing_lists(
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(lists))
+    Ok(Json(DataResponse { data: lists }))
 }
 
 /// Get a specific mailing list by slug
+#[openapi(tag = "Mailing Lists")]
 #[get("/admin/mailing-lists/<slug>")]
 pub async fn get_mailing_list(
     slug: String,
@@ -45,6 +49,7 @@ pub async fn get_mailing_list(
 }
 
 /// Get a mailing list with its repositories
+#[openapi(tag = "Mailing Lists")]
 #[get("/admin/mailing-lists/<slug>/repositories")]
 pub async fn get_mailing_list_with_repos(
     slug: String,
@@ -78,18 +83,19 @@ pub async fn get_mailing_list_with_repos(
     }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ToggleRequest {
     enabled: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct ToggleResponse {
     message: String,
     enabled: bool,
 }
 
 /// Toggle a mailing list enabled/disabled status
+#[openapi(tag = "Mailing Lists")]
 #[patch("/admin/mailing-lists/<slug>/toggle", data = "<request>")]
 pub async fn toggle_mailing_list(
     slug: String,
@@ -117,17 +123,21 @@ pub async fn toggle_mailing_list(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct SeedResponse {
     message: String,
+    #[serde(rename = "mailingListsCreated")]
     mailing_lists_created: usize,
+    #[serde(rename = "repositoriesCreated")]
     repositories_created: usize,
+    #[serde(rename = "partitionsCreated")]
     partitions_created: usize,
 }
 
 /// Seed all mailing lists from lore.kernel.org manifest
 /// This endpoint is idempotent - safe to run multiple times
 /// Dynamically fetches and parses the grokmirror manifest
+#[openapi(tag = "Mailing Lists")]
 #[post("/admin/mailing-lists/seed")]
 pub async fn seed_mailing_lists(
     pool: &State<sqlx::PgPool>,

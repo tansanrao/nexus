@@ -1,6 +1,7 @@
 use rocket_db_pools::sqlx::{self, PgPool};
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use rocket_okapi::okapi::schemars::JsonSchema;
 
 #[derive(Debug, Clone)]
 pub struct SyncJob {
@@ -183,7 +184,7 @@ impl JobQueue {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema)]
 pub struct JobStatusInfo {
     pub id: i32,
     pub mailing_list_id: i32,

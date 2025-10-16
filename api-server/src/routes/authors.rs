@@ -2,21 +2,24 @@ use rocket::serde::json::Json;
 use rocket::get;
 use rocket_db_pools::{sqlx, Connection};
 use std::collections::HashMap;
+use rocket_okapi::openapi;
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{AuthorWithStats, EmailWithAuthor, ThreadWithStarter, Thread};
+use crate::models::{AuthorWithStats, EmailWithAuthor, ThreadWithStarter, Thread, PaginatedResponse};
 
-#[get("/<slug>/authors?<search>&<page>&<limit>&<sort_by>&<order>")]
+#[openapi(tag = "Authors")]
+#[get("/<slug>/authors?<q>&<page>&<size>&<sortBy>&<order>")]
 pub async fn search_authors(
     slug: String,
     mut db: Connection<NexusDb>,
-    search: Option<String>,
+    q: Option<String>,
     page: Option<i64>,
-    limit: Option<i64>,
-    sort_by: Option<String>,
+    size: Option<i64>,
+    #[allow(non_snake_case)]
+    sortBy: Option<String>,
     order: Option<String>,
-) -> Result<Json<Vec<AuthorWithStats>>, ApiError> {
+) -> Result<Json<PaginatedResponse<AuthorWithStats>>, ApiError> {
     // Get mailing list ID from slug
     let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
         .bind(&slug)
@@ -26,17 +29,17 @@ pub async fn search_authors(
     let mailing_list_id = list.0;
 
     let page = page.unwrap_or(1);
-    let limit = limit.unwrap_or(50).min(100);
-    let offset = (page - 1) * limit;
+    let size = size.unwrap_or(50).min(100);
+    let offset = (page - 1) * size;
 
     // Parse sort parameters with defaults
-    let sort_field = match sort_by.as_deref() {
-        Some("canonical_name") => "canonical_name",
+    let sort_field = match sortBy.as_deref() {
+        Some("canonicalName") => "canonical_name",
         Some("email") => "email",
-        Some("email_count") => "email_count",
-        Some("thread_count") => "thread_count",
-        Some("first_email_date") => "first_email_date",
-        Some("last_email_date") => "last_email_date",
+        Some("emailCount") => "email_count",
+        Some("threadCount") => "thread_count",
+        Some("firstEmailDate") => "first_email_date",
+        Some("lastEmailDate") => "last_email_date",
         _ => "email_count", // default: sort by most active
     };
 
@@ -72,7 +75,39 @@ pub async fn search_authors(
         last_email_date: Option<chrono::DateTime<chrono::Utc>>,
     }
 
-    let author_rows: Vec<AuthorRow> = if let Some(search_term) = search {
+    // Get total count
+    let total_elements: i64 = if let Some(ref search_term) = q {
+        let search_pattern = format!("%{}%", search_term.to_lowercase());
+        let count_query = r#"
+            SELECT COUNT(*)
+            FROM authors a
+            INNER JOIN author_mailing_list_activity act ON a.id = act.author_id
+            WHERE act.mailing_list_id = $1
+              AND (LOWER(a.email) LIKE $2 OR LOWER(a.canonical_name) LIKE $2)
+        "#;
+
+        let total: (i64,) = sqlx::query_as(count_query)
+            .bind(mailing_list_id)
+            .bind(&search_pattern)
+            .fetch_one(&mut **db)
+            .await?;
+        total.0
+    } else {
+        let count_query = r#"
+            SELECT COUNT(*)
+            FROM authors a
+            INNER JOIN author_mailing_list_activity act ON a.id = act.author_id
+            WHERE act.mailing_list_id = $1
+        "#;
+
+        let total: (i64,) = sqlx::query_as(count_query)
+            .bind(mailing_list_id)
+            .fetch_one(&mut **db)
+            .await?;
+        total.0
+    };
+
+    let author_rows: Vec<AuthorRow> = if let Some(search_term) = q {
         let search_pattern = format!("%{}%", search_term.to_lowercase());
         let query = format!(
             r#"
@@ -87,7 +122,7 @@ pub async fn search_authors(
         sqlx::query_as::<_, AuthorRow>(&query)
             .bind(mailing_list_id)
             .bind(&search_pattern)
-            .bind(limit)
+            .bind(size)
             .bind(offset)
             .fetch_all(&mut **db)
             .await?
@@ -103,7 +138,7 @@ pub async fn search_authors(
 
         sqlx::query_as::<_, AuthorRow>(&query)
             .bind(mailing_list_id)
-            .bind(limit)
+            .bind(size)
             .bind(offset)
             .fetch_all(&mut **db)
             .await?
@@ -168,9 +203,10 @@ pub async fn search_authors(
         }
     }).collect();
 
-    Ok(Json(authors))
+    Ok(Json(PaginatedResponse::new(authors, page, size, total_elements)))
 }
 
+#[openapi(tag = "Authors")]
 #[get("/<slug>/authors/<author_id>")]
 pub async fn get_author(
     slug: String,
@@ -250,14 +286,15 @@ pub async fn get_author(
     }))
 }
 
-#[get("/<slug>/authors/<author_id>/emails?<page>&<limit>")]
+#[openapi(tag = "Authors")]
+#[get("/<slug>/authors/<author_id>/emails?<page>&<size>")]
 pub async fn get_author_emails(
     slug: String,
     mut db: Connection<NexusDb>,
     author_id: i32,
     page: Option<i64>,
-    limit: Option<i64>,
-) -> Result<Json<Vec<EmailWithAuthor>>, ApiError> {
+    size: Option<i64>,
+) -> Result<Json<PaginatedResponse<EmailWithAuthor>>, ApiError> {
     // Get mailing list ID from slug
     let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
         .bind(&slug)
@@ -267,8 +304,18 @@ pub async fn get_author_emails(
     let mailing_list_id = list.0;
 
     let page = page.unwrap_or(1);
-    let limit = limit.unwrap_or(50).min(100);
-    let offset = (page - 1) * limit;
+    let size = size.unwrap_or(50).min(100);
+    let offset = (page - 1) * size;
+
+    // Get total count
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM emails WHERE mailing_list_id = $1 AND author_id = $2"
+    )
+    .bind(mailing_list_id)
+    .bind(author_id)
+    .fetch_one(&mut **db)
+    .await?;
+    let total_elements = total.0;
 
     let emails = sqlx::query_as::<_, EmailWithAuthor>(
         r#"
@@ -285,22 +332,23 @@ pub async fn get_author_emails(
     )
     .bind(mailing_list_id)
     .bind(author_id)
-    .bind(limit)
+    .bind(size)
     .bind(offset)
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(emails))
+    Ok(Json(PaginatedResponse::new(emails, page, size, total_elements)))
 }
 
-#[get("/<slug>/authors/<author_id>/threads-started?<page>&<limit>")]
+#[openapi(tag = "Authors")]
+#[get("/<slug>/authors/<author_id>/threads-started?<page>&<size>")]
 pub async fn get_author_threads_started(
     slug: String,
     mut db: Connection<NexusDb>,
     author_id: i32,
     page: Option<i64>,
-    limit: Option<i64>,
-) -> Result<Json<Vec<ThreadWithStarter>>, ApiError> {
+    size: Option<i64>,
+) -> Result<Json<PaginatedResponse<ThreadWithStarter>>, ApiError> {
     // Get mailing list ID from slug
     let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
         .bind(&slug)
@@ -310,8 +358,21 @@ pub async fn get_author_threads_started(
     let mailing_list_id = list.0;
 
     let page = page.unwrap_or(1);
-    let limit = limit.unwrap_or(50).min(100);
-    let offset = (page - 1) * limit;
+    let size = size.unwrap_or(50).min(100);
+    let offset = (page - 1) * size;
+
+    // Get total count
+    let total: (i64,) = sqlx::query_as(
+        r#"SELECT COUNT(*)
+           FROM threads t
+           JOIN emails e ON t.root_message_id = e.message_id AND e.mailing_list_id = $1
+           WHERE t.mailing_list_id = $1 AND e.author_id = $2"#
+    )
+    .bind(mailing_list_id)
+    .bind(author_id)
+    .fetch_one(&mut **db)
+    .await?;
+    let total_elements = total.0;
 
     // Get threads where this author sent the root (first) message
     let threads = sqlx::query_as::<_, ThreadWithStarter>(
@@ -330,22 +391,23 @@ pub async fn get_author_threads_started(
     )
     .bind(mailing_list_id)
     .bind(author_id)
-    .bind(limit)
+    .bind(size)
     .bind(offset)
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(threads))
+    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
 }
 
-#[get("/<slug>/authors/<author_id>/threads-participated?<page>&<limit>")]
+#[openapi(tag = "Authors")]
+#[get("/<slug>/authors/<author_id>/threads-participated?<page>&<size>")]
 pub async fn get_author_threads_participated(
     slug: String,
     mut db: Connection<NexusDb>,
     author_id: i32,
     page: Option<i64>,
-    limit: Option<i64>,
-) -> Result<Json<Vec<Thread>>, ApiError> {
+    size: Option<i64>,
+) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
     // Get mailing list ID from slug
     let list: (i32,) = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
         .bind(&slug)
@@ -355,8 +417,22 @@ pub async fn get_author_threads_participated(
     let mailing_list_id = list.0;
 
     let page = page.unwrap_or(1);
-    let limit = limit.unwrap_or(50).min(100);
-    let offset = (page - 1) * limit;
+    let size = size.unwrap_or(50).min(100);
+    let offset = (page - 1) * size;
+
+    // Get total count
+    let total: (i64,) = sqlx::query_as(
+        r#"SELECT COUNT(DISTINCT t.id)
+           FROM threads t
+           JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
+           JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
+           WHERE t.mailing_list_id = $1 AND e.author_id = $2"#
+    )
+    .bind(mailing_list_id)
+    .bind(author_id)
+    .fetch_one(&mut **db)
+    .await?;
+    let total_elements = total.0;
 
     // Get all threads where this author participated (sent any message)
     let threads = sqlx::query_as::<_, Thread>(
@@ -374,10 +450,10 @@ pub async fn get_author_threads_participated(
     )
     .bind(mailing_list_id)
     .bind(author_id)
-    .bind(limit)
+    .bind(size)
     .bind(offset)
     .fetch_all(&mut **db)
     .await?;
 
-    Ok(Json(threads))
+    Ok(Json(PaginatedResponse::new(threads, page, size, total_elements)))
 }

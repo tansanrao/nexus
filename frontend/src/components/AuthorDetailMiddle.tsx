@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Calendar } from 'lucide-react';
 import { api } from '../api/client';
-import type { AuthorWithStats, Thread, ThreadWithStarter } from '../types';
+import type {
+  AuthorWithStats,
+  Thread,
+  ThreadWithStarter,
+  PaginatedResponse,
+  PageMetadata,
+} from '../types';
 import { useTimezone } from '../contexts/TimezoneContext';
 import { useMailingList } from '../contexts/MailingListContext';
 import { formatDateInTimezone, formatDateCompact } from '../utils/timezone';
@@ -23,10 +29,12 @@ export function AuthorDetailMiddle() {
   const [activeTab, setActiveTab] = useState<ThreadTabType>('started');
   const [threadsStarted, setThreadsStarted] = useState<ThreadWithStarter[]>([]);
   const [threadsParticipated, setThreadsParticipated] = useState<Thread[]>([]);
+  const [threadsStartedPageInfo, setThreadsStartedPageInfo] = useState<PageMetadata | null>(null);
+  const [threadsParticipatedPageInfo, setThreadsParticipatedPageInfo] = useState<PageMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const limit = 20;
+  const size = 20;
 
   useEffect(() => {
     const loadAuthorData = async () => {
@@ -54,15 +62,32 @@ export function AuthorDetailMiddle() {
       try {
         setLoading(true);
         if (activeTab === 'started') {
-          const threadsData = await api.authors.getThreadsStarted(selectedMailingList, parseInt(authorId), page, limit);
-          setThreadsStarted(threadsData);
+          const threadsData: PaginatedResponse<ThreadWithStarter> = await api.authors.getThreadsStarted(
+            selectedMailingList,
+            parseInt(authorId),
+            page,
+            size,
+          );
+          setThreadsStarted(threadsData.data);
+          setThreadsStartedPageInfo(threadsData.page);
         } else if (activeTab === 'participated') {
-          const threadsData = await api.authors.getThreadsParticipated(selectedMailingList, parseInt(authorId), page, limit);
-          setThreadsParticipated(threadsData);
+          const threadsData: PaginatedResponse<Thread> = await api.authors.getThreadsParticipated(
+            selectedMailingList,
+            parseInt(authorId),
+            page,
+            size,
+          );
+          setThreadsParticipated(threadsData.data);
+          setThreadsParticipatedPageInfo(threadsData.page);
         }
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
+        if (activeTab === 'started') {
+          setThreadsStartedPageInfo(null);
+        } else if (activeTab === 'participated') {
+          setThreadsParticipatedPageInfo(null);
+        }
       } finally {
         setLoading(false);
       }
@@ -70,6 +95,10 @@ export function AuthorDetailMiddle() {
 
     loadTabData();
   }, [authorId, page, activeTab, selectedMailingList]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [authorId, selectedMailingList, activeTab]);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return 'N/A';
@@ -90,6 +119,13 @@ export function AuthorDetailMiddle() {
   const getCurrentThreads = () => {
     return activeTab === 'started' ? threadsStarted : threadsParticipated;
   };
+
+  const getCurrentPageInfo = () => {
+    return activeTab === 'started' ? threadsStartedPageInfo : threadsParticipatedPageInfo;
+  };
+
+  const currentThreads = getCurrentThreads();
+  const currentPageInfo = getCurrentPageInfo();
 
   if (loading && !author) {
     return (
@@ -210,17 +246,17 @@ export function AuthorDetailMiddle() {
       {/* Thread list */}
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {loading && getCurrentThreads().length === 0 ? (
+          {loading && currentThreads.length === 0 ? (
             <div className="p-8 text-center">
               <div className="text-xs text-muted-foreground">Loading threads...</div>
             </div>
-          ) : getCurrentThreads().length === 0 ? (
+          ) : currentThreads.length === 0 ? (
             <div className="p-8 text-center">
               <div className="text-xs text-muted-foreground">No threads found</div>
             </div>
           ) : (
             <div className="space-y-1">
-              {getCurrentThreads().map((thread) => {
+              {currentThreads.map((thread) => {
                 const isSelected = threadId === String(thread.id);
                 return (
                   <Link
@@ -268,7 +304,9 @@ export function AuthorDetailMiddle() {
             variant="outline"
             size="sm"
             onClick={() => setPage((p) => p + 1)}
-            disabled={getCurrentThreads().length < limit}
+            disabled={
+              !currentPageInfo || currentPageInfo.totalPages === 0 || currentPageInfo.page >= currentPageInfo.totalPages
+            }
           >
             Next
           </Button>

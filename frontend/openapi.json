@@ -1,0 +1,1884 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "api-server",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/admin/mailing-lists": {
+      "get": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Get all mailing lists",
+        "operationId": "routes_mailing_lists_list_mailing_lists",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_for_Array_of_MailingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/{slug}": {
+      "get": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Get a specific mailing list by slug",
+        "operationId": "routes_mailing_lists_get_mailing_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/{slug}/repositories": {
+      "get": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Get a mailing list with its repositories",
+        "operationId": "routes_mailing_lists_get_mailing_list_with_repos",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailingListWithRepos"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/{slug}/toggle": {
+      "patch": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Toggle a mailing list enabled/disabled status",
+        "operationId": "routes_mailing_lists_toggle_mailing_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToggleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToggleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/seed": {
+      "post": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Seed all mailing lists from lore.kernel.org manifest This endpoint is idempotent - safe to run multiple times Dynamically fetches and parses the grokmirror manifest",
+        "operationId": "routes_mailing_lists_seed_mailing_lists",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/threads": {
+      "get": {
+        "tags": [
+          "Threads"
+        ],
+        "operationId": "routes_threads_list_threads",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_Thread"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/threads/search": {
+      "get": {
+        "tags": [
+          "Threads"
+        ],
+        "operationId": "routes_threads_search_threads",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "searchType",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_Thread"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/threads/{thread_id}": {
+      "get": {
+        "tags": [
+          "Threads"
+        ],
+        "operationId": "routes_threads_get_thread",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/emails/{email_id}": {
+      "get": {
+        "tags": [
+          "Emails"
+        ],
+        "operationId": "routes_emails_get_email",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "email_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailWithAuthor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "operationId": "routes_authors_search_authors",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_AuthorWithStats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "operationId": "routes_authors_get_author",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorWithStats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}/emails": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "operationId": "routes_authors_get_author_emails",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_EmailWithAuthor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}/threads-started": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "operationId": "routes_authors_get_author_threads_started",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_ThreadWithStarter"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}/threads-participated": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "operationId": "routes_authors_get_author_threads_participated",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_Thread"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/stats": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "operationId": "routes_stats_get_stats",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/start": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Start sync for all enabled mailing lists",
+        "operationId": "routes_admin_start_sync",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/queue": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Start sync for specific mailing lists",
+        "operationId": "routes_admin_queue_sync",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStartResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/status": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Get current sync status (running + queued jobs)",
+        "operationId": "routes_admin_get_sync_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/cancel": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Cancel ALL sync jobs including currently running ones",
+        "operationId": "routes_admin_cancel_sync",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/database/reset": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Reset the database (drop and recreate all tables)",
+        "operationId": "routes_admin_reset_db",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/database/status": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Get database statistics (global, not per mailing list) Queries are parallelized for faster response times",
+        "operationId": "routes_admin_get_database_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/database/config": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Get PostgreSQL configuration for monitoring",
+        "operationId": "routes_admin_get_database_config",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DataResponse_for_Array_of_MailingList": {
+        "description": "Simple data wrapper for non-paginated list endpoints",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailingList"
+            }
+          }
+        }
+      },
+      "MailingList": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "id",
+          "name",
+          "slug",
+          "sync_priority"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "sync_priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_synced_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MailingListWithRepos": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "id",
+          "name",
+          "repos",
+          "slug",
+          "sync_priority"
+        ],
+        "properties": {
+          "repos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailingListRepository"
+            }
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "sync_priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_synced_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MailingListRepository": {
+        "type": "object",
+        "required": [
+          "id",
+          "mailing_list_id",
+          "repo_order",
+          "repo_url"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "repo_url": {
+            "type": "string"
+          },
+          "repo_order": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "last_indexed_commit": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ToggleResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ToggleRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SeedResponse": {
+        "type": "object",
+        "required": [
+          "mailingListsCreated",
+          "message",
+          "partitionsCreated",
+          "repositoriesCreated"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "mailingListsCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          },
+          "repositoriesCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          },
+          "partitionsCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        }
+      },
+      "PaginatedResponse_for_Thread": {
+        "description": "Paginated response wrapper for list endpoints",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Thread"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageMetadata"
+          }
+        }
+      },
+      "Thread": {
+        "type": "object",
+        "required": [
+          "id",
+          "last_date",
+          "mailing_list_id",
+          "root_message_id",
+          "start_date",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "root_message_id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_count": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "PageMetadata": {
+        "description": "Pagination metadata following REST best practices",
+        "type": "object",
+        "required": [
+          "page",
+          "size",
+          "totalElements",
+          "totalPages"
+        ],
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ThreadDetail": {
+        "type": "object",
+        "required": [
+          "emails",
+          "thread"
+        ],
+        "properties": {
+          "thread": {
+            "$ref": "#/components/schemas/Thread"
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmailHierarchy"
+            }
+          }
+        }
+      },
+      "EmailHierarchy": {
+        "type": "object",
+        "required": [
+          "author_email",
+          "author_id",
+          "date",
+          "depth",
+          "git_commit_hash",
+          "id",
+          "mailing_list_id",
+          "message_id",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "git_commit_hash": {
+            "type": "string"
+          },
+          "author_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "author_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "author_email": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "EmailWithAuthor": {
+        "type": "object",
+        "required": [
+          "author_email",
+          "author_id",
+          "date",
+          "git_commit_hash",
+          "id",
+          "mailing_list_id",
+          "message_id",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "git_commit_hash": {
+            "type": "string"
+          },
+          "author_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "author_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "author_email": {
+            "type": "string"
+          }
+        }
+      },
+      "PaginatedResponse_for_AuthorWithStats": {
+        "description": "Paginated response wrapper for list endpoints",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorWithStats"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageMetadata"
+          }
+        }
+      },
+      "AuthorWithStats": {
+        "type": "object",
+        "required": [
+          "email",
+          "email_count",
+          "id",
+          "mailing_lists",
+          "name_variations",
+          "thread_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "email": {
+            "type": "string"
+          },
+          "canonical_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "email_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "thread_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "first_email_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_email_date": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "mailing_lists": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name_variations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PaginatedResponse_for_EmailWithAuthor": {
+        "description": "Paginated response wrapper for list endpoints",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmailWithAuthor"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageMetadata"
+          }
+        }
+      },
+      "PaginatedResponse_for_ThreadWithStarter": {
+        "description": "Paginated response wrapper for list endpoints",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadWithStarter"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageMetadata"
+          }
+        }
+      },
+      "ThreadWithStarter": {
+        "type": "object",
+        "required": [
+          "id",
+          "last_date",
+          "mailing_list_id",
+          "root_message_id",
+          "start_date",
+          "starter_email",
+          "starter_id",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "root_message_id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_count": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "starter_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "starter_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "starter_email": {
+            "type": "string"
+          }
+        }
+      },
+      "Stats": {
+        "type": "object",
+        "required": [
+          "total_authors",
+          "total_emails",
+          "total_threads"
+        ],
+        "properties": {
+          "total_emails": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_threads": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_authors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "date_range_start": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "date_range_end": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MessageResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "SyncStartResponse": {
+        "type": "object",
+        "required": [
+          "jobIds",
+          "message"
+        ],
+        "properties": {
+          "jobIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "SyncRequest": {
+        "type": "object",
+        "required": [
+          "mailingListSlugs"
+        ],
+        "properties": {
+          "mailingListSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SyncStatusResponse": {
+        "type": "object",
+        "required": [
+          "isRunning",
+          "queuedJobs"
+        ],
+        "properties": {
+          "currentJob": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JobStatusInfo"
+              }
+            ],
+            "nullable": true
+          },
+          "queuedJobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueuedJobInfo"
+            }
+          },
+          "isRunning": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JobStatusInfo": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "id",
+          "mailing_list_id",
+          "name",
+          "phase",
+          "priority",
+          "slug"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "QueuedJobInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "mailingListId",
+          "mailingListName",
+          "mailingListSlug",
+          "position"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailingListId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailingListSlug": {
+            "type": "string"
+          },
+          "mailingListName": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DatabaseStatusResponse": {
+        "type": "object",
+        "required": [
+          "totalAuthors",
+          "totalEmails",
+          "totalRecipients",
+          "totalReferences",
+          "totalThreadMemberships",
+          "totalThreads"
+        ],
+        "properties": {
+          "totalAuthors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalEmails": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalThreads": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalRecipients": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalReferences": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalThreadMemberships": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dateRangeStart": {
+            "type": "string",
+            "format": "partial-date-time",
+            "nullable": true
+          },
+          "dateRangeEnd": {
+            "type": "string",
+            "format": "partial-date-time",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}

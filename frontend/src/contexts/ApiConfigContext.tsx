@@ -10,7 +10,7 @@ interface ApiConfigContextType {
 const ApiConfigContext = createContext<ApiConfigContextType | undefined>(undefined);
 
 const API_BASE_URL_KEY = 'apiBaseUrl';
-const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 // Global variable to store the current API base URL
 // This allows the API client to access it without using hooks

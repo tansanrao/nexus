@@ -21,6 +21,7 @@ use std::sync::Arc;
 use sync::queue::JobQueue;
 use sync::dispatcher::SyncDispatcher;
 use tokio::sync::Mutex;
+use rocket_okapi::{openapi_get_routes, rapidoc::*, swagger_ui::*, settings::UrlObject};
 
 #[launch]
 fn rocket() -> _ {
@@ -107,24 +108,27 @@ fn rocket() -> _ {
             }
         })))
         .mount(
-            "/api",
-            routes![
+            "/api/v1",
+            openapi_get_routes![
                 // Mailing list routes
                 routes::mailing_lists::list_mailing_lists,
                 routes::mailing_lists::get_mailing_list,
                 routes::mailing_lists::get_mailing_list_with_repos,
                 routes::mailing_lists::toggle_mailing_list,
                 routes::mailing_lists::seed_mailing_lists,
-                // Existing routes
+                // Thread routes
                 routes::threads::list_threads,
                 routes::threads::search_threads,
                 routes::threads::get_thread,
+                // Email routes
                 routes::emails::get_email,
+                // Author routes
                 routes::authors::search_authors,
                 routes::authors::get_author,
                 routes::authors::get_author_emails,
                 routes::authors::get_author_threads_started,
                 routes::authors::get_author_threads_participated,
+                // Stats routes
                 routes::stats::get_stats,
                 // Admin routes
                 routes::admin::start_sync,
@@ -135,5 +139,27 @@ fn rocket() -> _ {
                 routes::admin::get_database_status,
                 routes::admin::get_database_config,
             ],
+        )
+        .mount(
+            "/api/docs/swagger/",
+            make_swagger_ui(&SwaggerUIConfig {
+                url: "../../v1/openapi.json".to_owned(),
+                ..Default::default()
+            }),
+        )
+        .mount(
+            "/api/docs/rapidoc/",
+            make_rapidoc(&RapiDocConfig {
+                general: GeneralConfig {
+                    spec_urls: vec![UrlObject::new("Nexus API", "../../v1/openapi.json")],
+                    ..Default::default()
+                },
+                hide_show: HideShowConfig {
+                    allow_spec_url_load: false,
+                    allow_spec_file_load: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
         )
 }

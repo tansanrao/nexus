@@ -33,7 +33,7 @@ export function APIPanel() {
 
   const reset = () => {
     resetToDefault();
-    setInputValue(import.meta.env.VITE_API_URL || 'http://localhost:8000/api');
+    setInputValue(import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1');
     setTestStatus('idle');
     setTestMessage('');
   };
@@ -48,7 +48,7 @@ export function APIPanel() {
 
     try {
       const base = trimmedInput.endsWith('/') ? trimmedInput.slice(0, -1) : trimmedInput;
-      const response = await fetch(`${base}/admin/config`, {
+      const response = await fetch(`${base}/admin/mailing-lists`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -88,7 +88,7 @@ export function APIPanel() {
             type="text"
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
-            placeholder="http://localhost:8000/api"
+            placeholder="http://localhost:8000/api/v1"
             className="h-8 font-mono text-sm"
           />
           <CompactButton

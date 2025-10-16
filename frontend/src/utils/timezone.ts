@@ -13,7 +13,14 @@ export const formatDateInTimezone = (
   formatString: string = 'MMM d, yyyy h:mm a'
 ): string => {
   try {
+    if (!dateString) {
+      return 'N/A';
+    }
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date string:', dateString);
+      return 'Invalid Date';
+    }
     return formatInTimeZone(date, timezone, formatString);
   } catch (error) {
     console.error('Error formatting date:', error);
@@ -27,7 +34,14 @@ export const formatDateWithTimezone = (
   timezone: string
 ): string => {
   try {
+    if (!dateString) {
+      return 'N/A';
+    }
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date string:', dateString);
+      return 'Invalid Date';
+    }
     const formatted = formatInTimeZone(date, timezone, 'MMM d, yyyy h:mm a');
     const abbr = formatInTimeZone(date, timezone, 'zzz');
     return `${formatted} ${abbr}`;
@@ -43,7 +57,14 @@ export const formatDateCompact = (
   timezone: string
 ): string => {
   try {
+    if (!dateString) {
+      return 'N/A';
+    }
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date string:', dateString);
+      return 'Invalid Date';
+    }
     const now = new Date();
     const diffInMs = now.getTime() - date.getTime();
     const diffInHours = diffInMs / (1000 * 60 * 60);
@@ -79,7 +100,14 @@ export const formatDateDetailed = (
   timezone: string
 ): string => {
   try {
+    if (!dateString) {
+      return 'N/A';
+    }
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date string:', dateString);
+      return 'Invalid Date';
+    }
     return formatInTimeZone(date, timezone, 'EEEE, MMMM d, yyyy \'at\' h:mm:ss a zzz');
   } catch (error) {
     console.error('Error formatting date detailed:', error);
@@ -93,7 +121,14 @@ export const getTimezoneAbbreviation = (
   timezone: string
 ): string => {
   try {
+    if (!dateString) {
+      return '';
+    }
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date string:', dateString);
+      return '';
+    }
     return formatInTimeZone(date, timezone, 'zzz');
   } catch (error) {
     console.error('Error getting timezone abbreviation:', error);
