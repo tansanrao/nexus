@@ -31,7 +31,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
   const [totalThreads, setTotalThreads] = useState<number | null>(null);
   const [maxPage, setMaxPage] = useState(1);
   const [filters, setFilters] = useState<ThreadFilters>({
-    sortBy: 'last_date',
+    sortBy: 'lastDate',
     order: 'desc',
     searchType: 'subject',
   });

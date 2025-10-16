@@ -56,13 +56,9 @@ export function AuthorView({ authorId }: AuthorViewProps) {
       }
 
       const query = searchTerm.trim();
-      const baseParams = {
+      const paginationParams = {
         page,
         size: pageSize,
-        sortBy: activeFilters.sortBy,
-        order: activeFilters.order,
-        searchType: activeFilters.searchType,
-        query,
       };
 
       const shouldUpdateTotals = query.length === 0;
@@ -72,7 +68,7 @@ export function AuthorView({ authorId }: AuthorViewProps) {
           const response = await apiClient.getAuthorThreadsStarted(
             activeMailingList,
             authorIdNumber,
-            baseParams
+            paginationParams
           );
           if (shouldUpdateTotals) {
             setCreatedTotal(response.page.totalElements);
@@ -83,7 +79,7 @@ export function AuthorView({ authorId }: AuthorViewProps) {
         const response = await apiClient.getAuthorThreadsParticipated(
           activeMailingList,
           authorIdNumber,
-          baseParams
+          paginationParams
         );
         if (shouldUpdateTotals) {
           setParticipatedTotal(response.page.totalElements);

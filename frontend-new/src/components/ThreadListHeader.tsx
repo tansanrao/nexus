@@ -12,9 +12,9 @@ import {
 } from './ui/dropdown-menu';
 
 export interface ThreadFilters {
-  sortBy: 'start_date' | 'last_date' | 'message_count';
+  sortBy: 'startDate' | 'lastDate' | 'messageCount';
   order: 'asc' | 'desc';
-  searchType: 'subject' | 'full_text';
+  searchType: 'subject' | 'fullText';
 }
 
 export interface ThreadListHeaderProps {
@@ -50,9 +50,9 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
   }, []);
 
   const sortByLabels = {
-    start_date: 'Start Date',
-    last_date: 'Last Activity',
-    message_count: 'Message Count',
+    startDate: 'Start Date',
+    lastDate: 'Last Activity',
+    messageCount: 'Message Count',
   };
 
   const orderLabels = {
@@ -62,7 +62,7 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
 
   const searchTypeLabels = {
     subject: 'Subject Only',
-    full_text: 'Full Text',
+    fullText: 'Full Text',
   };
 
   return (
@@ -103,14 +103,14 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
                   onFiltersChange({ ...filters, sortBy: value as ThreadFilters['sortBy'] });
                 }}
               >
-                <DropdownMenuRadioItem value="last_date">
-                  {sortByLabels.last_date}
+                <DropdownMenuRadioItem value="lastDate">
+                  {sortByLabels.lastDate}
                 </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="start_date">
-                  {sortByLabels.start_date}
+                <DropdownMenuRadioItem value="startDate">
+                  {sortByLabels.startDate}
                 </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="message_count">
-                  {sortByLabels.message_count}
+                <DropdownMenuRadioItem value="messageCount">
+                  {sortByLabels.messageCount}
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
               <div className="px-2 pt-1">
@@ -163,8 +163,8 @@ export function ThreadListHeader({ filters, onFiltersChange, threadCount, onSear
                 <DropdownMenuRadioItem value="subject">
                   {searchTypeLabels.subject}
                 </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="full_text">
-                  {searchTypeLabels.full_text}
+                <DropdownMenuRadioItem value="fullText">
+                  {searchTypeLabels.fullText}
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>

@@ -10,9 +10,9 @@ import type {
 } from '../types';
 import { getApiBaseUrl } from '../contexts/ApiConfigContext';
 
-type ThreadSortField = 'start_date' | 'last_date' | 'message_count';
+type ThreadSortField = 'startDate' | 'lastDate' | 'messageCount';
 type SortOrder = 'asc' | 'desc';
-type ThreadSearchType = 'subject' | 'full_text';
+type ThreadSearchType = 'subject' | 'fullText';
 
 interface AuthorThreadQueryParams {
   page?: number;
@@ -88,7 +88,7 @@ export class ApiClient {
     slug: string,
     page: number = 1,
     size: number = 50,
-    sortBy: ThreadSortField = 'last_date',
+    sortBy: ThreadSortField = 'lastDate',
     order: SortOrder = 'desc'
   ): Promise<PaginatedResponse<Thread>> {
     const params = new URLSearchParams({
@@ -109,7 +109,7 @@ export class ApiClient {
     searchType: ThreadSearchType = 'subject',
     page: number = 1,
     size: number = 50,
-    sortBy: ThreadSortField = 'last_date',
+    sortBy: ThreadSortField = 'lastDate',
     order: SortOrder = 'desc'
   ): Promise<PaginatedResponse<Thread>> {
     const params = new URLSearchParams({
