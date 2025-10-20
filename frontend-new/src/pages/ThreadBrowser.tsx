@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AuthorView } from './AuthorView';
 import { TopBar } from '../components/TopBar';
 import { ThreadBrowserLayout } from '../components/ThreadBrowserLayout';
@@ -7,6 +8,10 @@ import { useSearchParams } from 'react-router-dom';
 export function ThreadBrowser() {
   const [searchParams] = useSearchParams();
   const authorId = searchParams.get('author');
+  const [threadsCollapsed, setThreadsCollapsed] = useState(false);
+  
+  const handleCollapseThreads = () => setThreadsCollapsed(true);
+  const handleExpandThreads = () => setThreadsCollapsed(false);
   
   const {
     threads,
@@ -32,9 +37,15 @@ export function ThreadBrowser() {
           filters={filters}
           onFiltersChange={handleFiltersChange}
           threadCount={totalThreads ?? 0}
+          threadsCollapsed={threadsCollapsed}
+          onCollapseThreads={handleCollapseThreads}
+          onExpandThreads={handleExpandThreads}
         />
         <div className="flex-1 overflow-hidden">
-          <AuthorView authorId={authorId} />
+          <AuthorView
+            authorId={authorId}
+            threadsCollapsed={threadsCollapsed}
+          />
         </div>
       </div>
     );
@@ -46,6 +57,9 @@ export function ThreadBrowser() {
         filters={filters}
         onFiltersChange={handleFiltersChange}
         threadCount={totalThreads ?? 0}
+        threadsCollapsed={threadsCollapsed}
+        onCollapseThreads={handleCollapseThreads}
+        onExpandThreads={handleExpandThreads}
       />
       
       <ThreadBrowserLayout
@@ -59,6 +73,7 @@ export function ThreadBrowser() {
         maxPage={maxPage}
         onSearch={handleSearch}
         searchQuery={searchQuery}
+        threadsCollapsed={threadsCollapsed}
       />
     </div>
   );

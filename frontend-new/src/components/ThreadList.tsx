@@ -53,26 +53,31 @@ export function ThreadList({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const renderSearchBar = () => (
+    <div className="px-3 py-2 border-b border-surface-border/60 flex-shrink-0">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            ref={searchInputRef}
+            type="search"
+            placeholder="Search threads..."
+            className="pl-8 pr-12 h-9 w-full"
+            value={localQuery}
+            onChange={handleSearchChange}
+          />
+          <kbd className="absolute right-2 top-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+            /
+          </kbd>
+        </div>
+      </div>
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="h-full flex flex-col min-h-0 bg-background">
-        {/* Search bar */}
-        <div className="px-3 py-2 border-b border-surface-border/60 flex-shrink-0">
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              ref={searchInputRef}
-              type="search"
-              placeholder="Search threads..."
-              className="pl-8 pr-12 h-9"
-              value={localQuery}
-              onChange={handleSearchChange}
-            />
-            <kbd className="absolute right-2 top-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              /
-            </kbd>
-          </div>
-        </div>
+        {renderSearchBar()}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {Array.from({ length: 10 }).map((_, i) => (
             <div key={i} className="py-2 pl-3 animate-pulse">
@@ -88,23 +93,7 @@ export function ThreadList({
   if (threads.length === 0) {
     return (
       <div className="h-full flex flex-col min-h-0 bg-background">
-        {/* Search bar */}
-        <div className="px-3 py-2 border-b border-surface-border/60 flex-shrink-0">
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              ref={searchInputRef}
-              type="search"
-              placeholder="Search threads..."
-              className="pl-8 pr-12 h-9"
-              value={localQuery}
-              onChange={handleSearchChange}
-            />
-            <kbd className="absolute right-2 top-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              /
-            </kbd>
-          </div>
-        </div>
+        {renderSearchBar()}
         <div className="flex items-center justify-center flex-1 p-8 text-center">
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">No threads found</p>
@@ -119,24 +108,8 @@ export function ThreadList({
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-background">
-      {/* Search bar */}
-      <div className="px-3 py-2 border-b border-surface-border/60 flex-shrink-0">
-        <div className="relative">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            ref={searchInputRef}
-            type="search"
-            placeholder="Search threads..."
-            className="pl-8 pr-12 h-9"
-            value={localQuery}
-            onChange={handleSearchChange}
-          />
-          <kbd className="absolute right-2 top-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-            /
-          </kbd>
-        </div>
-      </div>
-      
+      {renderSearchBar()}
+
       <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
           {threads.map((thread) => (

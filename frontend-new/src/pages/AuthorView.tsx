@@ -11,9 +11,10 @@ import type { ThreadFilters } from '../components/ThreadListHeader';
 
 interface AuthorViewProps {
   authorId: string;
+  threadsCollapsed: boolean;
 }
 
-export function AuthorView({ authorId }: AuthorViewProps) {
+export function AuthorView({ authorId, threadsCollapsed }: AuthorViewProps) {
   const { selectedMailingList } = useApiConfig();
   const [searchParams, setSearchParams] = useSearchParams();
   const [author, setAuthor] = useState<AuthorWithStats | null>(null);
@@ -254,6 +255,7 @@ export function AuthorView({ authorId }: AuthorViewProps) {
         onSearch={handleSearch}
         searchQuery={searchQuery}
         leftPanelHeader={authorHeader}
+        threadsCollapsed={threadsCollapsed}
       />
     </div>
   );
