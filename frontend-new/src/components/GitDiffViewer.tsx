@@ -591,10 +591,30 @@ interface DisplayLine {
   type: 'context' | 'divider' | 'spacer' | 'added' | 'deleted' | 'unchanged' | 'message' | 'binary';
   text: string;
   lineLabel?: string;
+  chunkIndex?: number;
 }
 
 function FileDiffContent({ file, language }: { file: AnyFileChange; language: string }) {
   const lines = buildDisplayLines(file);
+  const addedLinesByChunk = useMemo(() => {
+    const map = new Map<number, string[]>();
+
+    file.chunks.forEach((chunk, index) => {
+      if (chunk.type === 'BinaryFilesChunk') {
+        return;
+      }
+
+      const additions = chunk.changes
+        .filter((change) => change.type === 'AddedLine')
+        .map((change) => change.content ?? '');
+
+      if (additions.length > 0) {
+        map.set(index, additions);
+      }
+    });
+
+    return map;
+  }, [file]);
 
   if (lines.length === 0) {
     return <div className="text-xs text-muted-foreground">No textual changes available for this file.</div>;
@@ -635,6 +655,10 @@ function FileDiffContent({ file, language }: { file: AnyFileChange; language: st
             ? 'py-1.5'
             : 'py-0.5';
 
+        const chunkAdditions =
+          line.chunkIndex !== undefined ? addedLinesByChunk.get(line.chunkIndex) ?? [] : [];
+        const contextLabel = line.type === 'context' ? extractContextLabel(line.text) : '';
+
         return (
           <div
             key={line.key}
@@ -655,34 +679,46 @@ function FileDiffContent({ file, language }: { file: AnyFileChange; language: st
             >
               {showLineNumber ? line.lineLabel : line.type === 'context' ? '@@' : ''}
             </span>
-            <span
-              className={cn(
-                'flex-1 min-w-0 font-mono text-[10pt] leading-[1.35] whitespace-pre-wrap break-words',
-                textClass
-              )}
-            >
-              {line.type === 'context' ? (
-                <ContextLineRenderer text={line.text} language={language} />
-              ) : line.type === 'divider' ? (
-                <span
-                  className="block w-full border-t border-dashed border-surface-border/70"
-                  aria-hidden="true"
-                />
-              ) : line.type === 'spacer' ? (
-                <span className="block w-full" aria-hidden="true" />
-              ) : line.type === 'added' || line.type === 'deleted' || line.type === 'unchanged' ? (
-                <HighlightedCode
-                  code={line.text || ' '}
-                  language={language}
-                  variant="inline"
-                  className="text-[10pt] leading-[1.35]"
-                />
-              ) : (
-                <span className="block whitespace-pre-wrap break-words text-[10pt] leading-[1.35] text-muted-foreground">
-                  {line.text || ' '}
+            {line.type === 'context' ? (
+              <div className="flex flex-1 items-center gap-2 min-w-0 font-mono text-[10pt] leading-[1.35] whitespace-pre-wrap break-words">
+                <span className={cn('flex-1 min-w-0 break-words', textClass)}>
+                  <ContextLineRenderer text={line.text} language={language} />
                 </span>
-              )}
-            </span>
+                {chunkAdditions.length > 0 && (
+                  <FunctionCopyButton
+                    addedLines={chunkAdditions}
+                    label={contextLabel}
+                  />
+                )}
+              </div>
+            ) : (
+              <span
+                className={cn(
+                  'flex-1 min-w-0 font-mono text-[10pt] leading-[1.35] whitespace-pre-wrap break-words',
+                  textClass
+                )}
+              >
+                {line.type === 'divider' ? (
+                  <span
+                    className="block w-full border-t border-dashed border-surface-border/70"
+                    aria-hidden="true"
+                  />
+                ) : line.type === 'spacer' ? (
+                  <span className="block w-full" aria-hidden="true" />
+                ) : line.type === 'added' || line.type === 'deleted' || line.type === 'unchanged' ? (
+                  <HighlightedCode
+                    code={line.text || ' '}
+                    language={language}
+                    variant="inline"
+                    className="text-[10pt] leading-[1.35]"
+                  />
+                ) : (
+                  <span className="block whitespace-pre-wrap break-words text-[10pt] leading-[1.35] text-muted-foreground">
+                    {line.text || ' '}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
         );
       })}
@@ -699,6 +735,7 @@ function buildDisplayLines(file: AnyFileChange): DisplayLine[] {
         key: `binary-${chunkIndex}`,
         type: 'binary',
         text: 'Binary file contents not shown',
+        chunkIndex,
       });
 
       return;
@@ -718,18 +755,21 @@ function buildDisplayLines(file: AnyFileChange): DisplayLine[] {
       key: `divider-top-${chunkIndex}`,
       type: 'divider',
       text: '',
+      chunkIndex,
     });
 
     allLines.push({
       key: `context-${chunkIndex}`,
       type: 'context',
       text: contextLine,
+      chunkIndex,
     });
 
     allLines.push({
       key: `divider-bottom-${chunkIndex}`,
       type: 'spacer',
       text: '',
+      chunkIndex,
     });
 
     chunk.changes.forEach((change, changeIndex) => {
@@ -740,6 +780,7 @@ function buildDisplayLines(file: AnyFileChange): DisplayLine[] {
             type: 'added',
             text: change.content,
             lineLabel: change.lineAfter !== undefined ? `+${change.lineAfter}` : undefined,
+            chunkIndex,
           });
           break;
         case 'DeletedLine':
@@ -748,6 +789,7 @@ function buildDisplayLines(file: AnyFileChange): DisplayLine[] {
             type: 'deleted',
             text: change.content,
             lineLabel: change.lineBefore !== undefined ? `-${change.lineBefore}` : undefined,
+            chunkIndex,
           });
           break;
         case 'UnchangedLine':
@@ -761,6 +803,7 @@ function buildDisplayLines(file: AnyFileChange): DisplayLine[] {
                 : change.lineBefore !== undefined
                 ? `${change.lineBefore}`
                 : undefined,
+            chunkIndex,
           });
           break;
         case 'MessageLine':
@@ -768,6 +811,7 @@ function buildDisplayLines(file: AnyFileChange): DisplayLine[] {
             key: `msg-${chunkIndex}-${changeIndex}`,
             type: 'message',
             text: change.content,
+            chunkIndex,
           });
           break;
         default:
@@ -817,10 +861,14 @@ function RawDiffView({ diff }: { diff: string }) {
   );
 }
 
-function ContextLineRenderer({ text, language }: { text: string; language: string }) {
+function extractContextLabel(text: string): string {
   const trimmed = text.trimEnd();
   const match = trimmed.match(/^(@{2,3}\s+[^@]+@@@?)\s*(.*)$/);
-  const trailingCode = match ? match[2] : '';
+  return match && match[2] ? match[2].trim() : '';
+}
+
+function ContextLineRenderer({ text, language }: { text: string; language: string }) {
+  const trailingCode = extractContextLabel(text);
 
   if (!trailingCode) {
     return (
@@ -837,6 +885,106 @@ function ContextLineRenderer({ text, language }: { text: string; language: strin
       variant="inline"
       className="text-[10pt] leading-[1.35]"
     />
+  );
+}
+
+function FunctionCopyButton({ addedLines, label }: { addedLines: string[]; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<number | null>(null);
+
+  const copyText = useCallback(async (value: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+    } catch (err) {
+      console.error('Primary clipboard write failed, falling back to legacy API', err);
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    textarea.style.opacity = '0';
+
+    document.body.appendChild(textarea);
+    const activeElement = document.activeElement as HTMLElement | null;
+
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    let succeeded = false;
+    try {
+      succeeded = document.execCommand('copy');
+    } catch (err) {
+      console.error('Fallback clipboard copy failed', err);
+    }
+
+    if (activeElement && typeof activeElement.focus === 'function') {
+      activeElement.focus();
+    }
+    const selection = document.getSelection();
+    selection?.removeAllRanges();
+
+    document.body.removeChild(textarea);
+    return succeeded;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleCopy = useCallback(async () => {
+    if (addedLines.length === 0) {
+      return;
+    }
+
+    const textToCopy = addedLines.join('\n');
+    const success = await copyText(textToCopy);
+
+    if (success) {
+      setCopied(true);
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = window.setTimeout(() => {
+        setCopied(false);
+        timeoutRef.current = null;
+      }, 1600);
+    } else {
+      console.error('Failed to copy added lines for function context');
+    }
+  }, [addedLines, copyText]);
+
+  const labelSuffix = label ? ` for ${label}` : '';
+  const title = copied ? 'Copied!' : `Copy added lines${labelSuffix}`;
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={cn(
+        'h-6 w-6 shrink-0 transition-colors p-0 [&_svg]:h-3.5 [&_svg]:w-3.5',
+        copied && 'text-emerald-500'
+      )}
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={(event) => {
+        event.stopPropagation();
+        void handleCopy();
+      }}
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+    </Button>
   );
 }
 

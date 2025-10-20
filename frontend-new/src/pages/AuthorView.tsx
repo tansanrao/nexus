@@ -241,18 +241,20 @@ export function AuthorView({ authorId }: AuthorViewProps) {
   ) : null;
 
   return (
-    <ThreadBrowserLayout
-      threads={threads}
-      loading={loading || isAuthorThreadsLoading}
-      selectedThreadId={selectedThread?.id || null}
-      onThreadSelect={handleThreadSelect}
-      currentPage={currentPage}
-      hasMore={hasMore}
-      onPageChange={handlePageChange}
-      maxPage={maxPage}
-      onSearch={handleSearch}
-      searchQuery={searchQuery}
-      leftPanelHeader={authorHeader}
-    />
+    <div className="h-full flex flex-col">
+      <ThreadBrowserLayout
+        threads={threads}
+        loading={loading || isAuthorThreadsLoading}
+        selectedThreadId={selectedThread?.id || null}
+        onThreadSelect={handleThreadSelect}
+        currentPage={currentPage}
+        hasMore={hasMore}
+        onPageChange={handlePageChange}
+        maxPage={maxPage}
+        onSearch={handleSearch}
+        searchQuery={searchQuery}
+        leftPanelHeader={authorHeader}
+      />
+    </div>
   );
 }
