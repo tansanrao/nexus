@@ -324,11 +324,15 @@ pre.shiki .copy:hover {
   padding: 0.75rem;
   background-color: var(--shiki-editor-background, transparent);
   color: var(--shiki-editor-foreground, inherit);
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .raw-diff-container {
   max-height: 60vh;
   overflow: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .raw-diff-shiki pre.shiki {

@@ -16,6 +16,8 @@ import {
   GitBranch,
   Scroll,
   Code,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import type { PatchMetadata } from '../types';
 import { Button } from './ui/button';
@@ -43,6 +45,7 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
   const [copiedRawDiff, setCopiedRawDiff] = useState(false);
   const [copiedHash, setCopiedHash] = useState(false);
+  const [fullScreenFileKey, setFullScreenFileKey] = useState<string | null>(null);
   const copyRawTimeoutRef = useRef<number | null>(null);
   const copyHashTimeoutRef = useRef<number | null>(null);
   const { availableThemes, codeTheme, setCodeTheme } = useCodeTheme();
@@ -138,6 +141,50 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
     }
   }, [diffContent, setCopiedRawDiff]);
 
+  useEffect(() => {
+    if (!fullScreenFileKey) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setFullScreenFileKey(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [fullScreenFileKey]);
+
+  useEffect(() => {
+    if (!fullScreenFileKey) {
+      return;
+    }
+
+    const exists = fileSummaries.some((summary) => summary.key === fullScreenFileKey);
+    if (!exists) {
+      setFullScreenFileKey(null);
+    }
+  }, [fileSummaries, fullScreenFileKey]);
+
+  const fullScreenSummary = useMemo(() => {
+    if (!fullScreenFileKey) {
+      return null;
+    }
+    return fileSummaries.find((summary) => summary.key === fullScreenFileKey) ?? null;
+  }, [fileSummaries, fullScreenFileKey]);
+
+  const fullScreenLanguage = fullScreenSummary
+    ? inferLanguage(fullScreenSummary.displayPath)
+    : null;
+
   const handleCopyRawDiff = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(diffContent);
@@ -191,7 +238,10 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
   }, []);
 
   return (
-    <div className="mt-3 border border-surface-border/60 rounded-md overflow-hidden max-w-full" style={{ textRendering: 'optimizeLegibility' }}>
+    <div
+      className="mt-3 border border-surface-border/60 rounded-md overflow-hidden max-w-full w-full min-w-0"
+      style={{ textRendering: 'optimizeLegibility' }}
+    >
       <div className="px-3 py-1 bg-surface-inset/50 flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
@@ -323,37 +373,68 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
                 const fileKey = summary.key || `file-${fileIndex}`;
                 const isFileExpanded = expandedFiles[fileKey] ?? true;
                 const language = inferLanguage(summary.displayPath);
+                const isFullScreen = fullScreenFileKey === fileKey;
 
                 return (
                   <div
                     key={fileKey}
-                    className="overflow-hidden border border-surface-border/60 rounded-md bg-surface"
+                    className="overflow-hidden border border-surface-border/60 rounded-md bg-surface min-w-0"
                   >
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 bg-surface hover:bg-surface-inset/70 transition-colors flex items-center justify-between text-left"
-                      onClick={() => toggleFile(fileKey)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <ChevronRight
-                          className={cn(
-                            'h-4 w-4 text-muted-foreground transition-transform',
-                            isFileExpanded && 'rotate-90'
-                          )}
-                        />
-                        <FileCode2 className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium text-foreground">{summary.displayPath}</span>
-                        <FileBadge file={file} />
-                        <span className="text-xs text-emerald-500 font-medium">+{summary.additions}</span>
-                        <span className="text-xs text-rose-500 font-medium">-{summary.deletions}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wide">
-                        {language.toUpperCase()}
-                      </span>
-                    </button>
+                    <div className="flex items-center bg-surface">
+                      <button
+                        type="button"
+                        className="flex-1 px-3 py-1.5 hover:bg-surface-inset/70 transition-colors flex items-center justify-between text-left gap-3 min-w-0"
+                        onClick={() => toggleFile(fileKey)}
+                      >
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          <ChevronRight
+                            className={cn(
+                              'h-4 w-4 text-muted-foreground transition-transform',
+                              isFileExpanded && 'rotate-90'
+                            )}
+                          />
+                          <FileCode2 className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium text-foreground break-words min-w-0">
+                            {summary.displayPath}
+                          </span>
+                          <FileBadge file={file} />
+                          <span className="text-xs text-emerald-500 font-medium">+{summary.additions}</span>
+                          <span className="text-xs text-rose-500 font-medium">-{summary.deletions}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                          {language.toUpperCase()}
+                        </span>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 mr-2 shrink-0"
+                        type="button"
+                        title={isFullScreen ? 'Exit full screen' : 'Expand to full screen'}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExpandedFiles((prev) => ({
+                            ...prev,
+                            [fileKey]: true,
+                          }));
+                          setFullScreenFileKey((current) => (current === fileKey ? null : fileKey));
+                        }}
+                      >
+                        {isFullScreen ? (
+                          <Minimize2 className="h-4 w-4" />
+                        ) : (
+                          <Maximize2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
 
                     {isFileExpanded && (
-                      <div className="border-t border-surface-border/60 pb-1.5">
+                      <div
+                        className={cn(
+                          'border-t border-surface-border/60 pb-1.5 overflow-x-auto',
+                          !isFullScreen && 'max-h-[32rem] overflow-y-auto'
+                        )}
+                      >
                         <FileDiffContent file={file} language={language} />
                       </div>
                     )}
@@ -362,6 +443,49 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
               })}
             </div>
           )}
+        </div>
+      )}
+      {fullScreenSummary && fullScreenLanguage && (
+        <div
+          className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-surface-border/80 bg-surface">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <FileCode2 className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground break-words min-w-0">
+                {fullScreenSummary.displayPath}
+              </span>
+              <FileBadge file={fullScreenSummary.file} />
+              <span className="text-xs text-emerald-500 font-medium">
+                +{fullScreenSummary.additions}
+              </span>
+              <span className="text-xs text-rose-500 font-medium">
+                -{fullScreenSummary.deletions}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                {fullScreenLanguage.toUpperCase()}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                type="button"
+                title="Exit full screen"
+                onClick={() => setFullScreenFileKey(null)}
+              >
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto bg-surface">
+            <div className="max-w-5xl mx-auto w-full px-4 py-4">
+              <FileDiffContent file={fullScreenSummary.file} language={fullScreenLanguage} />
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -482,7 +606,7 @@ function FileDiffContent({ file, language }: { file: AnyFileChange; language: st
   } as const;
 
   return (
-    <div style={shikiBackgroundStyle}>
+    <div style={shikiBackgroundStyle} className="min-w-0">
       {lines.map((line) => {
         const { containerClass, textClass, lineNumberClass } = getLinePresentation(line.type);
         const showLineNumber =
@@ -659,7 +783,7 @@ function RawDiffView({ diff }: { diff: string }) {
   const lines = diff.split('\n');
   
   return (
-    <div className="raw-diff-container">
+    <div className="raw-diff-container w-full">
       {lines.map((line, index) => {
         // Determine line type for proper spacing
         const isDivider = line.startsWith('@@') && line.includes('@@');

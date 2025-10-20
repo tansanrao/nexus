@@ -5,6 +5,7 @@ import type { EmailHierarchy } from '../types';
 import { formatRelativeTime } from '../utils/date';
 import { cn } from '../lib/utils';
 import { GitDiffViewer } from './GitDiffViewer';
+import { EmailBody } from './EmailBody';
 
 interface EmailItemProps {
   email: EmailHierarchy;
@@ -108,7 +109,7 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="w-full text-left cursor-pointer select-none focus:outline-none focus-visible:outline-none"
         >
-          <div className="flex items-start gap-2">
+          <div className="flex items-start gap-2 min-w-0">
             <ChevronRight
               className={cn(
                 "h-4 w-4 text-muted-foreground flex-shrink-0 transition-transform mt-0.5",
@@ -116,12 +117,12 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
               )}
             />
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 text-sm overflow-hidden">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm min-w-0">
                 <span
                   onClick={handleAuthorActivate}
                   role="button"
                   tabIndex={0}
-                  className="font-semibold text-foreground hover:underline cursor-pointer select-none shrink-0"
+                  className="font-semibold text-foreground hover:underline cursor-pointer select-none"
                   onKeyDown={handleAuthorActivate}
                 >
                   {authorName}
@@ -137,7 +138,7 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
                 {isCollapsed && hiddenReplyCount > 0 && (
                   <span className="text-xs text-muted-foreground shrink-0">[{hiddenReplyCount} more]</span>
                 )}
-                <span className="text-xs text-muted-foreground shrink-0 ml-2 whitespace-nowrap">
+                <span className="text-xs text-muted-foreground whitespace-normal sm:whitespace-nowrap">
                   {formatRelativeTime(email.date)}
                 </span>
               </div>
@@ -148,11 +149,7 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
         {/* Body - only when expanded */}
         {!isCollapsed && (
           <div className="ml-6 mt-2 space-y-2">
-            {cleanBody && (
-              <pre className="text-sm whitespace-pre-wrap font-mono text-foreground leading-relaxed overflow-x-auto bg-surface-inset/70 p-3">
-                {cleanBody}
-              </pre>
-            )}
+            {cleanBody && <EmailBody body={cleanBody} />}
             
             {/* Git Diff Viewer - show if there's patch content or potential diff content */}
             {email.body && (
