@@ -3,7 +3,9 @@
 //! These structures hold prepared data in parallel vectors (columnar format)
 //! optimized for PostgreSQL's UNNEST bulk insert operations.
 
+use crate::models::PatchType;
 use chrono::{DateTime, Utc};
+use serde_json::Value;
 
 /// Prepared email data for bulk insertion.
 ///
@@ -23,6 +25,9 @@ pub struct EmailsData {
     pub series_numbers: Vec<Option<i32>>,
     pub series_totals: Vec<Option<i32>>,
     pub epochs: Vec<i32>,
+    pub patch_types: Vec<PatchType>,
+    pub is_patch_only: Vec<bool>,
+    pub patch_metadata: Vec<Option<Value>>,
 }
 
 /// Prepared recipient data for bulk insertion.

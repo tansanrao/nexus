@@ -47,6 +47,21 @@ export interface Author {
   last_seen: string | null;
 }
 
+export type PatchType = 'none' | 'inline' | 'attachment';
+
+export interface PatchSection {
+  start_line: number;
+  end_line: number;
+}
+
+export interface PatchMetadata {
+  diff_sections: PatchSection[];
+  diffstat_section?: PatchSection | null;
+  trailer_sections: PatchSection[];
+  separator_line?: number | null;
+  trailer_count: number;
+}
+
 export interface Email {
   id: number;
   mailing_list_id: number;
@@ -58,6 +73,9 @@ export interface Email {
   in_reply_to: string | null;
   body: string | null;
   created_at: string | null;
+  patch_type: PatchType;
+  is_patch_only: boolean;
+  patch_metadata: PatchMetadata | null;
 }
 
 export interface Thread {

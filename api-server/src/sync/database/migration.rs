@@ -88,6 +88,11 @@ pub async fn reset_database(pool: &PgPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    // Drop custom types so migrations can recreate them cleanly
+    sqlx::query("DROP TYPE IF EXISTS patch_type CASCADE")
+        .execute(pool)
+        .await?;
+
     // Drop the sqlx migrations tracking table to allow re-running migrations
     sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations CASCADE")
         .execute(pool)

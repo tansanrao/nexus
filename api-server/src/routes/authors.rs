@@ -310,7 +310,8 @@ pub async fn get_author_emails(
         SELECT
             e.id, e.mailing_list_id, e.message_id, e.git_commit_hash, e.author_id,
             e.subject, e.date, e.in_reply_to, e.body, e.created_at,
-            a.canonical_name as author_name, a.email as author_email
+            a.canonical_name as author_name, a.email as author_email,
+            e.patch_type, e.is_patch_only, e.patch_metadata
         FROM emails e
         JOIN authors a ON e.author_id = a.id
         WHERE e.mailing_list_id = $1 AND e.author_id = $2

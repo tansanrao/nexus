@@ -6,7 +6,7 @@
 
 use crate::db::NexusDb;
 use crate::error::ApiError;
-use crate::models::{EmailHierarchy, PaginatedResponse, Thread, ThreadDetail};
+use crate::models::{EmailHierarchy, PaginatedResponse, Thread, ThreadDetail, ThreadWithStarter};
 use crate::routes::{
     helpers::resolve_mailing_list_id,
     params::{ThreadListParams, ThreadSearchParams, ThreadSearchType},
@@ -23,7 +23,7 @@ pub async fn list_threads(
     slug: String,
     mut db: Connection<NexusDb>,
     params: Option<ThreadListParams>,
-) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
+) -> Result<Json<PaginatedResponse<ThreadWithStarter>>, ApiError> {
     let params = params.unwrap_or_default();
     let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
@@ -41,17 +41,22 @@ pub async fn list_threads(
 
     let query = format!(
         r#"
-        SELECT id, mailing_list_id, root_message_id, subject, start_date, last_date,
-               CAST(message_count AS INTEGER) as message_count
-        FROM threads
-        WHERE mailing_list_id = $1
+        SELECT t.id, t.mailing_list_id, t.root_message_id, t.subject, t.start_date, t.last_date,
+               CAST(t.message_count AS INTEGER) as message_count,
+               e.author_id as starter_id,
+               a.canonical_name as starter_name,
+               a.email as starter_email
+        FROM threads t
+        JOIN emails e ON t.root_message_id = e.message_id AND t.mailing_list_id = e.mailing_list_id
+        JOIN authors a ON e.author_id = a.id
+        WHERE t.mailing_list_id = $1
         ORDER BY {} {}
         LIMIT $2 OFFSET $3
         "#,
         sort_column, sort_order
     );
 
-    let threads = sqlx::query_as::<_, Thread>(&query)
+    let threads = sqlx::query_as::<_, ThreadWithStarter>(&query)
         .bind(mailing_list_id)
         .bind(size)
         .bind(offset)
@@ -95,7 +100,8 @@ pub async fn get_thread(
             e.id, e.mailing_list_id, e.message_id, e.git_commit_hash, e.author_id,
             e.subject, e.date, e.in_reply_to, e.body, e.created_at,
             a.canonical_name as author_name, a.email as author_email,
-            CAST(COALESCE(tm.depth, 0) AS INTEGER) as depth
+            CAST(COALESCE(tm.depth, 0) AS INTEGER) as depth,
+            e.patch_type, e.is_patch_only, e.patch_metadata
         FROM emails e
         JOIN authors a ON e.author_id = a.id
         JOIN thread_memberships tm ON e.id = tm.email_id AND tm.mailing_list_id = $1
@@ -119,7 +125,7 @@ pub async fn search_threads(
     slug: String,
     mut db: Connection<NexusDb>,
     params: Option<ThreadSearchParams>,
-) -> Result<Json<PaginatedResponse<Thread>>, ApiError> {
+) -> Result<Json<PaginatedResponse<ThreadWithStarter>>, ApiError> {
     let params = params.unwrap_or_default();
     let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
 
@@ -172,10 +178,15 @@ pub async fn search_threads(
 
     let base_select = r#"
         SELECT DISTINCT t.id, t.mailing_list_id, t.root_message_id, t.subject, t.start_date, t.last_date,
-               CAST(t.message_count AS INTEGER) as message_count
+               CAST(t.message_count AS INTEGER) as message_count,
+               root_email.author_id as starter_id,
+               a.canonical_name as starter_name,
+               a.email as starter_email
         FROM threads t
         LEFT JOIN thread_memberships tm ON t.id = tm.thread_id AND tm.mailing_list_id = $1
         LEFT JOIN emails e ON tm.email_id = e.id AND e.mailing_list_id = $1
+        JOIN emails root_email ON t.root_message_id = root_email.message_id AND t.mailing_list_id = root_email.mailing_list_id
+        JOIN authors a ON root_email.author_id = a.id
         WHERE t.mailing_list_id = $1
     "#;
 
@@ -204,7 +215,7 @@ pub async fn search_threads(
         )
     };
 
-    let threads = sqlx::query_as::<_, Thread>(&query)
+    let threads = sqlx::query_as::<_, ThreadWithStarter>(&query)
         .bind(mailing_list_id)
         .bind(&search_pattern)
         .bind(size)
