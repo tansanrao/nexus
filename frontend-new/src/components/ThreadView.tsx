@@ -100,7 +100,8 @@ export function ThreadView({ threadId }: ThreadViewProps) {
   const { thread } = threadDetail;
 
   return (
-    <ScrollArea className="h-full bg-surface-inset min-w-0">
+    <ScrollArea className="h-full bg-surface-inset min-w-0"
+    style={{ backgroundColor: 'hsl(var(--color-panel-right))' }}>
       <div className="p-6">
         {/* Thread header */}
         <div className="border-b border-surface-border/60 pb-3 mb-4">
@@ -145,7 +146,7 @@ export function ThreadView({ threadId }: ThreadViewProps) {
         </div>
 
         {/* Emails */}
-        <div className="space-y-2">
+        <div className="space-y-0">
           {emails.map((email) => (
             <EmailItem
               key={email.id}

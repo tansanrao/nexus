@@ -1,6 +1,5 @@
 import { AuthorView } from './AuthorView';
-import { ThemeToggle } from '../components/ThemeToggle';
-import { SettingsDropdown } from '../components/SettingsDropdown';
+import { TopBar } from '../components/TopBar';
 import { ThreadBrowserLayout } from '../components/ThreadBrowserLayout';
 import { useThreadBrowser } from '../hooks/useThreadBrowser';
 import { useSearchParams } from 'react-router-dom';
@@ -25,16 +24,15 @@ export function ThreadBrowser() {
     handleFiltersChange,
   } = useThreadBrowser();
 
-
   // If showing author view, use different layout
   if (authorId) {
     return (
       <div className="h-screen flex flex-col relative bg-background">
-        {/* Floating settings buttons */}
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
-          <ThemeToggle />
-          <SettingsDropdown />
-        </div>
+        <TopBar
+          filters={filters}
+          onFiltersChange={handleFiltersChange}
+          threadCount={totalThreads ?? 0}
+        />
         <div className="flex-1 overflow-hidden">
           <AuthorView authorId={authorId} />
         </div>
@@ -44,11 +42,11 @@ export function ThreadBrowser() {
 
   return (
     <div className="h-screen flex flex-col relative bg-background">
-      {/* Floating settings buttons */}
-      <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
-        <ThemeToggle />
-        <SettingsDropdown />
-      </div>
+      <TopBar
+        filters={filters}
+        onFiltersChange={handleFiltersChange}
+        threadCount={totalThreads ?? 0}
+      />
       
       <ThreadBrowserLayout
         threads={threads}
@@ -58,12 +56,9 @@ export function ThreadBrowser() {
         currentPage={currentPage}
         hasMore={hasMore}
         onPageChange={handlePageChange}
-        filters={filters}
-        onFiltersChange={handleFiltersChange}
+        maxPage={maxPage}
         onSearch={handleSearch}
         searchQuery={searchQuery}
-        totalThreads={totalThreads}
-        maxPage={maxPage}
       />
     </div>
   );

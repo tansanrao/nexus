@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeProvider';
 import { ApiConfigProvider } from './contexts/ApiConfigContext';
 import { ThreadBrowser } from './pages/ThreadBrowser';
+import { CodeThemeProvider } from './contexts/CodeThemeContext';
 
 function App() {
   return (
@@ -9,14 +10,16 @@ function App() {
       attribute="class" 
       defaultTheme="light" 
       enableSystem
-      themes={['light', 'dark', 'hackernews', 'solarized-light', 'solarized-dark']}
+      themes={['light', 'dark', 'solarized-light', 'solarized-dark']}
     >
       <ApiConfigProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<ThreadBrowser />} />
-          </Routes>
-        </BrowserRouter>
+        <CodeThemeProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<ThreadBrowser />} />
+            </Routes>
+          </BrowserRouter>
+        </CodeThemeProvider>
       </ApiConfigProvider>
     </ThemeProvider>
   );

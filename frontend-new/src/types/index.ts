@@ -19,6 +19,21 @@ export interface Thread {
   message_count: number | null;
 }
 
+export interface PatchSection {
+  start_line: number;
+  end_line: number;
+}
+
+export interface PatchMetadata {
+  diff_sections: PatchSection[];
+  diffstat_section: PatchSection | null;
+  trailer_sections: PatchSection[];
+  separator_line: number | null;
+  trailer_count: number;
+}
+
+export type PatchType = 'None' | 'Inline' | 'Attachment';
+
 export interface EmailHierarchy {
   id: number;
   mailing_list_id: number;
@@ -33,6 +48,9 @@ export interface EmailHierarchy {
   author_name: string | null;
   author_email: string;
   depth: number;
+  patch_type: PatchType;
+  is_patch_only: boolean;
+  patch_metadata: PatchMetadata | null;
 }
 
 export interface ThreadDetail {
@@ -53,6 +71,9 @@ export interface Email {
   created_at: string | null;
   author_name: string | null;
   author_email: string;
+  patch_type: PatchType;
+  is_patch_only: boolean;
+  patch_metadata: PatchMetadata | null;
 }
 
 export interface Author {

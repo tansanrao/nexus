@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import type { EmailHierarchy } from '../types';
 import { formatRelativeTime } from '../utils/date';
 import { cn } from '../lib/utils';
+import { GitDiffViewer } from './GitDiffViewer';
 
 interface EmailItemProps {
   email: EmailHierarchy;
@@ -25,13 +26,23 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
 
   const authorName = email.author_name || email.author_email.split('@')[0];
   
-  // Parse out metadata from email body
-  const parseEmailBody = (body: string | null) => {
+  // Parse out metadata from email body and exclude diff sections
+  const parseEmailBody = (body: string | null, patchMetadata: any) => {
     if (!body) return { cleanBody: '', parsedSubject: null };
     
     const lines = body.split('\n');
     const cleanLines: string[] = [];
     let parsedSubject: string | null = null;
+    
+    // Create a set of line indices to exclude (diff sections)
+    const excludeLines = new Set<number>();
+    if (patchMetadata && patchMetadata.diff_sections) {
+      for (const section of patchMetadata.diff_sections) {
+        for (let i = section.start_line; i <= section.end_line; i++) {
+          excludeLines.add(i);
+        }
+      }
+    }
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -44,6 +55,11 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
       // Extract and skip Subject: line
       if (line.trim().startsWith('Subject:')) {
         parsedSubject = line.replace(/^Subject:\s*/i, '').trim();
+        continue;
+      }
+      
+      // Skip diff sections based on patch metadata
+      if (excludeLines.has(i)) {
         continue;
       }
       
@@ -61,11 +77,18 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
     };
   };
   
-  const { cleanBody, parsedSubject } = parseEmailBody(email.body);
+  const { cleanBody, parsedSubject } = parseEmailBody(email.body, email.patch_metadata);
   const displaySubject = parsedSubject || email.subject;
 
-  const handleAuthorClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleAuthorActivate = (event: React.MouseEvent | React.KeyboardEvent) => {
+    if ('key' in event) {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+      event.preventDefault();
+    }
+
+    event.stopPropagation();
     const searchParams = new URLSearchParams(window.location.search);
     searchParams.set('author', email.author_id.toString());
     navigate(`/?${searchParams.toString()}`);
@@ -81,6 +104,7 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
       <div className="px-3 py-2 rounded-md transition-colors">
         {/* Header - always visible */}
         <button
+          type="button"
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="w-full text-left cursor-pointer select-none focus:outline-none focus-visible:outline-none"
         >
@@ -93,12 +117,15 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 text-sm overflow-hidden">
-                <button
-                  onClick={handleAuthorClick}
+                <span
+                  onClick={handleAuthorActivate}
+                  role="button"
+                  tabIndex={0}
                   className="font-semibold text-foreground hover:underline cursor-pointer select-none shrink-0"
+                  onKeyDown={handleAuthorActivate}
                 >
                   {authorName}
-                </button>
+                </span>
                 {displaySubject && (
                   <span
                     className="text-sm text-foreground flex-1 min-w-0 block max-w-[min(32rem,100%)] truncate"
@@ -126,6 +153,18 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
                 {cleanBody}
               </pre>
             )}
+            
+            {/* Git Diff Viewer - show if there's patch content or potential diff content */}
+            {email.body && (
+              <div className="max-w-full overflow-hidden">
+                <GitDiffViewer
+                  emailBody={email.body}
+                  patchMetadata={email.patch_metadata}
+                  gitCommitHash={email.git_commit_hash}
+                />
+              </div>
+            )}
+            
             <div className="text-xs text-muted-foreground pt-2">
               {email.message_id}
             </div>

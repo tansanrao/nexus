@@ -1,59 +1,142 @@
-import { useState, useEffect, useRef } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from './ui/input';
+import { Filter, List, ArrowDown, ArrowUp } from 'lucide-react';
+import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from './ui/dropdown-menu';
 import { ThemeToggle } from './ThemeToggle';
 import { SettingsDropdown } from './SettingsDropdown';
+import type { ThreadFilters } from './ThreadListHeader';
 
 interface TopBarProps {
-  onSearch: (query: string) => void;
-  searchQuery: string;
+  filters: ThreadFilters;
+  onFiltersChange: (filters: ThreadFilters) => void;
+  threadCount: number;
 }
 
-export function TopBar({ onSearch, searchQuery }: TopBarProps) {
-  const [localQuery, setLocalQuery] = useState(searchQuery);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setLocalQuery(value);
-    onSearch(value);
+export function TopBar({ 
+  filters, 
+  onFiltersChange, 
+  threadCount
+}: TopBarProps) {
+  const sortByLabels = {
+    startDate: 'Start Date',
+    lastDate: 'Last Activity',
+    messageCount: 'Message Count',
   };
 
-  // Handle "/" hotkey to focus search
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  const searchTypeLabels = {
+    subject: 'Subject Only',
+    fullText: 'Full Text',
+  };
 
   return (
-    <div className="sticky top-0 z-40 w-full border-b border-surface-border/60 bg-surface-base/95 backdrop-blur supports-[backdrop-filter]:bg-surface-base/80 shadow-sm">
-      <div className="flex h-14 items-center justify-center px-4 relative">
-        <div className="flex-1 max-w-md">
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              ref={searchInputRef}
-              type="search"
-              placeholder="Search threads..."
-              className="pl-8 pr-12 h-9"
-              value={localQuery}
-              onChange={handleSearchChange}
-            />
-            <kbd className="absolute right-2 top-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-surface-border/60 bg-surface-inset px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-              /
-            </kbd>
+    <div className="sticky top-0 z-40 w-full border-b border-surface-border/60 shadow-sm" style={{ backgroundColor: 'hsl(var(--color-accent))' }}>
+      <div className="h-full grid grid-cols-1 md:grid-cols-5">
+        {/* Left section - Threads header and Sort/Filter controls */}
+        <div className="md:col-span-2 flex h-10 items-center justify-between" style={{ borderRight: '3px solid hsl(var(--color-border) / 0.6)' }}>
+          {/* Threads header */}
+          <div className="flex items-center gap-2 group relative px-4">
+            <h2 className="text-sm font-semibold text-accent-foreground">
+              Threads
+            </h2>
+            {threadCount > 0 && (
+              <span className="text-xs text-accent-foreground/70">
+                ({threadCount})
+              </span>
+            )}
+            {/* Hover stats tooltip */}
+            <div className="absolute left-0 top-full mt-1 hidden group-hover:block z-50 rounded-md border bg-popover text-popover-foreground text-xs shadow-md p-2 min-w-48">
+              <div className="flex items-center justify-between gap-6">
+                <span className="text-muted-foreground">Total results</span>
+                <span className="font-medium">{threadCount}</span>
+              </div>
+            </div>
+          </div>
+          
+          {/* Sort and Filter controls aligned to the right side of threads column */}
+          <div className="flex items-center gap-2 px-4">
+            {/* Sort Direction Toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10"
+              onClick={() => onFiltersChange({ ...filters, order: filters.order === 'asc' ? 'desc' : 'asc' })}
+              title={`Sort ${filters.order === 'asc' ? 'Descending' : 'Ascending'}`}
+            >
+              {filters.order === 'asc' ? (
+                <ArrowUp className="h-3 w-3" />
+              ) : (
+                <ArrowDown className="h-3 w-3" />
+              )}
+            </Button>
+
+            {/* Sort Options */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10">
+                  <List className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48 space-y-1" onCloseAutoFocus={(e) => e.preventDefault()}>
+                <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={filters.sortBy}
+                  onValueChange={(value) => {
+                    onFiltersChange({ ...filters, sortBy: value as ThreadFilters['sortBy'] });
+                  }}
+                >
+                  <DropdownMenuRadioItem value="lastDate">
+                    {sortByLabels.lastDate}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="startDate">
+                    {sortByLabels.startDate}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="messageCount">
+                    {sortByLabels.messageCount}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Filter Options */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10">
+                  <Filter className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48 space-y-1" onCloseAutoFocus={(e) => e.preventDefault()}>
+                <DropdownMenuLabel>Search Mode</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={filters.searchType}
+                  onValueChange={(value) => {
+                    onFiltersChange({ ...filters, searchType: value as ThreadFilters['searchType'] });
+                  }}
+                >
+                  <DropdownMenuRadioItem value="subject">
+                    {searchTypeLabels.subject}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="fullText">
+                    {searchTypeLabels.fullText}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
-        <div className="absolute right-4 flex items-center space-x-2">
-          <ThemeToggle />
-          <SettingsDropdown />
+        
+        {/* Right section - Theme and Settings */}
+        <div className="md:col-span-3 flex h-10 items-center justify-end px-4">
+          <div className="flex items-center space-x-2">
+            <ThemeToggle />
+            <SettingsDropdown />
+          </div>
         </div>
       </div>
     </div>

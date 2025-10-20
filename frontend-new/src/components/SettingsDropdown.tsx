@@ -95,25 +95,25 @@ export function SettingsDropdown() {
         <Button
           variant="ghost"
           size="icon"
-          className="data-[state=open]:bg-muted/80 data-[state=open]:text-foreground"
+          className="data-[state=open]:bg-muted/80 data-[state=open]:text-foreground bg-transparent"
         >
           <Settings className="h-5 w-5" />
           <span className="sr-only">Settings</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 space-y-2.5">
-        <div className="flex items-start justify-between gap-3 px-1.5">
+      <DropdownMenuContent align="end" className="w-72 space-y-1">
+        <div className="flex items-start justify-between gap-3 px-2 py-1.5">
           <div>
-            <DropdownMenuLabel className="px-0">Settings</DropdownMenuLabel>
-            <p className="text-[11px] text-muted-foreground">Configure data sources and defaults</p>
+            <DropdownMenuLabel className="px-0 text-sm">Settings</DropdownMenuLabel>
+            <p className="text-xs text-muted-foreground">Configure data sources</p>
           </div>
-          <div className="rounded-md bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="rounded-md bg-muted/30 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {selectedMailingList || 'No list'}
           </div>
         </div>
         <DropdownMenuSeparator />
 
-        <DropdownMenuLabel className="text-[10px] text-muted-foreground">
+        <DropdownMenuLabel className="text-xs text-muted-foreground px-2 py-1">
           Mailing Lists
         </DropdownMenuLabel>
         <div className="rounded-md border border-surface-border/60 bg-muted/20 p-1">
@@ -157,7 +157,7 @@ export function SettingsDropdown() {
         <DropdownMenuSeparator />
 
         {/* API Configuration */}
-        <DropdownMenuLabel className="text-[10px] text-muted-foreground">
+        <DropdownMenuLabel className="text-xs text-muted-foreground px-2 py-1">
           API Endpoint
         </DropdownMenuLabel>
         <div className="rounded-md bg-muted/30 px-2.5 py-2 space-y-2">
@@ -216,14 +216,12 @@ export function SettingsDropdown() {
             </Button>
           )}
         </div>
+        <DropdownMenuSeparator />
 
         {error && (
-          <>
-            <DropdownMenuSeparator />
-            <div className="px-2 py-1">
-              <p className="text-xs text-destructive">{error}</p>
-            </div>
-          </>
+          <div className="px-2 py-1">
+            <p className="text-xs text-destructive">{error}</p>
+          </div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

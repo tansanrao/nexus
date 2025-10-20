@@ -16,7 +16,6 @@ type ThemeSettings = {
 const themeSettings = {
   light: { appearance: 'light', accentColor: 'iris', grayColor: 'sand' },
   dark: { appearance: 'dark', accentColor: 'violet', grayColor: 'slate' },
-  hackernews: { appearance: 'light', accentColor: 'orange', grayColor: 'sand' },
   'solarized-light': { appearance: 'light', accentColor: 'cyan', grayColor: 'sage' },
   'solarized-dark': { appearance: 'dark', accentColor: 'cyan', grayColor: 'olive' },
 } as const satisfies Record<string, ThemeSettings>;

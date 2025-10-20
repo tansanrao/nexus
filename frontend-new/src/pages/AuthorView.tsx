@@ -38,7 +38,7 @@ export function AuthorView({ authorId }: AuthorViewProps) {
     async ({
       page,
       pageSize,
-      filters: activeFilters,
+      filters: _filters,
       searchTerm,
       mailingList,
     }: {
@@ -101,13 +101,10 @@ export function AuthorView({ authorId }: AuthorViewProps) {
     searchQuery,
     currentPage,
     hasMore,
-    totalThreads,
     maxPage,
-    filters,
     handleSearch,
     handleThreadSelect,
     handlePageChange,
-    handleFiltersChange,
   } = useThreadBrowser({
     fetchThreads: fetchAuthorThreads,
     reloadDeps: [authorId, activeTab],
@@ -252,12 +249,9 @@ export function AuthorView({ authorId }: AuthorViewProps) {
       currentPage={currentPage}
       hasMore={hasMore}
       onPageChange={handlePageChange}
-      filters={filters}
-      onFiltersChange={handleFiltersChange}
+      maxPage={maxPage}
       onSearch={handleSearch}
       searchQuery={searchQuery}
-      totalThreads={isAuthorThreadsLoading ? null : totalThreads}
-      maxPage={maxPage}
       leftPanelHeader={authorHeader}
     />
   );
