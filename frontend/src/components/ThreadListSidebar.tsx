@@ -4,7 +4,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Mail, Search } from 'lucide-react';
 import { api } from '../api/client';
 import type {
-  Thread,
+  ThreadWithStarter,
   ThreadSortBy,
   SortOrder,
   SearchType,
@@ -21,7 +21,7 @@ import { CompactButton } from './ui/compact-button';
 import { cn } from '@/lib/utils';
 
 export function ThreadListSidebar() {
-  const [threads, setThreads] = useState<Thread[]>([]);
+  const [threads, setThreads] = useState<ThreadWithStarter[]>([]);
   const [pageInfo, setPageInfo] = useState<PageMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +42,7 @@ export function ThreadListSidebar() {
       if (!selectedMailingList) return;
       try {
         setLoading(true);
-        let response: PaginatedResponse<Thread>;
+        let response: PaginatedResponse<ThreadWithStarter>;
         if (activeSearch.trim()) {
           response = await api.threads.search(selectedMailingList, {
             q: activeSearch,

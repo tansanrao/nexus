@@ -10,6 +10,7 @@ use crate::sync::parser::ParsedEmail;
 use crate::threading::extract_patch_series_info;
 use chrono::{DateTime, Utc};
 use rocket_db_pools::sqlx::PgPool;
+use serde_json;
 use std::collections::{HashMap, HashSet};
 
 /// Extract unique authors from a chunk of parsed emails.
@@ -124,6 +125,13 @@ pub async fn build_email_batch_data(
 
             // Store epoch for this email
             data.epochs.push(*epoch);
+            data.patch_types.push(email.patch_type);
+            data.is_patch_only.push(email.is_patch_only);
+            let metadata_value = email
+                .patch_metadata
+                .as_ref()
+                .and_then(|meta| serde_json::to_value(meta).ok());
+            data.patch_metadata.push(metadata_value);
         } else {
             // DIAGNOSTIC: Email skipped due to missing author
             skipped_count += 1;

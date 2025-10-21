@@ -81,12 +81,14 @@ pub async fn insert_emails_batch(
         r#"INSERT INTO emails (
             mailing_list_id, message_id, git_commit_hash, author_id,
             subject, normalized_subject, date, in_reply_to, body,
-            series_id, series_number, series_total, epoch
+            series_id, series_number, series_total, epoch,
+            patch_type, is_patch_only, patch_metadata
            )
            SELECT * FROM UNNEST(
                $1::int[], $2::text[], $3::text[], $4::int[],
                $5::text[], $6::text[], $7::timestamptz[], $8::text[], $9::text[],
-               $10::text[], $11::int[], $12::int[], $13::int[]
+               $10::text[], $11::int[], $12::int[], $13::int[],
+               $14::patch_type[], $15::bool[], $16::jsonb[]
            )
            ON CONFLICT (mailing_list_id, message_id) DO NOTHING"#,
     )
@@ -103,6 +105,9 @@ pub async fn insert_emails_batch(
     .bind(&data.series_numbers)
     .bind(&data.series_totals)
     .bind(&data.epochs)
+    .bind(&data.patch_types)
+    .bind(&data.is_patch_only)
+    .bind(&data.patch_metadata)
     .execute(&mut **conn)
     .await?;
 

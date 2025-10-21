@@ -4,9 +4,55 @@
 //! the payloads accurately in the generated OpenAPI document.
 
 use chrono::{DateTime, Utc};
-use rocket_db_pools::sqlx::FromRow;
+use rocket_db_pools::sqlx::postgres::{PgRow, PgTypeInfo};
+use rocket_db_pools::sqlx::{self, FromRow, Row, Type, types::Json};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+/// Classification of an email's patch content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Type)]
+#[sqlx(type_name = "patch_type", rename_all = "snake_case")]
+pub enum PatchType {
+    /// No git patch content detected.
+    None,
+    /// Inline diff detected within the email body.
+    Inline,
+    /// Patch provided via attachment (text/x-patch, text/x-diff, etc.).
+    Attachment,
+}
+
+impl sqlx::postgres::PgHasArrayType for PatchType {
+    fn array_type_info() -> PgTypeInfo {
+        PgTypeInfo::with_name("_patch_type")
+    }
+}
+
+/// Inclusive range (0-based line numbers) marking a logical patch section.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PatchSection {
+    /// First line (0-based index) belonging to the section.
+    pub start_line: usize,
+    /// Last line (0-based index) belonging to the section.
+    pub end_line: usize,
+}
+
+/// Aggregated metadata about inline git patches inside an email.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PatchMetadata {
+    /// Inline diff chunks detected in the body.
+    pub diff_sections: Vec<PatchSection>,
+    /// Optional section covering the diffstat block (between `---` separator and the first diff).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diffstat_section: Option<PatchSection>,
+    /// Sections covering trailers (Signed-off-by, Acked-by, etc.) and optional git footers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trailer_sections: Vec<PatchSection>,
+    /// Position of the RFC 822 style `---` separator, if present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub separator_line: Option<usize>,
+    /// Total number of trailer lines detected (Signed-off-by, Reviewed-by, ...).
+    pub trailer_count: usize,
+}
 
 /// Metadata for a mailing list managed by the service.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
@@ -76,7 +122,7 @@ pub struct Thread {
 }
 
 /// Email row enriched with author metadata for API responses.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EmailWithAuthor {
     /// Database identifier.
     pub id: i32,
@@ -102,6 +148,13 @@ pub struct EmailWithAuthor {
     pub author_name: Option<String>,
     /// Author email address.
     pub author_email: String,
+    /// Patch classification for this email.
+    pub patch_type: PatchType,
+    /// Whether the body is entirely commit message + diff content.
+    pub is_patch_only: bool,
+    /// Inline patch metadata (diff sections, trailers, diffstat).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_metadata: Option<PatchMetadata>,
 }
 
 /// Thread details including the threaded list of emails.
@@ -114,7 +167,7 @@ pub struct ThreadDetail {
 }
 
 /// Email node enriched with depth information for thread rendering.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EmailHierarchy {
     /// Email identifier.
     pub id: i32,
@@ -142,6 +195,13 @@ pub struct EmailHierarchy {
     pub author_email: String,
     /// Depth within the thread tree (root = 0).
     pub depth: i32,
+    /// Patch classification for this email.
+    pub patch_type: PatchType,
+    /// Whether the body is entirely commit message + diff content.
+    pub is_patch_only: bool,
+    /// Inline patch metadata (diff sections, trailers, diffstat).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_metadata: Option<PatchMetadata>,
 }
 
 /// Aggregated author statistics used in list and detail endpoints.
@@ -169,6 +229,53 @@ pub struct AuthorWithStats {
     pub mailing_lists: Vec<String>,
     /// Observed name variants sorted by usage count.
     pub name_variations: Vec<String>,
+}
+
+impl<'r> FromRow<'r, PgRow> for EmailWithAuthor {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let patch_metadata: Option<Json<PatchMetadata>> = row.try_get("patch_metadata")?;
+        Ok(Self {
+            id: row.try_get("id")?,
+            mailing_list_id: row.try_get("mailing_list_id")?,
+            message_id: row.try_get("message_id")?,
+            git_commit_hash: row.try_get("git_commit_hash")?,
+            author_id: row.try_get("author_id")?,
+            subject: row.try_get("subject")?,
+            date: row.try_get("date")?,
+            in_reply_to: row.try_get("in_reply_to")?,
+            body: row.try_get("body")?,
+            created_at: row.try_get("created_at")?,
+            author_name: row.try_get("author_name")?,
+            author_email: row.try_get("author_email")?,
+            patch_type: row.try_get("patch_type")?,
+            is_patch_only: row.try_get("is_patch_only")?,
+            patch_metadata: patch_metadata.map(|json| json.0),
+        })
+    }
+}
+
+impl<'r> FromRow<'r, PgRow> for EmailHierarchy {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let patch_metadata: Option<Json<PatchMetadata>> = row.try_get("patch_metadata")?;
+        Ok(Self {
+            id: row.try_get("id")?,
+            mailing_list_id: row.try_get("mailing_list_id")?,
+            message_id: row.try_get("message_id")?,
+            git_commit_hash: row.try_get("git_commit_hash")?,
+            author_id: row.try_get("author_id")?,
+            subject: row.try_get("subject")?,
+            date: row.try_get("date")?,
+            in_reply_to: row.try_get("in_reply_to")?,
+            body: row.try_get("body")?,
+            created_at: row.try_get("created_at")?,
+            author_name: row.try_get("author_name")?,
+            author_email: row.try_get("author_email")?,
+            depth: row.try_get("depth")?,
+            patch_type: row.try_get("patch_type")?,
+            is_patch_only: row.try_get("is_patch_only")?,
+            patch_metadata: patch_metadata.map(|json| json.0),
+        })
+    }
 }
 
 /// Summary statistics for a mailing list.

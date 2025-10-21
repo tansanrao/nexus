@@ -119,13 +119,13 @@ export const api = {
   },
 
   threads: {
-    list: async (mailingList: string, params: ThreadQueryParams = {}): Promise<PaginatedResponse<Thread>> => {
+    list: async (mailingList: string, params: ThreadQueryParams = {}): Promise<PaginatedResponse<ThreadWithStarter>> => {
       const { page = 1, size = 50, sortBy, order } = params;
       const query = buildQueryString({ page, size, sortBy, order });
-      return apiCall<PaginatedResponse<Thread>>(mailingList, `/threads${query}`);
+      return apiCall<PaginatedResponse<ThreadWithStarter>>(mailingList, `/threads${query}`);
     },
 
-    search: async (mailingList: string, params: ThreadSearchParams = {}): Promise<PaginatedResponse<Thread>> => {
+    search: async (mailingList: string, params: ThreadSearchParams = {}): Promise<PaginatedResponse<ThreadWithStarter>> => {
       const {
         q,
         searchType = 'subject',
@@ -135,7 +135,7 @@ export const api = {
         order,
       } = params;
       const query = buildQueryString({ q, searchType, page, size, sortBy, order });
-      return apiCall<PaginatedResponse<Thread>>(mailingList, `/threads/search${query}`);
+      return apiCall<PaginatedResponse<ThreadWithStarter>>(mailingList, `/threads/search${query}`);
     },
 
     get: (mailingList: string, threadId: number): Promise<ThreadDetail> =>

@@ -9,6 +9,8 @@ import { formatDateInTimezone } from '../utils/timezone';
 import { ScrollArea } from './ui/scroll-area';
 import { CompactButton } from './ui/compact-button';
 import { cn } from '@/lib/utils';
+import { EmailBody } from './EmailBody';
+import { buildPatchPreview } from '@/utils/patch';
 
 type ThreadEmail = ThreadDetail['emails'][number];
 
@@ -146,6 +148,7 @@ interface MessagePanelProps {
 
 function MessagePanel({ email, rootSubject, collapsed, onToggle, formatDate }: MessagePanelProps) {
   const depthOffset = Math.min(email.depth, 8) * 14;
+  const previewText = email.body ? buildPatchPreview(email.body, email.patch_metadata) : '';
 
   return (
     <article style={{ marginLeft: `${depthOffset}px` }}>
@@ -184,7 +187,7 @@ function MessagePanel({ email, rootSubject, collapsed, onToggle, formatDate }: M
             )}
             {collapsed && email.body && (
               <p className="text-sm text-muted-foreground line-clamp-2">
-                {email.body}
+                {previewText || email.body}
               </p>
             )}
           </div>
@@ -195,9 +198,11 @@ function MessagePanel({ email, rootSubject, collapsed, onToggle, formatDate }: M
       </button>
 
       {!collapsed && (
-        <div className="border-l-2 border-accent-primary/50 bg-surface-muted px-5 sm:px-8 py-4 text-sm leading-relaxed font-mono whitespace-pre-wrap">
-          {email.body || '(No message body)'}
-        </div>
+        <EmailBody
+          body={email.body}
+          patchType={email.patch_type}
+          patchMetadata={email.patch_metadata}
+        />
       )}
     </article>
   );
