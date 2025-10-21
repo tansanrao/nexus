@@ -1,8 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { cn } from '../lib/utils';
 
 interface EmailBodyProps {
   body: string;
+}
+
+interface FormattedLine {
+  depth: number;
+  text: string;
 }
 
 type QuoteSegment =
@@ -14,7 +25,13 @@ interface QuoteNode {
   segments: QuoteSegment[];
 }
 
-const INDENT_PER_DEPTH = 12;
+const QUOTE_STYLES = [
+  { marker: 'bg-sky-500/80', text: 'text-sky-500 dark:text-sky-300' },
+  { marker: 'bg-emerald-500/80', text: 'text-emerald-500 dark:text-emerald-300' },
+  { marker: 'bg-amber-500/80', text: 'text-amber-600 dark:text-amber-300' },
+  { marker: 'bg-fuchsia-500/80', text: 'text-fuchsia-500 dark:text-fuchsia-300' },
+  { marker: 'bg-purple-500/80', text: 'text-purple-500 dark:text-purple-300' },
+];
 
 export function EmailBody({ body }: EmailBodyProps) {
   const parsed = useMemo(() => parseQuotedBody(body), [body]);
@@ -24,8 +41,10 @@ export function EmailBody({ body }: EmailBodyProps) {
   }
 
   return (
-    <div className="text-sm whitespace-pre-wrap break-words font-mono text-foreground leading-relaxed overflow-x-auto bg-surface-inset/70 p-3 max-w-full min-w-0">
-      <QuoteNodeRenderer node={parsed} />
+    <div className="text-sm font-mono text-foreground leading-relaxed overflow-x-auto bg-surface-inset/70 p-3 max-w-full min-w-0">
+      <div className="flex flex-col gap-0">
+        <QuoteNodeRenderer node={parsed} />
+      </div>
     </div>
   );
 }
@@ -37,26 +56,20 @@ function QuoteNodeRenderer({ node }: { node: QuoteNode }) {
     <>
       {node.segments.map((segment, index) => {
         if (segment.type === 'text') {
-          const isLast = index === node.segments.length - 1;
           let displayLines = segment.lines.map((line) =>
             node.depth > 0 ? stripQuotePrefixForDepth(line, node.depth) : line
           );
+
           while (!hasRenderedContent && displayLines.length > 0 && displayLines[0].trim() === '') {
             displayLines.shift();
           }
+
           if (displayLines.length === 0) {
             return null;
           }
+
           hasRenderedContent = true;
-          let text = displayLines.join('\n');
-          if (!isLast) {
-            text += '\n';
-          }
-          return (
-            <span key={index} className="whitespace-pre-wrap">
-              {text}
-            </span>
-          );
+          return <QuoteText key={index} lines={displayLines} depth={node.depth} />;
         }
 
         hasRenderedContent = true;
@@ -66,66 +79,107 @@ function QuoteNodeRenderer({ node }: { node: QuoteNode }) {
   );
 }
 
+function QuoteText({ lines, depth }: { lines: string[]; depth: number }) {
+  return (
+    <>
+      {lines.map((text, index) => (
+        <EmailLine key={index} line={{ depth, text }} />
+      ))}
+    </>
+  );
+}
+
 function QuoteBlock({ node }: { node: QuoteNode }) {
-  const defaultCollapsed = node.depth > 1;
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [collapsed, setCollapsed] = useState(false);
+  const lineCount = useMemo(() => countQuoteLines(node), [node]);
 
   useEffect(() => {
-    setCollapsed(defaultCollapsed);
-  }, [defaultCollapsed, node]);
+    setCollapsed(false);
+  }, [node]);
 
-  const preview = useMemo(() => getQuotePreview(node), [node]);
-  const lineCount = useMemo(() => countQuoteLines(node), [node]);
-  const previewText = preview || 'Quoted text';
-  const collapsedLabel =
-    lineCount > 0
-      ? `${previewText} [${lineCount} ${lineCount === 1 ? 'line' : 'lines'} hidden]`
-      : previewText;
+  const toggleCollapsed = (
+    event: ReactMouseEvent<HTMLDivElement> | ReactKeyboardEvent<HTMLDivElement>
+  ) => {
+    const target = event.target as HTMLElement;
+
+    if (target.closest('a')) {
+      event.stopPropagation();
+      return;
+    }
+
+    const selection =
+      typeof window !== 'undefined' ? window.getSelection() : null;
+
+    if (selection && selection.toString()) {
+      event.stopPropagation();
+      return;
+    }
+
+    event.stopPropagation();
+    setCollapsed((value) => !value);
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleCollapsed(event);
+    }
+  };
 
   return (
     <div
-      className="mb-1"
-      style={{ marginLeft: `${Math.max(0, node.depth - 1) * INDENT_PER_DEPTH}px` }}
+      data-quote-block
+      className="flex flex-col gap-0 cursor-pointer rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-offset-0 focus-visible:ring-primary/60"
+      onClick={toggleCollapsed}
+      role="button"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expand quoted text' : 'Collapse quoted text'}
     >
+      {collapsed ? (
+        <EmailLine
+          line={{
+            depth: node.depth,
+            text: `[${lineCount} ${lineCount === 1 ? 'line' : 'lines'} hidden]`,
+          }}
+        />
+      ) : (
+        <div className="flex flex-col gap-0">
+          <QuoteNodeRenderer node={node} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmailLine({ line }: { line: FormattedLine }) {
+  const content = line.text === '' ? '\u00A0' : line.text;
+  const depthStyle =
+    line.depth > 0 ? QUOTE_STYLES[(line.depth - 1) % QUOTE_STYLES.length] : null;
+
+  return (
+    <div className="flex items-stretch gap-2">
+      {line.depth > 0 && (
+        <div className="flex gap-[2px] pr-1">
+          {Array.from({ length: line.depth }).map((_, index) => {
+            const style = QUOTE_STYLES[index % QUOTE_STYLES.length];
+            return (
+              <span
+                key={index}
+                className={cn('w-[3px] self-stretch rounded-none', style.marker)}
+              />
+            );
+          })}
+        </div>
+      )}
       <div
         className={cn(
-          'relative text-muted-foreground min-w-0',
-          !collapsed && 'pl-3'
+          'flex-1 whitespace-pre-wrap break-words leading-relaxed',
+          depthStyle ? ['pl-1', depthStyle.text] : 'text-foreground'
         )}
       >
-        {!collapsed && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute left-0 top-5 bottom-0 w-px bg-muted-foreground/30"
-          />
-        )}
-        <div className="flex items-start gap-2 min-w-0">
-          <button
-            type="button"
-            className={cn(
-              'relative inline-flex h-5 w-5 items-center justify-center text-sm font-mono leading-relaxed text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-offset-0 focus-visible:ring-primary transition-colors',
-              !collapsed && '-ml-3 -translate-x-1/2'
-            )}
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? 'Expand quoted text' : 'Collapse quoted text'}
-            title={collapsed ? 'Expand quoted text' : 'Collapse quoted text'}
-            onClick={() => setCollapsed((value) => !value)}
-          >
-            [{collapsed ? '+' : '-'}]
-          </button>
-          <div
-            className={cn(
-              'flex-1 min-w-0 whitespace-pre-wrap text-sm leading-relaxed',
-              collapsed ? 'text-muted-foreground/60 opacity-80' : 'pl-3'
-            )}
-          >
-            {collapsed ? (
-              <span>{collapsedLabel}</span>
-            ) : (
-              <QuoteNodeRenderer node={node} />
-            )}
-          </div>
-        </div>
+        {content}
       </div>
     </div>
   );
@@ -143,34 +197,6 @@ function countQuoteLines(node: QuoteNode): number {
   }
 
   return count;
-}
-
-function getQuotePreview(node: QuoteNode): string {
-  for (const segment of node.segments) {
-    if (segment.type === 'text') {
-      for (const line of segment.lines) {
-        const stripped = stripQuotePrefixForDepth(line, node.depth).trim();
-        if (stripped) {
-          return truncatedPreview(stripped);
-        }
-      }
-    } else {
-      const nestedPreview = getQuotePreview(segment.node);
-      if (nestedPreview) {
-        return truncatedPreview(nestedPreview);
-      }
-    }
-  }
-
-  return '';
-}
-
-function truncatedPreview(text: string, maxLength = 120): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-
-  return `${text.slice(0, maxLength).trimEnd()}…`;
 }
 
 function stripQuotePrefixForDepth(line: string, depth: number): string {

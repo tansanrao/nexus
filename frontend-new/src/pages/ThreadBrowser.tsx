@@ -9,6 +9,7 @@ export function ThreadBrowser() {
   const [searchParams] = useSearchParams();
   const authorId = searchParams.get('author');
   const [threadsCollapsed, setThreadsCollapsed] = useState(false);
+  const [rightPanelView, setRightPanelView] = useState<'thread' | 'diff'>('thread');
   
   const handleCollapseThreads = () => setThreadsCollapsed(true);
   const handleExpandThreads = () => setThreadsCollapsed(false);
@@ -40,11 +41,14 @@ export function ThreadBrowser() {
           threadsCollapsed={threadsCollapsed}
           onCollapseThreads={handleCollapseThreads}
           onExpandThreads={handleExpandThreads}
+          rightPanelView={rightPanelView}
+          onRightPanelViewChange={setRightPanelView}
         />
         <div className="flex-1 overflow-hidden">
           <AuthorView
             authorId={authorId}
             threadsCollapsed={threadsCollapsed}
+            rightPanelView={rightPanelView}
           />
         </div>
       </div>
@@ -60,6 +64,8 @@ export function ThreadBrowser() {
         threadsCollapsed={threadsCollapsed}
         onCollapseThreads={handleCollapseThreads}
         onExpandThreads={handleExpandThreads}
+        rightPanelView={rightPanelView}
+        onRightPanelViewChange={setRightPanelView}
       />
       
       <ThreadBrowserLayout
@@ -74,6 +80,7 @@ export function ThreadBrowser() {
         onSearch={handleSearch}
         searchQuery={searchQuery}
         threadsCollapsed={threadsCollapsed}
+        activeRightView={rightPanelView}
       />
     </div>
   );

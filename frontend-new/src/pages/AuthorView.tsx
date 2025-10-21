@@ -6,15 +6,16 @@ import { ThreadBrowserLayout } from '../components/ThreadBrowserLayout';
 import { useThreadBrowser } from '../hooks/useThreadBrowser';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-import type { AuthorWithStats, Thread, PaginatedResponse } from '../types';
+import type { AuthorWithStats, ThreadWithStarter, PaginatedResponse } from '../types';
 import type { ThreadFilters } from '../components/ThreadListHeader';
 
 interface AuthorViewProps {
   authorId: string;
   threadsCollapsed: boolean;
+  rightPanelView: 'thread' | 'diff';
 }
 
-export function AuthorView({ authorId, threadsCollapsed }: AuthorViewProps) {
+export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: AuthorViewProps) {
   const { selectedMailingList } = useApiConfig();
   const [searchParams, setSearchParams] = useSearchParams();
   const [author, setAuthor] = useState<AuthorWithStats | null>(null);
@@ -23,7 +24,7 @@ export function AuthorView({ authorId, threadsCollapsed }: AuthorViewProps) {
   const [participatedTotal, setParticipatedTotal] = useState<number | null>(null);
 
   const getEmptyPage = useCallback(
-    (page: number, size: number): PaginatedResponse<Thread> => ({
+    (page: number, size: number): PaginatedResponse<ThreadWithStarter> => ({
       data: [],
       page: {
         page,
@@ -74,7 +75,7 @@ export function AuthorView({ authorId, threadsCollapsed }: AuthorViewProps) {
           if (shouldUpdateTotals) {
             setCreatedTotal(response.page.totalElements);
           }
-          return response as PaginatedResponse<Thread>;
+          return response;
         }
 
         const response = await apiClient.getAuthorThreadsParticipated(
@@ -256,6 +257,7 @@ export function AuthorView({ authorId, threadsCollapsed }: AuthorViewProps) {
         searchQuery={searchQuery}
         leftPanelHeader={authorHeader}
         threadsCollapsed={threadsCollapsed}
+        activeRightView={rightPanelView}
       />
     </div>
   );

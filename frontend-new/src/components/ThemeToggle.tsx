@@ -1,5 +1,4 @@
-import { Moon, Sun } from 'lucide-react';
-import { useTheme } from 'next-themes';
+import { Monitor, Moon, Sun } from 'lucide-react';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -8,9 +7,42 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel,
 } from './ui/dropdown-menu';
+import { useThemeSettings } from '../contexts/ThemeProvider';
+import { cn } from '../lib/utils';
 
 export function ThemeToggle() {
-  const { setTheme } = useTheme();
+  const {
+    modePreference,
+    lightSchemeId,
+    darkSchemeId,
+    setModePreference,
+    setLightScheme,
+    setDarkScheme,
+  } = useThemeSettings();
+
+  const isActive = (mode: 'light' | 'dark' | 'system', scheme?: string) => {
+    if (modePreference !== mode) return false;
+    if (mode === 'system') return true;
+    if (mode === 'light') {
+      return scheme ? lightSchemeId === scheme : true;
+    }
+    return scheme ? darkSchemeId === scheme : true;
+  };
+
+  const handleSelect = (mode: 'light' | 'dark' | 'system', scheme?: string) => {
+    if (mode === 'system') {
+      setModePreference('system');
+      return;
+    }
+
+    setModePreference(mode);
+    if (mode === 'light' && scheme) {
+      setLightScheme(scheme);
+    }
+    if (mode === 'dark' && scheme) {
+      setDarkScheme(scheme);
+    }
+  };
 
   return (
     <DropdownMenu>
@@ -26,21 +58,55 @@ export function ThemeToggle() {
           Interface
         </DropdownMenuLabel>
         <div className="space-y-0">
-          <DropdownMenuItem onClick={() => setTheme('light')} className="gap-2 px-2 py-1.5 text-sm">
+          <DropdownMenuItem
+            onClick={() => handleSelect('light', 'light')}
+            className={cn(
+              'gap-2 px-2 py-1.5 text-sm',
+              isActive('light', 'light') && 'text-primary font-semibold'
+            )}
+          >
             <Sun className="h-4 w-4" />
             Light
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setTheme('dark')} className="gap-2 px-2 py-1.5 text-sm">
+          <DropdownMenuItem
+            onClick={() => handleSelect('dark', 'dark')}
+            className={cn(
+              'gap-2 px-2 py-1.5 text-sm',
+              isActive('dark', 'dark') && 'text-primary font-semibold'
+            )}
+          >
             <Moon className="h-4 w-4" />
             Dark
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setTheme('solarized-light')} className="gap-2 px-2 py-1.5 text-sm">
+          <DropdownMenuItem
+            onClick={() => handleSelect('light', 'solarized-light')}
+            className={cn(
+              'gap-2 px-2 py-1.5 text-sm',
+              isActive('light', 'solarized-light') && 'text-primary font-semibold'
+            )}
+          >
             <Sun className="h-4 w-4" />
             Solarized Light
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setTheme('solarized-dark')} className="gap-2 px-2 py-1.5 text-sm">
+          <DropdownMenuItem
+            onClick={() => handleSelect('dark', 'solarized-dark')}
+            className={cn(
+              'gap-2 px-2 py-1.5 text-sm',
+              isActive('dark', 'solarized-dark') && 'text-primary font-semibold'
+            )}
+          >
             <Moon className="h-4 w-4" />
             Solarized Dark
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => handleSelect('system')}
+            className={cn(
+              'gap-2 px-2 py-1.5 text-sm',
+              isActive('system') && 'text-primary font-semibold'
+            )}
+          >
+            <Monitor className="h-4 w-4" />
+            System
           </DropdownMenuItem>
         </div>
       </DropdownMenuContent>

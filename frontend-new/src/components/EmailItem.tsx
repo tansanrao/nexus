@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { EmailHierarchy } from '../types';
@@ -9,26 +8,28 @@ import { EmailBody } from './EmailBody';
 
 interface EmailItemProps {
   email: EmailHierarchy;
-  forceCollapsed?: boolean | null;
+  isCollapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
   hiddenReplyCount?: number;
+  isHidden?: boolean;
 }
 
-export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }: EmailItemProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+export function EmailItem({
+  email,
+  isCollapsed,
+  onCollapsedChange,
+  hiddenReplyCount = 0,
+  isHidden = false,
+}: EmailItemProps) {
   const navigate = useNavigate();
-
-  // Sync with global expand/collapse control
-  // When forceCollapsed is provided, mirror that state locally
-  useEffect(() => {
-    if (forceCollapsed !== null && forceCollapsed !== undefined) {
-      setIsCollapsed(forceCollapsed);
-    }
-  }, [forceCollapsed]);
 
   const authorName = email.author_name || email.author_email.split('@')[0];
   
   // Parse out metadata from email body and exclude diff sections
-  const parseEmailBody = (body: string | null, patchMetadata: any) => {
+  const parseEmailBody = (
+    body: string | null,
+    patchMetadata: EmailHierarchy['patch_metadata'],
+  ) => {
     if (!body) return { cleanBody: '', parsedSubject: null };
     
     const lines = body.split('\n');
@@ -100,13 +101,17 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
     ? { marginLeft: `${indentPx}px`, maxWidth: `calc(100% - ${indentPx}px)` }
     : undefined;
 
+  if (isHidden) {
+    return null;
+  }
+
   return (
     <div style={indentationStyle}>
       <div className="px-3 py-2 rounded-md transition-colors">
         {/* Header - always visible */}
         <button
           type="button"
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={() => onCollapsedChange(!isCollapsed)}
           className="w-full text-left cursor-pointer select-none focus:outline-none focus-visible:outline-none"
         >
           <div className="flex items-start gap-2 min-w-0">
@@ -117,30 +122,32 @@ export function EmailItem({ email, forceCollapsed = null, hiddenReplyCount = 0 }
               )}
             />
             <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm min-w-0">
-                <span
-                  onClick={handleAuthorActivate}
-                  role="button"
-                  tabIndex={0}
-                  className="font-semibold text-foreground hover:underline cursor-pointer select-none"
-                  onKeyDown={handleAuthorActivate}
-                >
-                  {authorName}
-                </span>
-                {displaySubject && (
+              <div className="flex items-start justify-between gap-3 min-w-0">
+                <div className="flex flex-1 items-center gap-2 min-w-0 text-sm text-foreground">
                   <span
-                    className="text-sm text-foreground flex-1 min-w-0 block max-w-[min(32rem,100%)] truncate"
-                    title={displaySubject}
+                    onClick={handleAuthorActivate}
+                    role="button"
+                    tabIndex={0}
+                    className="font-semibold text-foreground hover:underline cursor-pointer select-none"
+                    onKeyDown={handleAuthorActivate}
                   >
-                    {displaySubject}
+                    {authorName}
                   </span>
-                )}
-                {isCollapsed && hiddenReplyCount > 0 && (
-                  <span className="text-xs text-muted-foreground shrink-0">[{hiddenReplyCount} more]</span>
-                )}
-                <span className="text-xs text-muted-foreground whitespace-normal sm:whitespace-nowrap">
-                  {formatRelativeTime(email.date)}
-                </span>
+                  {displaySubject && (
+                    <span
+                      className="flex-1 min-w-0 truncate text-sm"
+                      title={displaySubject}
+                    >
+                      {displaySubject}
+                    </span>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+                  {isCollapsed && hiddenReplyCount > 0 && (
+                    <span>[{hiddenReplyCount} more]</span>
+                  )}
+                  <span>{formatRelativeTime(email.date)}</span>
+                </div>
               </div>
             </div>
           </div>

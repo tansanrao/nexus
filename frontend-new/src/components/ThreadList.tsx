@@ -1,16 +1,30 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { Input } from './ui/input';
-import type { Thread } from '../types';
-import { formatRelativeTime } from '../utils/date';
+import type { ThreadWithStarter } from '../types';
 import { Pagination } from './Pagination';
+import { useTimezone } from '../contexts/TimezoneContext';
+import { formatDateCompact } from '../utils/timezone';
+
+const isWithinLastWeek = (dateString: string): boolean => {
+  if (!dateString) return false;
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  const diffInMs = now.getTime() - date.getTime();
+  if (diffInMs < 0) {
+    return false;
+  }
+  const msInDay = 1000 * 60 * 60 * 24;
+  return diffInMs <= 7 * msInDay;
+};
 
 interface ThreadListProps {
-  threads: Thread[];
+  threads: ThreadWithStarter[];
   loading: boolean;
   selectedThreadId: number | null;
-  onThreadSelect: (thread: Thread) => void;
+  onThreadSelect: (thread: ThreadWithStarter) => void;
   currentPage: number;
   hasMore: boolean;
   onPageChange: (page: number) => void;
@@ -31,13 +45,24 @@ export function ThreadList({
   onSearch,
   searchQuery,
 }: ThreadListProps) {
+  const { timezone } = useTimezone();
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const debounceTimeoutRef = useRef<number | null>(null);
+
+  const debouncedSearch = useCallback((query: string) => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+    debounceTimeoutRef.current = window.setTimeout(() => {
+      onSearch(query);
+    }, 500);
+  }, [onSearch]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setLocalQuery(value);
-    onSearch(value);
+    debouncedSearch(value);
   };
 
   // Handle "/" hotkey to focus search
@@ -51,6 +76,15 @@ export function ThreadList({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
   }, []);
 
   const renderSearchBar = () => (
@@ -112,38 +146,54 @@ export function ThreadList({
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
-          {threads.map((thread) => (
-            <div
-              key={thread.id}
-              data-selected={selectedThreadId === thread.id}
-              className={`thread-list-item px-3 py-2 outline-none transition-all duration-150 select-none hover:shadow-sm ${
-                selectedThreadId === thread.id ? 'thread-list-item--selected' : ''
-              }`}
-              onClick={() => onThreadSelect(thread)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onThreadSelect(thread); } }}
-              aria-selected={selectedThreadId === thread.id}
-            >
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <h3 className="text-sm font-semibold text-foreground leading-tight flex-1 min-w-0 break-words line-clamp-2">
-                  {thread.subject}
-                </h3>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  [{thread.message_count || 0}]
-                </span>
+          {threads.map((thread) => {
+            const startDateText = formatDateCompact(thread.start_date, timezone);
+            const shouldPrefix =
+              isWithinLastWeek(thread.start_date) &&
+              startDateText !== 'Invalid Date' &&
+              startDateText !== 'N/A';
+            const startDateDisplay = shouldPrefix ? `Posted ${startDateText}` : startDateText;
+            const showLastDate = thread.last_date !== thread.start_date && thread.last_date;
+            const lastDateText = showLastDate
+              ? formatDateCompact(thread.last_date, timezone)
+              : null;
+
+            return (
+              <div
+                key={thread.id}
+                data-selected={selectedThreadId === thread.id}
+                className={`thread-list-item px-3 py-2 outline-none transition-all duration-150 select-none hover:shadow-sm ${
+                  selectedThreadId === thread.id ? 'thread-list-item--selected' : ''
+                }`}
+                onClick={() => onThreadSelect(thread)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onThreadSelect(thread); } }}
+                aria-selected={selectedThreadId === thread.id}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="text-sm font-semibold text-foreground leading-tight flex-1 min-w-0 break-words line-clamp-2">
+                    {thread.subject}
+                  </h3>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    [{thread.message_count || 0}]
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{thread.starter_name || thread.starter_email}</span>
+                  <div className="flex items-center gap-2">
+                    <span>{startDateDisplay}</span>
+                    {showLastDate && lastDateText && (
+                      <>
+                        <span>•</span>
+                        <span>{lastDateText}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{formatRelativeTime(thread.last_date)}</span>
-                {thread.last_date !== thread.start_date && (
-                  <>
-                    <span>•</span>
-                    <span>started {formatRelativeTime(thread.start_date)}</span>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </ScrollArea>
       

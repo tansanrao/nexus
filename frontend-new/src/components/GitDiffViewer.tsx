@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import parseGitDiff, {
   type AddedFile,
   type AnyFileChange,
+  type AnyChunk,
   type ChangedFile,
   type DeletedFile,
   type RenamedFile,
@@ -32,15 +33,22 @@ import {
 import { cn } from '../lib/utils';
 import { highlightAgent } from '../lib/shiki';
 import { useCodeTheme } from '../contexts/CodeThemeContext';
+import { extractDiffContent } from '../utils/diff';
 
 interface GitDiffViewerProps {
   emailBody: string | null;
   patchMetadata: PatchMetadata | null;
-  gitCommitHash: string;
+  gitCommitHash?: string;
+  defaultExpanded?: boolean;
 }
 
-export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDiffViewerProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export function GitDiffViewer({
+  emailBody,
+  patchMetadata,
+  gitCommitHash,
+  defaultExpanded = false,
+}: GitDiffViewerProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [showRaw, setShowRaw] = useState(false);
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
   const [copiedRawDiff, setCopiedRawDiff] = useState(false);
@@ -54,47 +62,7 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
     return null;
   }
 
-  // Extract diff content from email body based on patch metadata
-  const extractDiffContent = () => {
-    if (!emailBody) return '';
-    
-    const lines = emailBody.split('\n');
-    
-    // If we have patch metadata, use it to extract specific sections
-    if (patchMetadata && patchMetadata.diff_sections.length > 0) {
-      const diffLines: string[] = [];
-      
-      // Collect all diff sections
-      for (const section of patchMetadata.diff_sections) {
-        for (let i = section.start_line; i <= section.end_line; i++) {
-          if (i >= 0 && i < lines.length) {
-            diffLines.push(lines[i]);
-          }
-        }
-      }
-      
-      return diffLines.join('\n');
-    }
-    
-    // Fallback: look for diff patterns in the email body
-    const diffStartPattern = /^diff --git|^---|^\+\+\+|^@@/;
-    const diffLines: string[] = [];
-    let inDiffSection = false;
-    
-    for (const line of lines) {
-      if (diffStartPattern.test(line)) {
-        inDiffSection = true;
-      }
-      
-      if (inDiffSection) {
-        diffLines.push(line);
-      }
-    }
-    
-    return diffLines.join('\n');
-  };
-
-  const diffContent = extractDiffContent();
+  const diffContent = extractDiffContent(emailBody, patchMetadata);
 
   if (!diffContent.trim()) {
     return null;
@@ -102,14 +70,19 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
 
   const { parsedDiff, stats, fileSummaries, parseError } = useMemo(() => {
     try {
-      const parsed = parseGitDiff(diffContent);
-      const summaries = parsed.files.map((file) => ({
-        file,
-        key: getFileKey(file),
-        displayPath: getDisplayPath(file),
-        additions: countLineChanges(file, 'AddedLine'),
-        deletions: countLineChanges(file, 'DeletedLine'),
-      }));
+      const parsed = parseDiffContent(diffContent);
+      const summaries = parsed.files.map((file, index) => {
+        const baseKey = getFileKey(file);
+        const uniqueKey = `${baseKey}#${index}`;
+
+        return {
+          file,
+          key: uniqueKey,
+          displayPath: getDisplayPath(file),
+          additions: countLineChanges(file, 'AddedLine'),
+          deletions: countLineChanges(file, 'DeletedLine'),
+        };
+      });
 
       const aggregate = summaries.reduce(
         (acc, summary) => {
@@ -215,6 +188,9 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
   }, []);
 
   const handleCopyHash = useCallback(async () => {
+    if (!gitCommitHash) {
+      return;
+    }
     try {
       await navigator.clipboard.writeText(gitCommitHash);
       setCopiedHash(true);
@@ -257,27 +233,29 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
             <GitBranch className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Git Diff</span>
           </div>
-          <button
-            type="button"
-            className={cn(
-              "text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors px-1 py-0.5 rounded",
-              copiedHash && "text-emerald-500 bg-emerald-500/10"
-            )}
-            title={copiedHash ? "Copied!" : "Click to copy commit hash"}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleCopyHash();
-            }}
-          >
-            {copiedHash ? (
-              <span className="flex items-center gap-1">
-                <Check className="h-3 w-3" />
-                ({gitCommitHash.substring(0, 12)})
-              </span>
-            ) : (
-              `(${gitCommitHash.substring(0, 12)})`
-            )}
-          </button>
+          {gitCommitHash && (
+            <button
+              type="button"
+              className={cn(
+                "text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors px-1 py-0.5 rounded",
+                copiedHash && "text-emerald-500 bg-emerald-500/10"
+              )}
+              title={copiedHash ? "Copied!" : "Click to copy commit hash"}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleCopyHash();
+              }}
+            >
+              {copiedHash ? (
+                <span className="flex items-center gap-1">
+                  <Check className="h-3 w-3" />
+                  ({gitCommitHash.substring(0, 12)})
+                </span>
+              ) : (
+                `(${gitCommitHash.substring(0, 12)})`
+              )}
+            </button>
+          )}
           {stats && (
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>{stats.filesChanged} file{stats.filesChanged === 1 ? '' : 's'}</span>
@@ -490,6 +468,168 @@ export function GitDiffViewer({ emailBody, patchMetadata, gitCommitHash }: GitDi
       )}
     </div>
   );
+}
+
+function parseDiffContent(diffContent: string): ReturnType<typeof parseGitDiff> {
+  const normalizedContent = diffContent.replace(/\r\n/g, '\n').replace(/^\s+/, '');
+
+  if (!normalizedContent.trim()) {
+    return {
+      type: 'GitDiff',
+      files: [],
+    };
+  }
+
+  const segments = splitDiffIntoSegments(normalizedContent);
+
+  if (segments.length <= 1) {
+    return parseGitDiff(normalizedContent);
+  }
+
+  const aggregatedRecords = aggregateSegmentsByFile(segments);
+
+  if (aggregatedRecords.length === 0) {
+    return parseGitDiff(normalizedContent);
+  }
+
+  return {
+    type: 'GitDiff',
+    files: aggregatedRecords,
+  };
+}
+
+function splitDiffIntoSegments(diffContent: string): string[] {
+  return diffContent
+    .split(/(?=^diff --git)/gm)
+    .map((segment) => segment.replace(/^\s+/, ''))
+    .filter((segment) => segment.startsWith('diff --git'));
+}
+
+function aggregateSegmentsByFile(segments: string[]): AnyFileChange[] {
+  interface AggregatedRecord {
+    key: string;
+    template: AnyFileChange;
+    chunks: AnyChunk[];
+  }
+
+  const records: AggregatedRecord[] = [];
+  const recordMap = new Map<string, AggregatedRecord>();
+
+  segments.forEach((segment) => {
+    const parsed = parseGitDiff(segment);
+    parsed.files.forEach((file) => {
+      const key = getAggregationKey(file);
+      if (!key) {
+        return;
+      }
+
+      let record = recordMap.get(key);
+      if (!record) {
+        record = {
+          key,
+          template: createTemplateFromFile(file),
+          chunks: [],
+        };
+        recordMap.set(key, record);
+        records.push(record);
+      }
+
+      const clonedChunks = file.chunks.map(cloneChunk);
+      record.chunks.push(...clonedChunks);
+    });
+  });
+
+  return records.map((record) => buildAggregatedFile(record.template, record.chunks));
+}
+
+function getAggregationKey(file: AnyFileChange): string {
+  if (isRenamedFile(file)) {
+    return file.pathAfter || file.pathBefore;
+  }
+
+  if (isPathFile(file)) {
+    return file.path;
+  }
+
+  return '';
+}
+
+function createTemplateFromFile(file: AnyFileChange): AnyFileChange {
+  switch (file.type) {
+    case 'RenamedFile':
+      return {
+        type: 'RenamedFile',
+        pathBefore: file.pathBefore,
+        pathAfter: file.pathAfter,
+        chunks: [],
+      };
+    case 'AddedFile':
+      return {
+        type: 'AddedFile',
+        path: file.path,
+        chunks: [],
+      };
+    case 'DeletedFile':
+      return {
+        type: 'DeletedFile',
+        path: file.path,
+        chunks: [],
+      };
+    default:
+      return {
+        type: 'ChangedFile',
+        path: file.path,
+        chunks: [],
+      };
+  }
+}
+
+function buildAggregatedFile(template: AnyFileChange, chunks: AnyChunk[]): AnyFileChange {
+  switch (template.type) {
+    case 'RenamedFile':
+      return {
+        ...template,
+        chunks,
+      };
+    case 'AddedFile':
+      return {
+        ...template,
+        chunks,
+      };
+    case 'DeletedFile':
+      return {
+        ...template,
+        chunks,
+      };
+    default:
+      return {
+        ...template,
+        chunks,
+      };
+  }
+}
+
+function cloneChunk(chunk: AnyChunk): AnyChunk {
+  if (chunk.type === 'BinaryFilesChunk') {
+    return { ...chunk };
+  }
+
+  if (chunk.type === 'CombinedChunk') {
+    return {
+      ...chunk,
+      fromFileRangeA: { ...chunk.fromFileRangeA },
+      fromFileRangeB: { ...chunk.fromFileRangeB },
+      toFileRange: { ...chunk.toFileRange },
+      changes: chunk.changes.map((change) => ({ ...change })) as typeof chunk.changes,
+    };
+  }
+
+  return {
+    ...chunk,
+    fromFileRange: { ...chunk.fromFileRange },
+    toFileRange: { ...chunk.toFileRange },
+    changes: chunk.changes.map((change) => ({ ...change })) as typeof chunk.changes,
+  };
 }
 
 function getFileKey(file: AnyFileChange): string {

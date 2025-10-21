@@ -1,12 +1,14 @@
 import type {
   MailingList,
-  Thread,
+  MailingListRepository,
   ThreadDetail,
   Email,
   AuthorWithStats,
   ThreadWithStarter,
   PaginatedResponse,
   DataResponse,
+  GlobalSyncStatus,
+  DatabaseStatus,
 } from '../types';
 import { getApiBaseUrl } from '../contexts/ApiConfigContext';
 
@@ -25,6 +27,27 @@ interface AuthorThreadQueryParams {
 
 const API_PREFIX = '/api/v1';
 
+interface MessageResponse {
+  message: string;
+}
+
+interface ToggleResponse {
+  message: string;
+  enabled: boolean;
+}
+
+interface SyncQueueResponse {
+  jobIds: number[];
+  message: string;
+}
+
+interface SeedResponse {
+  message: string;
+  mailingListsCreated: number;
+  repositoriesCreated: number;
+  partitionsCreated: number;
+}
+
 export class ApiClient {
   private getNormalizedBaseUrl(): string {
     let baseUrl = getApiBaseUrl().trim();
@@ -37,16 +60,36 @@ export class ApiClient {
     return baseUrl;
   }
 
-  private async fetchJson<T>(path: string): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const baseUrl = this.getNormalizedBaseUrl();
+    const headers = new Headers(init.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    if (init.body && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+
     const response = await fetch(`${baseUrl}${path}`, {
-      headers: {
-        Accept: 'application/json',
-      },
+      ...init,
+      headers,
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      let message = `${response.status} ${response.statusText}`;
+      try {
+        const errorBody = await response.json();
+        if (errorBody && typeof errorBody === 'object' && 'message' in errorBody) {
+          message = String(errorBody.message);
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+      throw new Error(`API error: ${message}`);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
     }
 
     return response.json() as Promise<T>;
@@ -78,10 +121,33 @@ export class ApiClient {
   }
 
   async getMailingLists(): Promise<MailingList[]> {
-    const result = await this.fetchJson<DataResponse<MailingList[]>>(
+    const result = await this.request<DataResponse<MailingList[]>>(
       `${API_PREFIX}/admin/mailing-lists`
     );
     return result.data;
+  }
+
+  async getMailingList(slug: string): Promise<MailingList> {
+    return this.request<MailingList>(`${API_PREFIX}/admin/mailing-lists/${slug}`);
+  }
+
+  async getMailingListRepositories(slug: string): Promise<MailingListRepository[]> {
+    return this.request<MailingListRepository[]>(
+      `${API_PREFIX}/admin/mailing-lists/${slug}/repositories`
+    );
+  }
+
+  async toggleMailingList(slug: string, enabled: boolean): Promise<ToggleResponse> {
+    return this.request<ToggleResponse>(`${API_PREFIX}/admin/mailing-lists/${slug}/toggle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  async seedMailingLists(): Promise<SeedResponse> {
+    return this.request<SeedResponse>(`${API_PREFIX}/admin/mailing-lists/seed`, {
+      method: 'POST',
+    });
   }
 
   async getThreads(
@@ -90,7 +156,7 @@ export class ApiClient {
     size: number = 50,
     sortBy: ThreadSortField = 'lastDate',
     order: SortOrder = 'desc'
-  ): Promise<PaginatedResponse<Thread>> {
+  ): Promise<PaginatedResponse<ThreadWithStarter>> {
     const params = new URLSearchParams({
       page: page.toString(),
       size: size.toString(),
@@ -98,7 +164,7 @@ export class ApiClient {
       order,
     });
 
-    return this.fetchJson<PaginatedResponse<Thread>>(
+    return this.request<PaginatedResponse<ThreadWithStarter>>(
       `${API_PREFIX}/${slug}/threads?${params.toString()}`
     );
   }
@@ -111,7 +177,7 @@ export class ApiClient {
     size: number = 50,
     sortBy: ThreadSortField = 'lastDate',
     order: SortOrder = 'desc'
-  ): Promise<PaginatedResponse<Thread>> {
+  ): Promise<PaginatedResponse<ThreadWithStarter>> {
     const params = new URLSearchParams({
       page: page.toString(),
       size: size.toString(),
@@ -125,17 +191,17 @@ export class ApiClient {
 
     params.set('searchType', searchType);
 
-    return this.fetchJson<PaginatedResponse<Thread>>(
+    return this.request<PaginatedResponse<ThreadWithStarter>>(
       `${API_PREFIX}/${slug}/threads/search?${params.toString()}`
     );
   }
 
   async getThread(slug: string, threadId: number): Promise<ThreadDetail> {
-    return this.fetchJson<ThreadDetail>(`${API_PREFIX}/${slug}/threads/${threadId}`);
+    return this.request<ThreadDetail>(`${API_PREFIX}/${slug}/threads/${threadId}`);
   }
 
   async getEmail(slug: string, emailId: number): Promise<Email> {
-    return this.fetchJson<Email>(`${API_PREFIX}/${slug}/emails/${emailId}`);
+    return this.request<Email>(`${API_PREFIX}/${slug}/emails/${emailId}`);
   }
 
   async searchAuthors(
@@ -161,13 +227,13 @@ export class ApiClient {
       params.set('order', order);
     }
 
-    return this.fetchJson<PaginatedResponse<AuthorWithStats>>(
+    return this.request<PaginatedResponse<AuthorWithStats>>(
       `${API_PREFIX}/${slug}/authors?${params.toString()}`
     );
   }
 
   async getAuthor(slug: string, authorId: number): Promise<AuthorWithStats> {
-    return this.fetchJson<AuthorWithStats>(`${API_PREFIX}/${slug}/authors/${authorId}`);
+    return this.request<AuthorWithStats>(`${API_PREFIX}/${slug}/authors/${authorId}`);
   }
 
   async getAuthorThreadsStarted(
@@ -178,7 +244,7 @@ export class ApiClient {
     const query = this.buildAuthorThreadQuery(params);
     const suffix = query ? `?${query}` : '';
 
-    return this.fetchJson<PaginatedResponse<ThreadWithStarter>>(
+    return this.request<PaginatedResponse<ThreadWithStarter>>(
       `${API_PREFIX}/${slug}/authors/${authorId}/threads-started${suffix}`
     );
   }
@@ -187,13 +253,40 @@ export class ApiClient {
     slug: string,
     authorId: number,
     params: AuthorThreadQueryParams = {}
-  ): Promise<PaginatedResponse<Thread>> {
+  ): Promise<PaginatedResponse<ThreadWithStarter>> {
     const query = this.buildAuthorThreadQuery(params);
     const suffix = query ? `?${query}` : '';
 
-    return this.fetchJson<PaginatedResponse<Thread>>(
+    return this.request<PaginatedResponse<ThreadWithStarter>>(
       `${API_PREFIX}/${slug}/authors/${authorId}/threads-participated${suffix}`
     );
+  }
+
+  async getSyncStatus(): Promise<GlobalSyncStatus> {
+    return this.request<GlobalSyncStatus>(`${API_PREFIX}/admin/sync/status`);
+  }
+
+  async queueSync(slugs: string[]): Promise<SyncQueueResponse> {
+    return this.request<SyncQueueResponse>(`${API_PREFIX}/admin/sync/queue`, {
+      method: 'POST',
+      body: JSON.stringify({ mailingListSlugs: slugs }),
+    });
+  }
+
+  async cancelSync(): Promise<MessageResponse> {
+    return this.request<MessageResponse>(`${API_PREFIX}/admin/sync/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  async resetDatabase(): Promise<MessageResponse> {
+    return this.request<MessageResponse>(`${API_PREFIX}/admin/database/reset`, {
+      method: 'POST',
+    });
+  }
+
+  async getDatabaseStatus(): Promise<DatabaseStatus> {
+    return this.request<DatabaseStatus>(`${API_PREFIX}/admin/database/status`);
   }
 
   async testConnection(): Promise<boolean> {

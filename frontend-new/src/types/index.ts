@@ -9,6 +9,14 @@ export interface MailingList {
   last_synced_at: string | null;
 }
 
+export interface MailingListRepository {
+  id: number;
+  mailing_list_id: number;
+  repo_url: string;
+  repo_order: number;
+  created_at: string;
+}
+
 export interface Thread {
   id: number;
   mailing_list_id: number;
@@ -113,4 +121,44 @@ export interface PaginatedResponse<T> {
 
 export interface DataResponse<T> {
   data: T;
+}
+
+export type JobPhase = 'waiting' | 'parsing' | 'threading' | 'done' | 'errored';
+
+export interface JobStatusInfo {
+  id: number;
+  mailing_list_id: number;
+  slug: string;
+  name: string;
+  phase: JobPhase;
+  priority: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+}
+
+export interface QueuedJob {
+  id: number;
+  mailingListId: number;
+  mailingListSlug: string;
+  mailingListName: string;
+  position: number;
+}
+
+export interface GlobalSyncStatus {
+  currentJob: JobStatusInfo | null;
+  queuedJobs: QueuedJob[];
+  isRunning: boolean;
+}
+
+export interface DatabaseStatus {
+  totalAuthors: number;
+  totalEmails: number;
+  totalThreads: number;
+  totalRecipients: number;
+  totalReferences: number;
+  totalThreadMemberships: number;
+  dateRangeStart: string | null;
+  dateRangeEnd: string | null;
 }

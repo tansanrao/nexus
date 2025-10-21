@@ -1,49 +1,32 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, List, ListTree } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { EmailItem } from './EmailItem';
-import { apiClient } from '../lib/api';
-import type { ThreadDetail } from '../types';
-import { formatDate } from '../utils/date';
-import { useApiConfig } from '../contexts/ApiConfigContext';
+import type { EmailHierarchy, ThreadDetail } from '../types';
 import { Button } from './ui/button';
+import { useTimezone } from '../contexts/TimezoneContext';
+import { formatDateInTimezone } from '../utils/timezone';
+
+const EMPTY_EMAIL_LIST: EmailHierarchy[] = [];
 
 interface ThreadViewProps {
   threadId: number | null;
+  threadDetail: ThreadDetail | null;
+  loading: boolean;
+  error: string | null;
 }
 
-export function ThreadView({ threadId }: ThreadViewProps) {
-  const { selectedMailingList } = useApiConfig();
-  const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [allCollapsed, setAllCollapsed] = useState(false);
+export function ThreadView({ threadId, threadDetail, loading, error }: ThreadViewProps) {
+  const { timezone } = useTimezone();
+  const [collapsedEmailIds, setCollapsedEmailIds] = useState<Set<number>>(new Set());
+  const [hideDeepCollapsedReplies, setHideDeepCollapsedReplies] = useState(true);
 
   useEffect(() => {
-    if (threadId && selectedMailingList) {
-      loadThreadDetail(threadId);
-    }
-  }, [threadId, selectedMailingList]);
-
-
-  const loadThreadDetail = async (id: number) => {
-    if (!selectedMailingList) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const detail = await apiClient.getThread(selectedMailingList, id);
-      setThreadDetail(detail);
-    } catch (err) {
-      setError('Failed to load thread details');
-      console.error('Error loading thread:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setCollapsedEmailIds(new Set());
+  }, [threadId]);
 
   // Always derive emails to keep hook order stable across renders
-  const emails = threadDetail?.emails ?? [];
+  const emails = threadDetail?.emails ?? EMPTY_EMAIL_LIST;
 
   // Precompute descendant reply counts for each email based on depth
   const hiddenRepliesByEmailId = useMemo(() => {
@@ -61,6 +44,68 @@ export function ThreadView({ threadId }: ThreadViewProps) {
     }
     return counts;
   }, [emails]);
+
+  const handleCollapsedChange = useCallback((emailId: number, collapsed: boolean) => {
+    setCollapsedEmailIds((prev) => {
+      const next = new Set(prev);
+      if (collapsed) {
+        next.add(emailId);
+      } else {
+        next.delete(emailId);
+      }
+      return next;
+    });
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    setCollapsedEmailIds(new Set(emails.map((email) => email.id)));
+  }, [emails]);
+
+  const expandAll = useCallback(() => {
+    setCollapsedEmailIds(new Set());
+  }, []);
+
+  const emailsWithState = useMemo(() => {
+    if (!hideDeepCollapsedReplies) {
+      return emails.map((email) => ({
+        email,
+        isCollapsed: collapsedEmailIds.has(email.id),
+        isHidden: false,
+      }));
+    }
+
+    const result: Array<{
+      email: EmailHierarchy;
+      isCollapsed: boolean;
+      isHidden: boolean;
+    }> = [];
+    const collapsedStack: number[] = [];
+
+    for (const email of emails) {
+      while (
+        collapsedStack.length > 0 &&
+        email.depth <= collapsedStack[collapsedStack.length - 1]
+      ) {
+        collapsedStack.pop();
+      }
+
+      const isCollapsed = collapsedEmailIds.has(email.id);
+      const hasCollapsedAncestor = collapsedStack.length > 0;
+      const isHidden = hasCollapsedAncestor && email.depth > 1;
+
+      result.push({ email, isCollapsed, isHidden });
+
+      if (isCollapsed && email.depth >= 1) {
+        collapsedStack.push(email.depth);
+      }
+    }
+
+    return result;
+  }, [emails, collapsedEmailIds, hideDeepCollapsedReplies]);
+
+  const toggleCollapseMode = useCallback(() => {
+    setHideDeepCollapsedReplies((prev) => !prev);
+  }, []);
 
   if (!threadId) {
     return (
@@ -98,6 +143,8 @@ export function ThreadView({ threadId }: ThreadViewProps) {
   }
 
   const { thread } = threadDetail;
+  const formatDate = (value: string) =>
+    formatDateInTimezone(value, timezone, { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
     <ScrollArea className="h-full bg-surface-inset min-w-0"
@@ -127,7 +174,7 @@ export function ThreadView({ threadId }: ThreadViewProps) {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
-                onClick={() => setAllCollapsed(false)}
+                onClick={expandAll}
                 title="Expand all"
               >
                 <ChevronDown className="h-3 w-3" />
@@ -136,10 +183,28 @@ export function ThreadView({ threadId }: ThreadViewProps) {
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
-                onClick={() => setAllCollapsed(true)}
+                onClick={collapseAll}
                 title="Collapse all"
               >
                 <ChevronUp className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-6 w-6 ${hideDeepCollapsedReplies ? 'bg-muted text-foreground' : ''}`}
+                onClick={toggleCollapseMode}
+                title={
+                  hideDeepCollapsedReplies
+                    ? 'Collapsed replies hide deeper messages'
+                    : 'Collapsed replies show message headers'
+                }
+                aria-pressed={hideDeepCollapsedReplies}
+              >
+                {hideDeepCollapsedReplies ? (
+                  <ListTree className="h-3 w-3" />
+                ) : (
+                  <List className="h-3 w-3" />
+                )}
               </Button>
             </div>
           </div>
@@ -147,12 +212,14 @@ export function ThreadView({ threadId }: ThreadViewProps) {
 
         {/* Emails */}
         <div className="space-y-0">
-          {emails.map((email) => (
+          {emailsWithState.map(({ email, isCollapsed, isHidden }) => (
             <EmailItem
               key={email.id}
               email={email}
-              forceCollapsed={allCollapsed}
+              isCollapsed={isCollapsed}
+              onCollapsedChange={(next) => handleCollapsedChange(email.id, next)}
               hiddenReplyCount={hiddenRepliesByEmailId.get(email.id) || 0}
+              isHidden={isHidden}
             />
           ))}
         </div>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-import type { Thread, PaginatedResponse } from '../types';
+import type { ThreadWithStarter, PaginatedResponse } from '../types';
 import type { ThreadFilters } from '../components/ThreadListHeader';
 
 interface FetchThreadsParams {
@@ -14,7 +14,7 @@ interface FetchThreadsParams {
 }
 
 interface UseThreadBrowserOptions {
-  fetchThreads?: (params: FetchThreadsParams) => Promise<PaginatedResponse<Thread>>;
+  fetchThreads?: (params: FetchThreadsParams) => Promise<PaginatedResponse<ThreadWithStarter>>;
   reloadDeps?: unknown[];
   pageSize?: number;
 }
@@ -22,9 +22,9 @@ interface UseThreadBrowserOptions {
 export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
   const { selectedMailingList } = useApiConfig();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [threads, setThreads] = useState<Thread[]>([]);
+  const [threads, setThreads] = useState<ThreadWithStarter[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
+  const [selectedThread, setSelectedThread] = useState<ThreadWithStarter | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -60,7 +60,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
           // Fetch single thread and set selection without replacing list
           apiClient
             .getThread(selectedMailingList, threadIdFromUrl)
-            .then(detail => setSelectedThread(detail.thread))
+            .then(detail => setSelectedThread(detail.thread as ThreadWithStarter))
             .catch(() => {});
         }
       }
@@ -183,7 +183,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     [loadThreads]
   );
 
-  const handleThreadSelect = (thread: Thread) => {
+  const handleThreadSelect = (thread: ThreadWithStarter) => {
     setSelectedThread(thread);
     // Update URL param
     const params = new URLSearchParams(searchParams);

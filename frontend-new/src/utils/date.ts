@@ -15,3 +15,15 @@ export function formatDate(dateString: string): string {
   return format(date, 'MMM d, yyyy');
 }
 
+export function formatSmartDate(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (diffInDays <= 7) {
+    return formatDistanceToNow(date, { addSuffix: true });
+  } else {
+    return format(date, 'MMM d, yyyy');
+  }
+}
+

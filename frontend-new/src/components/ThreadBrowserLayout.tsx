@@ -1,14 +1,16 @@
 import type { ReactNode } from 'react';
 import { ThreadList } from './ThreadList';
 import { ThreadView } from './ThreadView';
-import type { Thread } from '../types';
+import { ThreadDiffView } from './ThreadDiffView';
+import type { ThreadWithStarter } from '../types';
 import { cn } from '../lib/utils';
+import { useThreadDetail } from '../hooks/useThreadDetail';
 
 interface ThreadBrowserLayoutProps {
-  threads: Thread[];
+  threads: ThreadWithStarter[];
   loading: boolean;
   selectedThreadId: number | null;
-  onThreadSelect: (thread: Thread) => void;
+  onThreadSelect: (thread: ThreadWithStarter) => void;
   currentPage: number;
   hasMore: boolean;
   onPageChange: (page: number) => void;
@@ -17,6 +19,7 @@ interface ThreadBrowserLayoutProps {
   searchQuery: string;
   leftPanelHeader?: ReactNode;
   threadsCollapsed: boolean;
+  activeRightView?: 'thread' | 'diff';
 }
 
 export function ThreadBrowserLayout({
@@ -32,7 +35,14 @@ export function ThreadBrowserLayout({
   searchQuery,
   leftPanelHeader,
   threadsCollapsed,
+  activeRightView = 'thread',
 }: ThreadBrowserLayoutProps) {
+  const {
+    threadDetail,
+    loading: threadDetailLoading,
+    error: threadDetailError,
+  } = useThreadDetail(selectedThreadId);
+
   return (
     <div className="flex-1 flex flex-col relative bg-background overflow-hidden">
       <div className="flex-1 flex flex-col md:flex-row bg-background min-h-0">
@@ -65,7 +75,21 @@ export function ThreadBrowserLayout({
 
         {/* Right panel */}
         <div className="flex-1 hidden md:flex flex-col min-w-0 min-h-0 relative">
-          <ThreadView threadId={selectedThreadId} />
+          {activeRightView === 'diff' ? (
+            <ThreadDiffView
+              threadId={selectedThreadId}
+              threadDetail={threadDetail}
+              loading={threadDetailLoading}
+              error={threadDetailError}
+            />
+          ) : (
+            <ThreadView
+              threadId={selectedThreadId}
+              threadDetail={threadDetail}
+              loading={threadDetailLoading}
+              error={threadDetailError}
+            />
+          )}
         </div>
       </div>
     </div>

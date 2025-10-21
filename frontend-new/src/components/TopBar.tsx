@@ -1,4 +1,14 @@
-import { Filter, List, ArrowDown, ArrowUp, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import {
+  Filter,
+  List,
+  ArrowDown,
+  ArrowUp,
+  PanelLeftClose,
+  PanelLeftOpen,
+  GitBranch,
+  MessageSquare,
+  Settings,
+} from 'lucide-react';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -9,9 +19,10 @@ import {
   DropdownMenuRadioItem,
 } from './ui/dropdown-menu';
 import { ThemeToggle } from './ThemeToggle';
-import { SettingsDropdown } from './SettingsDropdown';
+import { MailingListSelector } from './MailingListSelector';
 import type { ThreadFilters } from './ThreadListHeader';
 import { cn } from '../lib/utils';
+import { Link } from 'react-router-dom';
 
 interface TopBarProps {
   filters: ThreadFilters;
@@ -20,6 +31,8 @@ interface TopBarProps {
   threadsCollapsed: boolean;
   onCollapseThreads: () => void;
   onExpandThreads: () => void;
+  rightPanelView: 'thread' | 'diff';
+  onRightPanelViewChange: (view: 'thread' | 'diff') => void;
 }
 
 export function TopBar({ 
@@ -29,6 +42,8 @@ export function TopBar({
   threadsCollapsed,
   onCollapseThreads,
   onExpandThreads,
+  rightPanelView,
+  onRightPanelViewChange,
 }: TopBarProps) {
   const sortByLabels = {
     startDate: 'Start Date',
@@ -44,6 +59,8 @@ export function TopBar({
 
   const collapseTitle = threadsCollapsed ? 'Expand thread list' : 'Collapse thread list';
   const collapseIcon = threadsCollapsed ? <PanelLeftOpen className="h-3 w-3" /> : <PanelLeftClose className="h-3 w-3" />;
+  const isDiffView = rightPanelView === 'diff';
+  const toggleTitle = isDiffView ? 'Show thread conversation' : 'Show combined git diffs';
 
   return (
     <div className="sticky top-0 z-40 w-full border-b border-surface-border/60 shadow-sm" style={{ backgroundColor: 'hsl(var(--color-accent))' }}>
@@ -169,8 +186,38 @@ export function TopBar({
         {/* Right section - Theme and Settings */}
         <div className="flex h-10 w-full items-center justify-end gap-2 px-4 md:flex-1">
           <div className="flex items-center space-x-2">
+            <MailingListSelector />
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10',
+                isDiffView && 'bg-accent-foreground/10'
+              )}
+              onClick={() => onRightPanelViewChange(isDiffView ? 'thread' : 'diff')}
+              title={toggleTitle}
+              aria-label={toggleTitle}
+              aria-pressed={isDiffView}
+            >
+              {isDiffView ? (
+                <MessageSquare className="h-3 w-3" />
+              ) : (
+                <GitBranch className="h-3 w-3" />
+              )}
+            </Button>
             <ThemeToggle />
-            <SettingsDropdown />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hover:bg-muted/70 bg-transparent"
+              asChild
+              title="Open settings"
+              aria-label="Open settings"
+            >
+              <Link to="/settings/general">
+                <Settings className="h-5 w-5" />
+              </Link>
+            </Button>
           </div>
         </div>
       </div>
