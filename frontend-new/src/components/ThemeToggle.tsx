@@ -7,7 +7,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel,
 } from './ui/dropdown-menu';
-import { useThemeSettings } from '../contexts/ThemeProvider';
+import { useThemeSettings } from '../contexts/theme-settings-context';
 import { cn } from '../lib/utils';
 
 export function ThemeToggle() {

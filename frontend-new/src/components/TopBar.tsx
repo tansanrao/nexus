@@ -71,23 +71,12 @@ export function TopBar({
             'flex h-10 w-full items-center border-b border-surface-border/60 md:border-b-0 transition-all duration-300 px-3 gap-2',
             threadsCollapsed
               ? 'md:w-16 md:min-w-[4rem] md:px-2'
-              : 'md:w-[26rem] md:min-w-[18rem] md:px-4 gap-3'
+              : 'hidden md:flex md:w-[26rem] md:min-w-[18rem] md:px-4 gap-3'
           )}
           style={{
             borderRight: threadsCollapsed ? undefined : '3px solid hsl(var(--color-border) / 0.6)',
           }}
         >
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10"
-            onClick={threadsCollapsed ? onExpandThreads : onCollapseThreads}
-            title={collapseTitle}
-            aria-label={collapseTitle}
-          >
-            {collapseIcon}
-          </Button>
-
           {!threadsCollapsed && (
             <div className="flex w-full items-center gap-2">
               {/* Threads header */}
@@ -178,8 +167,34 @@ export function TopBar({
                     </DropdownMenuRadioGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
+
+                {/* Collapse Button */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10"
+                  onClick={threadsCollapsed ? onExpandThreads : onCollapseThreads}
+                  title={collapseTitle}
+                  aria-label={collapseTitle}
+                >
+                  {collapseIcon}
+                </Button>
               </div>
             </div>
+          )}
+
+          {/* Collapse button when threads are collapsed */}
+          {threadsCollapsed && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10"
+              onClick={onExpandThreads}
+              title={collapseTitle}
+              aria-label={collapseTitle}
+            >
+              {collapseIcon}
+            </Button>
           )}
         </div>
         

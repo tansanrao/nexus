@@ -1,18 +1,9 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { highlightAgent } from '../lib/shiki';
-
-type CodeThemeContextValue = {
-  availableThemes: string[];
-  codeTheme: string;
-  setCodeTheme: (theme: string) => void;
-};
+import {
+  CodeThemeContext,
+  type CodeThemeContextValue,
+} from './code-theme-context';
 
 const DEFAULT_THEME = 'github-light';
 const STORAGE_KEY = 'nexus_code_theme';
@@ -54,13 +45,15 @@ const POPULAR_THEMES = [
   'solarized-light',
 ] as const;
 
-const CodeThemeContext = createContext<CodeThemeContextValue | undefined>(undefined);
-
 export function CodeThemeProvider({ children }: { children: ReactNode }) {
   const availableThemes = useMemo(() => [...POPULAR_THEMES], []);
   const [codeTheme, setCodeThemeState] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEY) || DEFAULT_THEME;
   });
+
+  const setCodeTheme = useCallback((theme: string) => {
+    setCodeThemeState(theme);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, codeTheme);
@@ -74,22 +67,18 @@ export function CodeThemeProvider({ children }: { children: ReactNode }) {
     void applyTheme();
   }, [codeTheme]);
 
-  const setCodeTheme = (theme: string) => {
-    setCodeThemeState(theme);
-  };
+  const contextValue = useMemo<CodeThemeContextValue>(
+    () => ({
+      availableThemes,
+      codeTheme,
+      setCodeTheme,
+    }),
+    [availableThemes, codeTheme, setCodeTheme]
+  );
 
   return (
-    <CodeThemeContext.Provider value={{ availableThemes, codeTheme, setCodeTheme }}>
+    <CodeThemeContext.Provider value={contextValue}>
       {children}
     </CodeThemeContext.Provider>
   );
-}
-
-export function useCodeTheme(): CodeThemeContextValue {
-  const context = useContext(CodeThemeContext);
-  if (!context) {
-    throw new Error('useCodeTheme must be used within a CodeThemeProvider');
-  }
-
-  return context;
 }

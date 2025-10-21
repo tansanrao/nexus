@@ -4,7 +4,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { EmailItem } from './EmailItem';
 import type { EmailHierarchy, ThreadDetail } from '../types';
 import { Button } from './ui/button';
-import { useTimezone } from '../contexts/TimezoneContext';
+import { useTimezone } from '../contexts/timezone-context';
 import { formatDateInTimezone } from '../utils/timezone';
 
 const EMPTY_EMAIL_LIST: EmailHierarchy[] = [];

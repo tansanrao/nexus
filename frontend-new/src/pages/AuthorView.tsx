@@ -40,7 +40,6 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
     async ({
       page,
       pageSize,
-      filters: _filters,
       searchTerm,
       mailingList,
     }: {
@@ -50,6 +49,7 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
       filters: ThreadFilters;
       searchTerm: string;
     }) => {
+      // Filters provided by the thread browser hook are not currently used for author scoped views.
       const activeMailingList = selectedMailingList ?? mailingList;
       const authorIdNumber = parseInt(authorId, 10);
 

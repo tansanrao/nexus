@@ -1,212 +1,225 @@
 import {
-  createContext,
-  useContext,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
-  type ComponentProps,
   type ReactNode,
 } from 'react';
 import { Theme as RadixTheme } from '@radix-ui/themes';
-import { ThemeProvider as NextThemesProvider, useTheme } from 'next-themes';
-import type { ThemeProviderProps } from 'next-themes';
-
-type ThemeAppearance = 'light' | 'dark';
-type RadixAccent = NonNullable<ComponentProps<typeof RadixTheme>['accentColor']>;
-type RadixGray = NonNullable<ComponentProps<typeof RadixTheme>['grayColor']>;
-
-type ThemeSettings = {
-  appearance: ThemeAppearance;
-  accentColor: RadixAccent;
-  grayColor: RadixGray;
-};
-
-const themeSettings = {
-  light: { appearance: 'light', accentColor: 'iris', grayColor: 'sand' },
-  dark: { appearance: 'dark', accentColor: 'violet', grayColor: 'slate' },
-  'solarized-light': { appearance: 'light', accentColor: 'cyan', grayColor: 'sage' },
-  'solarized-dark': { appearance: 'dark', accentColor: 'cyan', grayColor: 'olive' },
-} as const satisfies Record<string, ThemeSettings>;
-
-type ThemeKey = keyof typeof themeSettings;
-const DEFAULT_THEME_KEY: ThemeKey = 'light';
-
-const isThemeKey = (value: string | null | undefined): value is ThemeKey => {
-  if (!value) return false;
-  return Object.prototype.hasOwnProperty.call(themeSettings, value);
-};
-
-type ThemeModePreference = 'light' | 'dark' | 'system';
-
-interface ThemeSettingsContextValue {
-  modePreference: ThemeModePreference;
-  resolvedMode: 'light' | 'dark';
-  lightSchemeId: ThemeKey;
-  darkSchemeId: ThemeKey;
-  availableLightThemes: Array<{ id: ThemeKey; label: string }>;
-  availableDarkThemes: Array<{ id: ThemeKey; label: string }>;
-  setModePreference: (mode: ThemeModePreference) => void;
-  setLightScheme: (schemeId: string) => void;
-  setDarkScheme: (schemeId: string) => void;
-  resetDefaults: () => void;
-}
+import {
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
+  DARK_THEME_OPTIONS,
+  LIGHT_THEME_OPTIONS,
+  themeClassNames,
+  themePresets,
+} from '../theme/presets';
+import {
+  ThemeSettingsContext,
+  type ThemeSettingsContextValue,
+  type ThemeModePreference,
+} from './theme-settings-context';
+import type { ThemeAppearance, ThemeId } from '../theme/presets';
 
 const MODE_STORAGE_KEY = 'nexus.theme.modePreference';
 const LIGHT_SCHEME_KEY = 'nexus.theme.lightScheme';
 const DARK_SCHEME_KEY = 'nexus.theme.darkScheme';
 
-const LIGHT_THEME_OPTIONS: Array<{ id: ThemeKey; label: string }> = [
-  { id: 'light', label: 'Default Light' },
-  { id: 'solarized-light', label: 'Solarized Light' },
-];
+const themeClassSet = new Set<ThemeId>(themeClassNames);
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
-const DARK_THEME_OPTIONS: Array<{ id: ThemeKey; label: string }> = [
-  { id: 'dark', label: 'Default Dark' },
-  { id: 'solarized-dark', label: 'Solarized Dark' },
-];
+const isThemeId = (value: string | null | undefined): value is ThemeId => {
+  if (!value) return false;
+  return themeClassSet.has(value as ThemeId);
+};
 
-const ThemeSettingsContext = createContext<ThemeSettingsContextValue | undefined>(undefined);
+const getStoredModePreference = (): ThemeModePreference => {
+  if (typeof window === 'undefined') return 'system';
+  const stored = window.localStorage.getItem(MODE_STORAGE_KEY);
+  return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+};
 
-function RadixThemeBridge({ children }: { children: ReactNode }) {
-  const { resolvedTheme, theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+const getStoredScheme = (storageKey: string, fallback: ThemeId, appearance: ThemeAppearance) => {
+  if (typeof window === 'undefined') return fallback;
+  const stored = window.localStorage.getItem(storageKey);
+  if (!isThemeId(stored)) return fallback;
+  return themePresets[stored].appearance === appearance ? stored : fallback;
+};
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+const getSystemAppearance = (): ThemeAppearance => {
+  if (typeof window === 'undefined') return 'light';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
 
-  const activeThemeName = mounted ? resolvedTheme ?? theme : undefined;
-  const activeThemeKey = isThemeKey(activeThemeName) ? activeThemeName : DEFAULT_THEME_KEY;
-  const activeTheme = themeSettings[activeThemeKey];
+const applyThemeToDocument = (themeId: ThemeId, appearance: ThemeAppearance) => {
+  if (typeof document === 'undefined') return;
 
-  return (
-    <RadixTheme
-      appearance={activeTheme.appearance}
-      accentColor={activeTheme.accentColor}
-      grayColor={activeTheme.grayColor}
-      panelBackground="solid"
-      radius="large"
-      scaling="100%"
-    >
-      {children}
-    </RadixTheme>
-  );
-}
+  const root = document.documentElement;
+  root.classList.remove(...themeClassNames);
+  root.classList.remove('light', 'dark');
+  root.classList.add(themeId);
+  root.classList.add(appearance);
+  root.dataset.theme = themeId;
+  root.dataset.appearance = appearance;
+  root.style.colorScheme = appearance;
 
-export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
-  return (
-    <NextThemesProvider {...props}>
-      <ThemeSettingsProvider>
-        <RadixThemeBridge>{children}</RadixThemeBridge>
-      </ThemeSettingsProvider>
-    </NextThemesProvider>
-  );
+  const preset = themePresets[themeId];
+  if (!preset) return;
+
+  const { tokens } = preset;
+  Object.entries(tokens).forEach(([token, value]) => {
+    root.style.setProperty(token, value);
+  });
+};
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  return <ThemeSettingsProvider>{children}</ThemeSettingsProvider>;
 }
 
 function ThemeSettingsProvider({ children }: { children: ReactNode }) {
-  const { setTheme, resolvedTheme, theme: currentTheme } = useTheme();
+  const [modePreference, setModePreferenceState] = useState<ThemeModePreference>(
+    getStoredModePreference
+  );
 
-  const [modePreference, setModePreferenceState] = useState<ThemeModePreference>(() => {
-    if (typeof window === 'undefined') return 'system';
-    const stored = window.localStorage.getItem(MODE_STORAGE_KEY);
-    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
-  });
+  const [lightSchemeId, setLightSchemeIdState] = useState<ThemeId>(() =>
+    getStoredScheme(LIGHT_SCHEME_KEY, DEFAULT_LIGHT_THEME_ID, 'light')
+  );
 
-  const [lightSchemeId, setLightSchemeIdState] = useState<ThemeKey>(() => {
-    if (typeof window === 'undefined') return 'light';
-    const stored = window.localStorage.getItem(LIGHT_SCHEME_KEY);
-    return isThemeKey(stored) && themeSettings[stored].appearance === 'light' ? stored : 'light';
-  });
+  const [darkSchemeId, setDarkSchemeIdState] = useState<ThemeId>(() =>
+    getStoredScheme(DARK_SCHEME_KEY, DEFAULT_DARK_THEME_ID, 'dark')
+  );
 
-  const [darkSchemeId, setDarkSchemeIdState] = useState<ThemeKey>(() => {
-    if (typeof window === 'undefined') return 'dark';
-    const stored = window.localStorage.getItem(DARK_SCHEME_KEY);
-    return isThemeKey(stored) && themeSettings[stored].appearance === 'dark' ? stored : 'dark';
-  });
+  const [systemAppearance, setSystemAppearance] = useState<ThemeAppearance>(getSystemAppearance);
 
   useEffect(() => {
-    if (modePreference === 'system') {
-      setTheme('system');
+    if (typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const listener = (event: MediaQueryListEvent) => {
+      setSystemAppearance(event.matches ? 'dark' : 'light');
+    };
+
+    setSystemAppearance(mediaQuery.matches ? 'dark' : 'light');
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, []);
+
+  const resolvedMode: ThemeAppearance = useMemo(() => {
+    return modePreference === 'system' ? systemAppearance : modePreference;
+  }, [modePreference, systemAppearance]);
+
+  const resolvedThemeId = resolvedMode === 'dark' ? darkSchemeId : lightSchemeId;
+  const activeTheme = useMemo(() => themePresets[resolvedThemeId], [resolvedThemeId]);
+  const previousThemeRef = useRef<{ themeId: ThemeId; appearance: ThemeAppearance } | null>(null);
+
+  useIsomorphicLayoutEffect(() => {
+    const previous = previousThemeRef.current;
+    if (
+      previous &&
+      previous.themeId === resolvedThemeId &&
+      previous.appearance === resolvedMode
+    ) {
       return;
     }
 
-    const targetTheme = modePreference === 'light' ? lightSchemeId : darkSchemeId;
-    setTheme(targetTheme);
-  }, [modePreference, lightSchemeId, darkSchemeId, setTheme]);
+    applyThemeToDocument(resolvedThemeId, resolvedMode);
+    previousThemeRef.current = { themeId: resolvedThemeId, appearance: resolvedMode };
+  }, [resolvedMode, resolvedThemeId]);
 
-  const effectiveThemeKey = useMemo(() => {
-    if (isThemeKey(resolvedTheme)) return resolvedTheme;
-    if (isThemeKey(currentTheme)) return currentTheme;
-    return modePreference === 'dark' ? darkSchemeId : lightSchemeId;
-  }, [resolvedTheme, currentTheme, modePreference, darkSchemeId, lightSchemeId]);
-
-  const resolvedMode = useMemo<'light' | 'dark'>(() => {
-    return themeSettings[effectiveThemeKey].appearance;
-  }, [effectiveThemeKey]);
-
-  const setModePreference = (mode: ThemeModePreference) => {
-    setModePreferenceState(mode);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(MODE_STORAGE_KEY, mode);
-    }
-  };
-
-  const setLightScheme = (schemeId: string) => {
-    if (!isThemeKey(schemeId) || themeSettings[schemeId]?.appearance !== 'light') return;
-    setLightSchemeIdState(schemeId);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(LIGHT_SCHEME_KEY, schemeId);
-    }
-  };
-
-  const setDarkScheme = (schemeId: string) => {
-    if (!isThemeKey(schemeId) || themeSettings[schemeId]?.appearance !== 'dark') return;
-    setDarkSchemeIdState(schemeId);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(DARK_SCHEME_KEY, schemeId);
-    }
-  };
-
-  useEffect(() => {
-    if (themeSettings[lightSchemeId]?.appearance !== 'light') {
-      setLightScheme('light');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const setModePreference = useCallback((mode: ThemeModePreference) => {
+    setModePreferenceState((current) => {
+      if (current === mode) {
+        return current;
+      }
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+      }
+      return mode;
+    });
   }, []);
 
-  useEffect(() => {
-    if (themeSettings[darkSchemeId]?.appearance !== 'dark') {
-      setDarkScheme('dark');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const setLightScheme = useCallback(
+    (schemeId: string) => {
+      if (!isThemeId(schemeId)) return;
+      const preset = themePresets[schemeId];
+      if (preset.appearance !== 'light') return;
+      setLightSchemeIdState((current) => {
+        if (current === preset.id) {
+          return current;
+        }
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(LIGHT_SCHEME_KEY, preset.id);
+        }
+        return preset.id;
+      });
+    },
+    [setLightSchemeIdState]
+  );
 
-  const resetDefaults = () => {
-    setLightScheme('light');
-    setDarkScheme('dark');
+  const setDarkScheme = useCallback(
+    (schemeId: string) => {
+      if (!isThemeId(schemeId)) return;
+      const preset = themePresets[schemeId];
+      if (preset.appearance !== 'dark') return;
+      setDarkSchemeIdState((current) => {
+        if (current === preset.id) {
+          return current;
+        }
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(DARK_SCHEME_KEY, preset.id);
+        }
+        return preset.id;
+      });
+    },
+    [setDarkSchemeIdState]
+  );
+
+  const resetDefaults = useCallback(() => {
+    setLightScheme(DEFAULT_LIGHT_THEME_ID);
+    setDarkScheme(DEFAULT_DARK_THEME_ID);
     setModePreference('system');
-  };
+  }, [setDarkScheme, setLightScheme, setModePreference]);
 
-  const value: ThemeSettingsContextValue = {
-    modePreference,
-    resolvedMode,
-    lightSchemeId,
-    darkSchemeId,
-    availableLightThemes: LIGHT_THEME_OPTIONS,
-    availableDarkThemes: DARK_THEME_OPTIONS,
-    setModePreference,
-    setLightScheme,
-    setDarkScheme,
-    resetDefaults,
-  };
+  const contextValue = useMemo<ThemeSettingsContextValue>(
+    () => ({
+      modePreference,
+      resolvedMode,
+      resolvedThemeId,
+      lightSchemeId,
+      darkSchemeId,
+      availableLightThemes: LIGHT_THEME_OPTIONS,
+      availableDarkThemes: DARK_THEME_OPTIONS,
+      setModePreference,
+      setLightScheme,
+      setDarkScheme,
+      resetDefaults,
+    }),
+    [
+      darkSchemeId,
+      lightSchemeId,
+      modePreference,
+      resetDefaults,
+      resolvedMode,
+      resolvedThemeId,
+      setDarkScheme,
+      setLightScheme,
+      setModePreference,
+    ]
+  );
 
-  return <ThemeSettingsContext.Provider value={value}>{children}</ThemeSettingsContext.Provider>;
-}
-
-export function useThemeSettings() {
-  const context = useContext(ThemeSettingsContext);
-  if (!context) {
-    throw new Error('useThemeSettings must be used within a ThemeProvider');
-  }
-  return context;
+  return (
+    <ThemeSettingsContext.Provider value={contextValue}>
+      <RadixTheme
+        appearance={activeTheme.appearance}
+        accentColor={activeTheme.radix.accentColor}
+        grayColor={activeTheme.radix.grayColor}
+        panelBackground={activeTheme.radix.panelBackground}
+        radius="large"
+        scaling="100%"
+      >
+        {children}
+      </RadixTheme>
+    </ThemeSettingsContext.Provider>
+  );
 }

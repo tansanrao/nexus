@@ -20,7 +20,7 @@ A modern React-based mailing list browser with a Hacker News-style interface for
 - Tailwind CSS
 - shadcn/ui
 - React Router
-- next-themes
+- @radix-ui/themes
 
 ## Getting Started
 

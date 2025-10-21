@@ -44,16 +44,25 @@ export function ThreadBrowserLayout({
   } = useThreadDetail(selectedThreadId);
 
   return (
-    <div className="flex-1 flex flex-col relative bg-background overflow-hidden">
-      <div className="flex-1 flex flex-col md:flex-row bg-background min-h-0">
+    <div
+      className="flex-1 flex flex-col relative overflow-hidden"
+      style={{ backgroundColor: 'hsl(var(--color-background))' }}
+    >
+      <div
+        className="flex-1 flex flex-col md:flex-row min-h-0"
+        style={{ backgroundColor: 'hsl(var(--color-background))' }}
+      >
         {/* Left panel */}
         <div
           className={cn(
-            'w-full flex flex-col min-h-0 border-b border-surface-border/60 md:border-b-0 transition-all duration-300 ease-in-out bg-background',
-            threadsCollapsed ? 'md:w-0 md:opacity-0 md:pointer-events-none md:-ml-[1px]' : 'md:w-[26rem] md:min-w-[18rem]'
+            'w-full flex flex-col min-h-0 border-b border-surface-border/60 md:border-b-0 transition-all duration-300 ease-in-out',
+            threadsCollapsed 
+              ? 'md:w-0 md:opacity-0 md:pointer-events-none md:-ml-[1px] h-0 md:h-auto' 
+              : 'hidden md:flex md:w-[26rem] md:min-w-[18rem]'
           )}
           style={{
             borderRight: threadsCollapsed ? undefined : '3px solid hsl(var(--color-border) / 0.6)',
+            backgroundColor: 'hsl(var(--color-panel-left))',
           }}
         >
           {leftPanelHeader}
@@ -74,7 +83,10 @@ export function ThreadBrowserLayout({
         </div>
 
         {/* Right panel */}
-        <div className="flex-1 hidden md:flex flex-col min-w-0 min-h-0 relative">
+        <div
+          className="flex-1 flex flex-col min-w-0 min-h-0 relative"
+          style={{ backgroundColor: 'hsl(var(--color-panel-right))' }}
+        >
           {activeRightView === 'diff' ? (
             <ThreadDiffView
               threadId={selectedThreadId}

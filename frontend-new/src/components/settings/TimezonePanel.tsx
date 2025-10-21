@@ -1,4 +1,4 @@
-import { useTimezone } from '../../contexts/TimezoneContext';
+import { useTimezone } from '../../contexts/timezone-context';
 import {
   COMMON_TIMEZONES,
   getTimezoneOffset,

@@ -4,7 +4,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Input } from './ui/input';
 import type { ThreadWithStarter } from '../types';
 import { Pagination } from './Pagination';
-import { useTimezone } from '../contexts/TimezoneContext';
+import { useTimezone } from '../contexts/timezone-context';
 import { formatDateCompact } from '../utils/timezone';
 
 const isWithinLastWeek = (dateString: string): boolean => {

@@ -32,7 +32,7 @@ import {
 } from './ui/dropdown-menu';
 import { cn } from '../lib/utils';
 import { highlightAgent } from '../lib/shiki';
-import { useCodeTheme } from '../contexts/CodeThemeContext';
+import { useCodeTheme } from '../contexts/code-theme-context';
 import { extractDiffContent } from '../utils/diff';
 
 interface GitDiffViewerProps {
@@ -57,18 +57,19 @@ export function GitDiffViewer({
   const copyRawTimeoutRef = useRef<number | null>(null);
   const copyHashTimeoutRef = useRef<number | null>(null);
   const { availableThemes, codeTheme, setCodeTheme } = useCodeTheme();
-
-  if (!emailBody) {
-    return null;
-  }
-
   const diffContent = extractDiffContent(emailBody, patchMetadata);
-
-  if (!diffContent.trim()) {
-    return null;
-  }
+  const hasRenderableDiff = diffContent.trim().length > 0;
 
   const { parsedDiff, stats, fileSummaries, parseError } = useMemo(() => {
+    if (!hasRenderableDiff) {
+      return {
+        parsedDiff: null,
+        fileSummaries: [],
+        stats: null,
+        parseError: null,
+      };
+    }
+
     try {
       const parsed = parseDiffContent(diffContent);
       const summaries = parsed.files.map((file, index) => {
@@ -112,7 +113,7 @@ export function GitDiffViewer({
         parseError: 'Unable to parse git diff content.',
       };
     }
-  }, [diffContent, setCopiedRawDiff]);
+  }, [diffContent, hasRenderableDiff]);
 
   useEffect(() => {
     if (!fullScreenFileKey) {
@@ -212,6 +213,10 @@ export function GitDiffViewer({
       [fileKey]: !(prev[fileKey] ?? true),
     }));
   }, []);
+
+  if (!hasRenderableDiff) {
+    return null;
+  }
 
   return (
     <div
@@ -1143,25 +1148,65 @@ function HighlightedCode({
   className,
   showLineNumbers = true,
 }: HighlightedCodeProps) {
-  const inline = variant === 'inline';
-  const html = inline ? useInlineHighlight(code, language) : useBlockHighlight(code, language);
-  const displayClass = inline ? 'inline-block align-middle' : 'block w-full';
+  if (variant === 'inline') {
+    return <InlineHighlightedCode code={code} language={language} className={className} />;
+  }
+
+  return (
+    <BlockHighlightedCode
+      code={code}
+      language={language}
+      className={className}
+      showLineNumbers={showLineNumbers}
+    />
+  );
+}
+
+function InlineHighlightedCode({
+  code,
+  language,
+  className,
+}: Pick<HighlightedCodeProps, 'code' | 'language' | 'className'>) {
+  const html = useInlineHighlight(code, language);
+  const displayClass = 'inline-block align-middle';
 
   if (!html) {
-    if (inline) {
-      return (
-        <span
-          className={cn(
-            'font-mono whitespace-pre-wrap break-words',
-            displayClass,
-            className
-          )}
-        >
-          {code || '\u00a0'}
-        </span>
-      );
-    }
+    return (
+      <span
+        className={cn(
+          'font-mono whitespace-pre-wrap break-words',
+          displayClass,
+          className
+        )}
+      >
+        {code || '\u00a0'}
+      </span>
+    );
+  }
 
+  return (
+    <span
+      className={cn(
+        'shiki-inline whitespace-pre-wrap break-words font-mono',
+        displayClass,
+        className
+      )}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+function BlockHighlightedCode({
+  code,
+  language,
+  className,
+  showLineNumbers,
+}: Omit<HighlightedCodeProps, 'variant'>) {
+  const html = useBlockHighlight(code, language);
+  const displayClass = 'block w-full';
+  const shouldShowLineNumbers = showLineNumbers ?? true;
+
+  if (!html) {
     return (
       <pre
         className={cn(
@@ -1174,25 +1219,12 @@ function HighlightedCode({
     );
   }
 
-  if (!inline) {
-    return (
-      <div
-        className={cn('shiki-block', displayClass, className)}
-        dangerouslySetInnerHTML={{
-          __html: showLineNumbers ? html : stripLineNumbers(html),
-        }}
-      />
-    );
-  }
-
   return (
-    <span
-      className={cn(
-        'shiki-inline whitespace-pre-wrap break-words font-mono',
-        displayClass,
-        className
-      )}
-      dangerouslySetInnerHTML={{ __html: html }}
+    <div
+      className={cn('shiki-block', displayClass, className)}
+      dangerouslySetInnerHTML={{
+        __html: shouldShowLineNumbers ? html : stripLineNumbers(html),
+      }}
     />
   );
 }

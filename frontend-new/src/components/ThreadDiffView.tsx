@@ -3,7 +3,7 @@ import { ScrollArea } from './ui/scroll-area';
 import type { ThreadDetail, EmailHierarchy } from '../types';
 import { GitDiffViewer } from './GitDiffViewer';
 import { extractDiffContent } from '../utils/diff';
-import { useTimezone } from '../contexts/TimezoneContext';
+import { useTimezone } from '../contexts/timezone-context';
 import { formatDateInTimezone } from '../utils/timezone';
 
 interface ThreadDiffViewProps {

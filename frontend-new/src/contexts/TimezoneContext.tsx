@@ -1,14 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getSystemTimezone } from '../utils/timezone';
-
-interface TimezoneContextValue {
-  timezone: string;
-  setTimezone: (tz: string) => void;
-}
+import {
+  TimezoneContext,
+  type TimezoneContextValue,
+} from './timezone-context';
 
 const TIMEZONE_STORAGE_KEY = 'nexus.userTimezone';
-
-const TimezoneContext = createContext<TimezoneContextValue | undefined>(undefined);
 
 export function TimezoneProvider({ children }: { children: ReactNode }) {
   const [timezone, setTimezoneState] = useState(() => {
@@ -26,21 +23,21 @@ export function TimezoneProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem(TIMEZONE_STORAGE_KEY, timezone);
   }, [timezone]);
 
-  const setTimezone = (tz: string) => {
+  const setTimezone = useCallback((tz: string) => {
     setTimezoneState(tz);
-  };
+  }, []);
+
+  const contextValue = useMemo<TimezoneContextValue>(
+    () => ({
+      timezone,
+      setTimezone,
+    }),
+    [timezone, setTimezone]
+  );
 
   return (
-    <TimezoneContext.Provider value={{ timezone, setTimezone }}>
+    <TimezoneContext.Provider value={contextValue}>
       {children}
     </TimezoneContext.Provider>
   );
-}
-
-export function useTimezone() {
-  const context = useContext(TimezoneContext);
-  if (!context) {
-    throw new Error('useTimezone must be used within a TimezoneProvider');
-  }
-  return context;
 }

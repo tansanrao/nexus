@@ -11,12 +11,7 @@ import { SettingsSystemStatistics } from './pages/SettingsSystemStatistics';
 
 function App() {
   return (
-    <ThemeProvider 
-      attribute="class" 
-      defaultTheme="light" 
-      enableSystem
-      themes={['light', 'dark', 'solarized-light', 'solarized-dark']}
-    >
+    <ThemeProvider>
       <ApiConfigProvider>
         <TimezoneProvider>
           <CodeThemeProvider>

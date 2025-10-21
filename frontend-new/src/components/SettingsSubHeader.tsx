@@ -20,17 +20,6 @@ export function SettingsSubHeader() {
     >
       <div className="flex h-12 items-center justify-between gap-3 px-3 md:px-6">
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-full text-accent-foreground hover:bg-accent-foreground/10 hover:text-accent-foreground"
-            asChild
-          >
-            <Link to="/">
-              <span className="sr-only">Close settings</span>
-              <X className="h-4 w-4" />
-            </Link>
-          </Button>
           <span className="text-sm font-semibold uppercase tracking-[0.12em] text-accent-foreground">
             Settings
           </span>
@@ -53,6 +42,17 @@ export function SettingsSubHeader() {
             ))}
           </nav>
           <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-full text-accent-foreground hover:bg-accent-foreground/10 hover:text-accent-foreground"
+            asChild
+          >
+            <Link to="/">
+              <span className="sr-only">Close settings</span>
+              <X className="h-4 w-4" />
+            </Link>
+          </Button>
         </div>
       </div>
     </header>

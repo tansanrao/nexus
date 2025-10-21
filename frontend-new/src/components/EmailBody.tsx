@@ -56,7 +56,7 @@ function QuoteNodeRenderer({ node }: { node: QuoteNode }) {
     <>
       {node.segments.map((segment, index) => {
         if (segment.type === 'text') {
-          let displayLines = segment.lines.map((line) =>
+          const displayLines = segment.lines.map((line) =>
             node.depth > 0 ? stripQuotePrefixForDepth(line, node.depth) : line
           );
 

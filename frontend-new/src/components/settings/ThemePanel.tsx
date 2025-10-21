@@ -1,5 +1,5 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
-import { useThemeSettings } from '../../contexts/ThemeProvider';
+import { useThemeSettings } from '../../contexts/theme-settings-context';
 import {
   Select,
   SelectContent,
