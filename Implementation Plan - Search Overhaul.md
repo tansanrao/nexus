@@ -42,34 +42,34 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
 ## Checklist
 
 1. **Discovery & Design Updates**
-   - [ ] Confirm current SQL schema vs design (vector column, indexes, extensions) and document any drift.
-   - [ ] Update `docs/design.md` search sections with the finalized embedding dimensionality, service topology, and prefix rules.
+   - [x] Confirm current SQL schema vs design (vector column, indexes, extensions) and document any drift.
+   - [x] Update `docs/design.md` search sections with the finalized embedding dimensionality, service topology, and prefix rules.
    - [ ] Capture data retention considerations (vector storage growth, re-embed cadence) in the design doc.
 
 2. **Database & Migrations**
-   - [ ] Write reversible migration to alter `emails.embedding` to `VECTOR(768)` and refresh associated indexes (HNSW + support).  
-   - [ ] Add thread-level embedding materialization table/view if needed (e.g., `thread_embeddings`) to accelerate lookup.
+   - [x] Write reversible migration to alter `emails.embedding` to `VECTOR(768)` and refresh associated indexes (HNSW + support).  
+   - [x] Add thread-level embedding materialization table/view if needed (e.g., `thread_embeddings`) to accelerate lookup.
    - [ ] Extend repeatable migration to assert `CREATE EXTENSION IF NOT EXISTS vectorchord` still succeeds post-dimension change and ensure down migration notes dimensionality limitations.
 
 3. **Embedding Service Integration**
-   - [ ] Add an `embeddings` service to `docker-compose.yml` using the TEI image, mounting a cache volume and wiring `HF_TOKEN` passthrough when needed.
-   - [ ] Define healthcheck (`GET /health`) and align Compose depends_on/condition so API waits for the service.
+   - [x] Add an `embeddings` service to `docker-compose.yml` using the TEI image, mounting a cache volume and wiring `HF_TOKEN` passthrough when needed.
+   - [x] Define healthcheck (`GET /health`) and align Compose depends_on/condition so API waits for the service.
    - [ ] Provide local overrides for GPU users (notes on alternative TEI images) without breaking CPU default.
-   - [ ] Document environment knobs: `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL_ID`, `EMBEDDINGS_DIM`.
+   - [x] Document environment knobs: `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL_ID`, `EMBEDDINGS_DIM`.
 
 4. **API Ingestion & Sync**
-   - [ ] Implement embedding client module (Tokio HTTP, connection pooling) with request/response schema matching TEI `/embed`.
-   - [ ] Extend sync/import pipeline to batch canonical email content, strip patches, apply prefixes, call service, and store email vectors + `lex_ts`/`body_ts` updates in one transaction.
-   - [ ] Add background job to aggregate/upsert thread embeddings whenever new emails arrive or existing emails change.
+   - [x] Implement embedding client module (Tokio HTTP, connection pooling) with request/response schema matching TEI `/embed`.
+   - [x] Extend sync/import pipeline to batch canonical email content, strip patches, apply prefixes, call service, and store email vectors + `lex_ts`/`body_ts` updates in one transaction.
+   - [x] Add background job to aggregate/upsert thread embeddings whenever new emails arrive or existing emails change.
    - [ ] Build retry/backoff strategy and dead-letter logging for failed batches; escalate after threshold.
    - [ ] Add admin job (`/admin/search/embeddings/rebuild`) to re-embed slices (per list, date range) for backfills.
 
 5. **Search Query Path**
-   - [ ] Implement endpoints supporting `mode=lexical|semantic|hybrid` with REST-friendly request/response shapes aligned with other APIs.
-   - [ ] Build semantic query path (KNN via `<=>`) using thread embeddings; fuse with FTS score only in hybrid mode.
-   - [ ] Ensure lexical-only author search remains unchanged but leverages any new shared query params.
-   - [ ] Add fallback path when embeddings missing (e.g., lexical only with warning header).
-   - [ ] Update API response schema to include match breakdown (lexical score, semantic score) and mode echoes.
+   - [x] Implement endpoints supporting `mode=lexical|semantic|hybrid` with REST-friendly request/response shapes aligned with other APIs.
+   - [x] Build semantic query path (KNN via `<=>`) using thread embeddings; fuse with FTS score only in hybrid mode.
+   - [x] Ensure lexical-only author search remains unchanged but leverages any new shared query params.
+   - [x] Add fallback path when embeddings missing (e.g., lexical only with warning header).
+   - [x] Update API response schema to include match breakdown (lexical score, semantic score) and mode echoes.
    - [ ] Add integration tests covering mode toggles, empty embeddings, and service outages (mock client).
 
 6. **Frontend Experience**
