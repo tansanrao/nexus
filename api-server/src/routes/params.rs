@@ -5,6 +5,7 @@
 //! The types follow Rocket's `FromForm` conventions and derive `JsonSchema` so
 //! generated documentation reflects the available parameters and their defaults.
 
+use crate::search::SearchMode;
 use rocket::form::{self, FromForm, FromFormField, ValueField};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,10 @@ const fn default_page() -> i64 {
 
 const fn default_page_size() -> i64 {
     50
+}
+
+const fn default_search_page_size() -> i64 {
+    25
 }
 
 const MAX_PAGE_SIZE: i64 = 100;
@@ -31,8 +36,8 @@ fn default_thread_sort_field() -> ThreadSortField {
     ThreadSortField::LastDate
 }
 
-fn default_thread_search_type() -> ThreadSearchType {
-    ThreadSearchType::Subject
+fn default_search_mode() -> SearchMode {
+    SearchMode::Hybrid
 }
 
 fn default_optional_string() -> Option<String> {
@@ -326,34 +331,6 @@ impl ThreadListParams {
     }
 }
 
-/// Search mode for thread queries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum ThreadSearchType {
-    /// Match only thread and email subject lines.
-    Subject,
-    /// Match subjects and message bodies.
-    FullText,
-}
-
-impl Default for ThreadSearchType {
-    fn default() -> Self {
-        ThreadSearchType::Subject
-    }
-}
-
-impl<'r> FromFormField<'r> for ThreadSearchType {
-    fn from_value(field: ValueField<'r>) -> form::Result<'r, Self> {
-        match field.value {
-            "subject" => Ok(ThreadSearchType::Subject),
-            "fullText" => Ok(ThreadSearchType::FullText),
-            other => {
-                Err(form::Error::validation(format!("invalid thread search type '{other}'")).into())
-            }
-        }
-    }
-}
-
 /// Query parameters for the thread search endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, FromForm, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -361,57 +338,38 @@ pub struct ThreadSearchParams {
     /// Free-text search term. If omitted, the endpoint returns an empty result set.
     #[serde(default = "default_optional_string")]
     pub q: Option<String>,
-    /// Search strategy (`subject` or `fullText`).
-    #[field(name = "searchType", default = ThreadSearchType::Subject)]
-    #[serde(default = "default_thread_search_type")]
-    pub search_type: ThreadSearchType,
+    /// Preferred search mode (`lexical`, `semantic`, or `hybrid`). Defaults to `hybrid`.
+    #[field(default = SearchMode::Hybrid)]
+    #[serde(default = "default_search_mode")]
+    pub mode: SearchMode,
     /// Page of results to fetch (defaults to 1).
     #[field(default = 1)]
     #[serde(default = "default_page")]
     pub page: i64,
-    /// Page size (defaults to 50, maximum 100).
-    #[field(default = 50)]
-    #[serde(default = "default_page_size")]
+    /// Page size (defaults to 25, maximum 100).
+    #[field(default = 25)]
+    #[serde(default = "default_search_page_size")]
     pub size: i64,
-    /// Sort column (defaults to `lastDate`).
-    #[field(name = "sortBy", default = ThreadSortField::LastDate)]
-    #[serde(default = "default_thread_sort_field")]
-    pub sort_by: ThreadSortField,
-    /// Sort direction (defaults to `desc`).
-    #[field(default = SortOrder::Desc)]
-    #[serde(default = "default_sort_order")]
-    pub order: SortOrder,
 }
 
 impl Default for ThreadSearchParams {
     fn default() -> Self {
         Self {
             q: None,
-            search_type: default_thread_search_type(),
+            mode: default_search_mode(),
             page: default_page(),
-            size: default_page_size(),
-            sort_by: default_thread_sort_field(),
-            order: default_sort_order(),
+            size: default_search_page_size(),
         }
     }
 }
 
 impl ThreadSearchParams {
-    /// Normalized search term (trimmed and lower-cased) with empty strings removed.
-    pub fn normalized_query(&self) -> Option<String> {
-        self.q.as_ref().and_then(|value| {
-            let normalized = value.trim().to_lowercase();
-            if normalized.is_empty() {
-                None
-            } else {
-                Some(normalized)
-            }
-        })
-    }
-
-    /// Effective search mode (`subject` by default).
-    pub fn search_type(&self) -> ThreadSearchType {
-        self.search_type
+    /// Normalized search term (trimmed) with empty strings removed.
+    pub fn query(&self) -> Option<&str> {
+        self.q
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
     }
 
     /// Normalized page index.
@@ -422,15 +380,5 @@ impl ThreadSearchParams {
     /// Normalized page size.
     pub fn size(&self) -> i64 {
         self.size.clamp(1, MAX_PAGE_SIZE)
-    }
-
-    /// SQL column used for sorting.
-    pub fn sort_column(&self) -> &'static str {
-        self.sort_by.sql_column()
-    }
-
-    /// SQL keyword representing the sort order.
-    pub fn sort_order(&self) -> &'static str {
-        self.order.sql_keyword()
     }
 }

@@ -1,3 +1,4 @@
+use rocket::form::{self, FromFormField, ValueField};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -41,5 +42,18 @@ impl FromStr for SearchMode {
             "hybrid" | "" => Ok(SearchMode::Hybrid),
             _ => Err(()),
         }
+    }
+}
+
+impl<'r> FromFormField<'r> for SearchMode {
+    fn from_value(field: ValueField<'r>) -> form::Result<'r, Self> {
+        let value = field.value.trim();
+        if value.is_empty() {
+            return Ok(SearchMode::Hybrid);
+        }
+
+        Ok(SearchMode::from_str(value).map_err(|_| {
+            form::Error::validation(format!("invalid search mode '{}'", field.value))
+        })?)
     }
 }
