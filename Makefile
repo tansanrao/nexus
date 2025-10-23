@@ -1,4 +1,4 @@
-.PHONY: help build build-api build-frontend up up-frontend frontend-up down restart logs logs-api logs-frontend logs-postgres ps clean clean-all shell-api shell-frontend shell-postgres health init seed migrate-run migrate-revert
+.PHONY: help build build-api build-frontend up up-frontend frontend-up down restart logs logs-api logs-frontend logs-postgres logs-embeddings ps clean clean-all shell-api shell-frontend shell-postgres shell-embeddings health init seed migrate-run migrate-revert
 
 # Default target
 help:
@@ -20,10 +20,12 @@ help:
 	@echo "  make logs-api           - View API server logs"
 	@echo "  make logs-frontend      - View frontend logs"
 	@echo "  make logs-postgres      - View PostgreSQL logs"
+	@echo "  make logs-embeddings    - View embeddings service logs"
 	@echo ""
 	@echo "  make shell-api          - Open shell in API container"
 	@echo "  make shell-frontend     - Open shell in frontend container"
 	@echo "  make shell-postgres     - Open shell in postgres container"
+	@echo "  make shell-embeddings   - Open shell in embeddings container"
 	@echo ""
 	@echo "  make health             - Check health status of services"
 	@echo "  make init               - Initialize database (reset & seed)"
@@ -85,6 +87,9 @@ logs-frontend:
 logs-postgres:
 	docker compose logs -f postgres
 
+logs-embeddings:
+	docker compose logs -f embeddings
+
 # Shell access
 shell-api:
 	docker compose exec api-server /bin/bash
@@ -94,6 +99,9 @@ shell-frontend:
 
 shell-postgres:
 	docker compose exec postgres psql -U postgres -d nexus
+
+shell-embeddings:
+	docker compose exec embeddings /bin/sh
 
 # Health checks
 health:

@@ -21,6 +21,7 @@ make init    # resets DB and seeds mailing lists
 Services
 - Frontend: http://localhost (nginx, Basic Auth)
 - API: http://localhost:8000/api/v1 (Swagger at /api/docs/swagger)
+- Embeddings: Hugging Face Text Embeddings Inference (`nomic-ai/nomic-embed-text-v1.5`) exposed on the Compose network at `http://embeddings:8080`
 
 Set up grokmirror separately to keep mirrors in sync. See grokmirror/README.md.
 

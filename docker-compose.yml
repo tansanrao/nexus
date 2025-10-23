@@ -25,6 +25,29 @@ services:
     restart: unless-stopped
     shm_size: '16GB'
 
+  # Text Embeddings Inference service
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    container_name: nexus-embeddings
+    environment:
+      MODEL_ID: ${EMBEDDINGS_MODEL_ID:-nomic-ai/nomic-embed-text-v1.5}
+      NUM_SHARD: ${EMBEDDINGS_NUM_SHARD:-1}
+      HF_TOKEN: ${HF_TOKEN:-}
+      MAX_CONCURRENT_REQUESTS: ${EMBEDDINGS_MAX_CONCURRENT_REQUESTS:-8}
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - hf-cache:/data
+    networks:
+      - nexus-network
+    restart: unless-stopped
+
   # Rust API server
   api-server:
     build:
@@ -42,6 +65,10 @@ services:
       THREADING_CACHE_BASE_PATH: ${THREADING_CACHE_BASE_PATH:-/app/cache}
       # Logging
       RUST_LOG: ${RUST_LOG:-info}
+      # Embeddings
+      EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8080}
+      EMBEDDINGS_MODEL_ID: ${EMBEDDINGS_MODEL_ID:-nomic-ai/nomic-embed-text-v1.5}
+      SEARCH_DEFAULT_MODE: ${SEARCH_DEFAULT_MODE:-hybrid}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -49,6 +76,8 @@ services:
       - cache:/app/cache
     depends_on:
       postgres:
+        condition: service_healthy
+      embeddings:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/mailing-lists"]
@@ -103,3 +132,5 @@ volumes:
       type: none
       o: bind
       device: ${HOST_CACHE_DATA_PATH:-./data/cache}
+  hf-cache:
+    driver: local
