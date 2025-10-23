@@ -51,6 +51,7 @@
 use crate::sync::bulk_import::BulkImporter;
 use crate::sync::database::checkpoint;
 use crate::sync::parser::ParsedEmail;
+use crate::sync::import::coordinator::EMAIL_IMPORT_BATCH_SIZE;
 use crate::sync::{
     SyncOrchestrator,
     git::{MailingListSyncConfig, RepoConfig},
@@ -285,8 +286,6 @@ impl SyncDispatcher {
         epoch: i32,
         cache: &MailingListCache,
     ) -> Result<usize, String> {
-        const CHUNK_SIZE: usize = 25_000;
-
         let importer = BulkImporter::new(self.pool.clone(), mailing_list_id);
         let total = parsed_emails.len();
 
@@ -294,7 +293,7 @@ impl SyncDispatcher {
             "importing {} emails for epoch {} in chunks of {}",
             total,
             epoch,
-            CHUNK_SIZE
+            EMAIL_IMPORT_BATCH_SIZE
         );
 
         // Tag emails with their epoch
@@ -305,9 +304,13 @@ impl SyncDispatcher {
 
         // Process in chunks to avoid connection timeouts and memory issues
         let mut total_imported = 0;
-        let num_chunks = (total + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let num_chunks =
+            (total + EMAIL_IMPORT_BATCH_SIZE - 1) / EMAIL_IMPORT_BATCH_SIZE;
 
-        for (chunk_idx, chunk) in emails_with_epoch.chunks(CHUNK_SIZE).enumerate() {
+        for (chunk_idx, chunk) in emails_with_epoch
+            .chunks(EMAIL_IMPORT_BATCH_SIZE)
+            .enumerate()
+        {
             // Check for cancellation every 5 chunks (to avoid too many DB queries)
             if chunk_idx % 5 == 0 && self.queue.is_job_cancelled(job_id).await.unwrap_or(false) {
                 log::warn!(
@@ -504,7 +507,7 @@ impl SyncDispatcher {
             // Compute thread statistics
             let message_count = membership_map.len() as i32;
             let start_date = thread_info.start_date;
-            let last_date = thread_info.start_date; // JWZ doesn't compute last_date separately
+            let last_date = thread_info.last_date;
 
             prepared_threads.push((
                 thread_info.root_message_id,
@@ -820,13 +823,24 @@ impl SyncDispatcher {
     /// - `list_id`: Mailing list ID
     /// - `cache`: Threading cache to save
     async fn persist_cache_to_storage(&self, job_id: i32, list_id: i32, cache: &MailingListCache) {
-        log::info!("job {}: saving unified cache to disk", job_id);
+        log::info!(
+            "job {}: saving unified cache for list {} to disk",
+            job_id,
+            list_id
+        );
 
         let cache_dir =
             std::env::var("THREADING_CACHE_BASE_PATH").unwrap_or_else(|_| "./cache".to_string());
 
-        let _ = cache.save_to_disk(&PathBuf::from(&cache_dir)).map_err(|e| {
-            log::warn!("job {}: failed to save cache (non-fatal): {}", job_id, e);
+        let list_cache_dir = PathBuf::from(&cache_dir).join(format!("list-{}", list_id));
+
+        let _ = cache.save_to_disk(&list_cache_dir).map_err(|e| {
+            log::warn!(
+                "job {}: failed to save cache for list {} (non-fatal): {}",
+                job_id,
+                list_id,
+                e
+            );
         });
     }
 
@@ -925,7 +939,7 @@ impl SyncDispatcher {
             .await
             .map_err(|e| format!("Failed to update phase: {}", e))?;
 
-        let orchestrator = SyncOrchestrator::new(git_config, self.pool.clone(), list_id);
+        let orchestrator = SyncOrchestrator::new(git_config);
 
         // Load existing checkpoints to determine where to resume
         let last_commits = checkpoint::load_last_indexed_commits(&self.pool, list_id).await?;

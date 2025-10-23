@@ -39,24 +39,6 @@ pub struct EmailThreadingInfo {
     pub series_total: Option<i32>,
 }
 
-/// Statistics about cache contents
-///
-/// Used for monitoring cache size and performance
-#[derive(Debug, Clone)]
-pub struct CacheStats {
-    /// Which epoch this cache represents
-    pub epoch: i32,
-
-    /// Number of emails stored in cache
-    pub email_count: usize,
-
-    /// Number of reference entries stored
-    pub reference_count: usize,
-
-    /// Estimated memory usage in megabytes
-    pub size_estimate_mb: usize,
-}
-
 /// Statistics for unified (non-epoch) cache
 #[derive(Debug, Clone)]
 pub struct UnifiedCacheStats {

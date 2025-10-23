@@ -13,19 +13,25 @@ use rocket_okapi::openapi;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
+async fn fetch_mailing_lists(
+    conn: &mut sqlx::PgConnection,
+) -> Result<Vec<MailingList>, sqlx::Error> {
+    sqlx::query_as(
+        r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
+           FROM mailing_lists
+           ORDER BY sync_priority ASC, name ASC"#,
+    )
+    .fetch_all(conn)
+    .await
+}
+
 /// Return every mailing list configured in the service.
 #[openapi(tag = "Mailing Lists")]
 #[get("/admin/mailing-lists")]
 pub async fn list_mailing_lists(
     mut db: Connection<NexusDb>,
 ) -> Result<Json<DataResponse<Vec<MailingList>>>, ApiError> {
-    let lists: Vec<MailingList> = sqlx::query_as(
-        r#"SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
-           FROM mailing_lists
-           ORDER BY sync_priority ASC, name ASC"#,
-    )
-    .fetch_all(&mut **db)
-    .await?;
+    let lists = fetch_mailing_lists(&mut **db).await?;
 
     Ok(Json(DataResponse { data: lists }))
 }
@@ -48,6 +54,21 @@ pub async fn get_mailing_list(
     .map_err(|_| ApiError::NotFound(format!("Mailing list '{}' not found", slug)))?;
 
     Ok(Json(list))
+}
+
+pub mod test_routes {
+    use super::*;
+    use rocket::State;
+
+    /// Test-only variant of the list endpoint that accepts a direct `PgPool` state.
+    #[get("/admin/mailing-lists")]
+    pub async fn list_mailing_lists_test(
+        pool: &State<sqlx::PgPool>,
+    ) -> Result<Json<DataResponse<Vec<MailingList>>>, ApiError> {
+        let mut conn = pool.acquire().await?;
+        let lists = super::fetch_mailing_lists(&mut conn).await?;
+        Ok(Json(DataResponse { data: lists }))
+    }
 }
 
 /// Retrieve a mailing list along with all configured repository shards.

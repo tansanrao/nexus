@@ -107,6 +107,9 @@ pub struct ThreadInfo {
     /// Earliest date in the thread
     pub start_date: chrono::DateTime<chrono::Utc>,
 
+    /// Latest date in the thread
+    pub last_date: chrono::DateTime<chrono::Utc>,
+
     /// List of (email_id, depth) pairs for all messages in the thread
     pub emails: Vec<(i32, i32)>,
 }
@@ -117,11 +120,13 @@ impl ThreadInfo {
         root_message_id: String,
         subject: String,
         start_date: chrono::DateTime<chrono::Utc>,
+        last_date: chrono::DateTime<chrono::Utc>,
     ) -> Self {
         ThreadInfo {
             root_message_id,
             subject,
             start_date,
+            last_date,
             emails: Vec::new(),
         }
     }

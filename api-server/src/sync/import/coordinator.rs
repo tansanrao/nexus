@@ -16,7 +16,7 @@ use rocket_db_pools::sqlx::PgPool;
 use std::collections::HashMap;
 
 /// Chunk size for streaming imports to avoid overwhelming database connections
-const EMAIL_IMPORT_BATCH_SIZE: usize = 25_000;
+pub const EMAIL_IMPORT_BATCH_SIZE: usize = 25_000;
 
 /// Coordinates bulk import operations for email data.
 ///
@@ -78,8 +78,7 @@ impl BulkImporter {
         );
 
         // Phase 2: Prepare and insert emails
-        let emails_data =
-            data_builder::build_email_batch_data(&self.pool, self.mailing_list_id, chunk).await?;
+        let emails_data = data_builder::build_email_batch_data(&self.pool, chunk).await?;
 
         log::trace!(
             "chunk: prepared {} emails for insertion (chunk size: {})",

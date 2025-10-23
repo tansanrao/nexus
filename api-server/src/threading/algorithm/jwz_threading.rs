@@ -273,21 +273,27 @@ fn assemble_single_thread(
     // Case 1: Real root (has email data)
     if let Some(root_email_id) = root_container.email_id {
         if let Some(root_data) = email_data.get(&root_email_id) {
-            // Create thread with this email as the root
-            let mut thread_info = ThreadInfo::new(
-                root_data.message_id.clone(),
-                root_data.subject.clone(),
-                root_data.date,
-            );
-
-            // Collect all members in this thread
-            collect_thread_members(
+            // Collect all members in this thread and get date range
+            let mut emails = Vec::new();
+            let dates = collect_thread_members(
                 root_message_id,
                 message_containers,
                 email_data,
                 0, // Real root starts at depth 0
-                &mut thread_info.emails,
+                &mut emails,
             );
+
+            // Use dates from collection, or fall back to root date if no dates found
+            let (start_date, last_date) = dates.unwrap_or((root_data.date, root_data.date));
+
+            // Create thread with this email as the root
+            let mut thread_info = ThreadInfo::new(
+                root_data.message_id.clone(),
+                root_data.subject.clone(),
+                start_date,
+                last_date,
+            );
+            thread_info.emails = emails;
 
             return Some(thread_info);
         }
@@ -297,22 +303,28 @@ fn assemble_single_thread(
     let (_first_real_msg_id, first_real_data) =
         find_first_real_message(root_message_id, message_containers, email_data)?;
 
-    // Create thread using the first real message for metadata
-    let mut thread_info = ThreadInfo::new(
-        first_real_data.message_id.clone(),
-        first_real_data.subject.clone(),
-        first_real_data.date,
-    );
-
-    // Collect all members starting from phantom root
+    // Collect all members starting from phantom root and get date range
     // Start at depth -1 so phantom's direct children (first real messages) get depth 0
-    collect_thread_members(
+    let mut emails = Vec::new();
+    let dates = collect_thread_members(
         root_message_id,
         message_containers,
         email_data,
         -1, // Phantom root depth offset
-        &mut thread_info.emails,
+        &mut emails,
     );
+
+    // Use dates from collection, or fall back to first real message date if no dates found
+    let (start_date, last_date) = dates.unwrap_or((first_real_data.date, first_real_data.date));
+
+    // Create thread using the first real message for metadata
+    let mut thread_info = ThreadInfo::new(
+        first_real_data.message_id.clone(),
+        first_real_data.subject.clone(),
+        start_date,
+        last_date,
+    );
+    thread_info.emails = emails;
 
     Some(thread_info)
 }

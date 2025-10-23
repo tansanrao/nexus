@@ -8,6 +8,7 @@
 pub mod admin;
 pub mod authors;
 pub mod emails;
+pub mod health;
 pub(crate) mod helpers;
 pub mod mailing_lists;
 pub mod params;

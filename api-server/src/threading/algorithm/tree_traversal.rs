@@ -80,9 +80,14 @@ pub fn find_first_real_message<'a>(
 ///
 /// * `root_message_id` - Message ID to start traversal from
 /// * `message_containers` - Map of message_id → Container
-/// * `email_data` - Map of email_id → EmailData (not directly used but kept for API consistency)
+/// * `email_data` - Map of email_id → EmailData for date tracking
 /// * `starting_depth` - Initial depth value (usually 0, or -1 for phantom roots)
 /// * `collected_members` - Output vector to accumulate (email_id, depth) pairs
+///
+/// ## Returns
+///
+/// `Option<(start_date, last_date)>` - The earliest and latest dates in the thread,
+/// or None if no real emails were found
 ///
 /// ## Depth Handling
 ///
@@ -92,18 +97,43 @@ pub fn find_first_real_message<'a>(
 pub fn collect_thread_members(
     root_message_id: &str,
     message_containers: &DashMap<String, Container>,
-    _email_data: &HashMap<i32, EmailData>,
+    email_data: &HashMap<i32, EmailData>,
     starting_depth: i32,
     collected_members: &mut Vec<(i32, i32)>,
-) {
+) -> Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> {
     // Stack for iterative DFS: (message_id, depth_in_tree)
     let mut traversal_stack = vec![(root_message_id.to_string(), starting_depth)];
+
+    // Track min and max dates across all emails in the thread
+    let mut min_date: Option<chrono::DateTime<chrono::Utc>> = None;
+    let mut max_date: Option<chrono::DateTime<chrono::Utc>> = None;
 
     while let Some((current_message_id, current_depth)) = traversal_stack.pop() {
         if let Some(container) = message_containers.get(&current_message_id) {
             // Add this email if it's real (not a phantom)
             if let Some(email_id) = container.email_id {
                 collected_members.push((email_id, current_depth));
+
+                // Track dates for this email
+                if let Some(email) = email_data.get(&email_id) {
+                    match (&min_date, &max_date) {
+                        (None, None) => {
+                            // First email - initialize both dates
+                            min_date = Some(email.date);
+                            max_date = Some(email.date);
+                        }
+                        (Some(current_min), Some(current_max)) => {
+                            // Update min/max if needed
+                            if email.date < *current_min {
+                                min_date = Some(email.date);
+                            }
+                            if email.date > *current_max {
+                                max_date = Some(email.date);
+                            }
+                        }
+                        _ => unreachable!(), // Both should be Some or None together
+                    }
+                }
             }
 
             // Add children to stack for processing
@@ -117,6 +147,12 @@ pub fn collect_thread_members(
                 traversal_stack.push((child_message_id.clone(), current_depth + 1));
             }
         }
+    }
+
+    // Return both dates if we found any emails
+    match (min_date, max_date) {
+        (Some(min), Some(max)) => Some((min, max)),
+        _ => None,
     }
 }
 
@@ -211,7 +247,7 @@ mod tests {
         );
 
         let mut members = Vec::new();
-        collect_thread_members("A", &containers, &email_data, 0, &mut members);
+        let _dates = collect_thread_members("A", &containers, &email_data, 0, &mut members);
 
         assert_eq!(members.len(), 3);
         assert_eq!(members[0], (1, 0)); // A at depth 0
@@ -240,7 +276,7 @@ mod tests {
 
         let mut members = Vec::new();
         // Start at -1 so phantom's children get depth 0
-        collect_thread_members("A", &containers, &email_data, -1, &mut members);
+        let _dates = collect_thread_members("A", &containers, &email_data, -1, &mut members);
 
         assert_eq!(members.len(), 2);
         assert_eq!(members[0], (2, 0)); // B at depth 0 (phantom parent not counted)

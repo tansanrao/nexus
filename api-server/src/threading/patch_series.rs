@@ -42,6 +42,8 @@ fn get_patch_regex() -> &'static Regex {
 /// ## Examples
 ///
 /// ```rust
+/// use api_server::threading::patch_series::extract_patch_series_info;
+///
 /// assert_eq!(
 ///     extract_patch_series_info("[PATCH 2/5] Fix memory leak"),
 ///     Some(("".to_string(), 2, 5))

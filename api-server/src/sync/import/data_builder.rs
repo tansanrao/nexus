@@ -8,7 +8,6 @@ use crate::sync::import::data_structures::{
 };
 use crate::sync::parser::ParsedEmail;
 use crate::threading::extract_patch_series_info;
-use chrono::{DateTime, Utc};
 use rocket_db_pools::sqlx::PgPool;
 use serde_json;
 use std::collections::{HashMap, HashSet};
@@ -54,7 +53,6 @@ pub fn extract_unique_authors_from_chunk(
 ///
 /// # Arguments
 /// * `pool` - Database connection pool (for loading author IDs)
-/// * `mailing_list_id` - Mailing list ID
 /// * `chunk` - Slice of (commit_hash, parsed_email, epoch) tuples
 ///
 /// # Returns
@@ -64,7 +62,6 @@ pub fn extract_unique_authors_from_chunk(
 /// Returns database errors if author ID loading fails
 pub async fn build_email_batch_data(
     pool: &PgPool,
-    mailing_list_id: i32,
     chunk: &[(String, ParsedEmail, i32)],
 ) -> Result<EmailsData, sqlx::Error> {
     // Load author IDs first

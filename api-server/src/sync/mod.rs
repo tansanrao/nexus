@@ -68,9 +68,8 @@ pub mod pg_config;
 pub mod queue;
 
 use crate::sync::git::{GitManager, MailingListSyncConfig};
-use crate::sync::parser::{ParsedEmail, parse_email};
+use crate::sync::parser::{parse_email, ParsedEmail};
 use rayon::prelude::*;
-use rocket_db_pools::sqlx::PgPool;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -88,20 +87,14 @@ pub use database::{
 /// # Fields
 ///
 /// - `git_manager`: Handles Git operations (commit discovery, blob retrieval)
-/// - `pool`: Database connection pool for potential future operations
-/// - `mailing_list_id`: Target mailing list identifier
 pub struct SyncOrchestrator {
     pub git_manager: GitManager,
-    pool: PgPool,
-    mailing_list_id: i32,
 }
 
 impl SyncOrchestrator {
-    pub fn new(git_config: MailingListSyncConfig, pool: PgPool, mailing_list_id: i32) -> Self {
+    pub fn new(git_config: MailingListSyncConfig) -> Self {
         Self {
             git_manager: GitManager::new(git_config),
-            pool,
-            mailing_list_id,
         }
     }
 

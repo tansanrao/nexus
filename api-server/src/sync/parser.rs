@@ -55,7 +55,7 @@
 
 use crate::models::{PatchMetadata, PatchSection, PatchType};
 use chrono::{DateTime, Duration, Utc};
-use mailparse::{parse_mail, MailHeaderMap, ParsedMail};
+use mailparse::{MailHeaderMap, ParsedMail, parse_mail};
 use regex::Regex;
 use std::sync::OnceLock;
 use thiserror::Error;

@@ -11,7 +11,7 @@
 //! - Provides snapshot capability for threading operations
 //! - Supports disk persistence via bincode serialization
 
-use super::types::{CacheError, EmailThreadingInfo, UnifiedCacheStats};
+use super::{CacheError, EmailThreadingInfo, UnifiedCacheStats};
 use crate::threading::container::EmailData;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
