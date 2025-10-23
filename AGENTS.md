@@ -4,7 +4,9 @@
 Key workspaces: `api-server/` (Rust Rocket API, `migrations/`, integration tests), `frontend/` (nginx bundle), and `frontend-new/` (active Vite + React app). Shared docs sit in `docs/`; keep `docs/design.md`—the canonical DESIGN spec—accurate before merging. Persisted data lives in `data/`, grokmirror automation in `grokmirror/`, and root-level `docker-compose.yml` plus `Makefile` drive service orchestration.
 
 ## Design & Planning Workflow
-`docs/design.md` is the source of truth for Nexus behaviour. When tackling a section, spin up `Implementation Plan - <feature>.md` in the repo root with task breakdowns, owners, and key decisions. Update both documents with every meaningful change, and archive the plan once the feature lands.
+`docs/design.md` is the source of truth for Nexus behaviour. When tackling a section, spin up `Implementation Plan - <feature>.md` in the repo root with a lightweight task checklist and key decisions—keep it friendly and avoid made-up org charts or fake owners. Update both documents with every meaningful change, and archive the plan once the feature lands.
+
+> Reminder: this is a two-person side project. Do not invent corporate structure, fictional teams, or formal owner assignments in plans or docs.
 
 ## Build, Test, and Development Commands
 Use `make build`, `make up`, and `make init` for Dockerized workflows, `make down` to stop, and `make logs-<service>` for tailing. Backend iteration happens in `api-server/` with `cargo run` and `cargo test --package api-server` (Testcontainers needs Docker). `frontend-new/` is the active UI; run `npm install` once, `npm run dev` for hot reload, and `npm run build` to verify production output. Set `VITE_API_URL` when not using Compose networking.

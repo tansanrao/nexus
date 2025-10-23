@@ -2,7 +2,7 @@
 
 **Last updated:** October 22, 2025
 
-This document describes the system architecture, data model, runtime behavior, and operational practices for **Nexus** — a high‑performance knowledge base and browser for Linux kernel mailing lists.
+This document describes the system architecture, data model, runtime behavior, and operational notes for **Nexus** — a knowledge base and browser for Linux kernel mailing lists.
 
 > **What’s new in v0.2 (high level)**
 >
@@ -169,7 +169,7 @@ Notifications (SSE/WebSocket):
 
 **Indexes (selected)**
 
-* FTS: `CREATE INDEX emails_lex_ts_idx ON emails USING GIN(lex_ts);` and `... body_ts_idx ON emails USING GIN(body_ts);` (FTS best‑practice). ([PostgreSQL][10])
+* FTS: `CREATE INDEX emails_lex_ts_idx ON emails USING GIN(lex_ts);` and `... body_ts_idx ON emails USING GIN(body_ts);` (standard setup). ([PostgreSQL][10])
 * Trigram (for fuzzy subject/author): `CREATE INDEX emails_subject_trgm ON emails USING GIN (subject gin_trgm_ops);` ([PostgreSQL][9])
 * Vector (semantic): `CREATE INDEX emails_embedding_hnsw ON emails USING hnsw (embedding vector_cosine_ops);` (or `vector_l2_ops` depending on model). HNSW gives better speed/recall trade‑off than IVFFlat for many workloads. ([GitHub][2])
 * Incremental threading: partial index on `emails(threaded_at)` retained.
@@ -281,7 +281,7 @@ Notifications (SSE/WebSocket):
 
 ### 8.4 Token Issuance & Lifetimes
 
-* Nexus issues JWT access tokens (RS256) with 15‑minute lifetimes for both OIDC-backed and local sessions, keeping tokens short-lived per industry guidance so compromise windows stay narrow. ([Auth0][28])
+* Nexus issues JWT access tokens (RS256) with 15‑minute lifetimes for both OIDC-backed and local sessions, keeping the exposure window short. ([Auth0][28])
 * Refresh tokens expire after 7 days and rotate on every use; reused tokens are revoked and the associated `token_version` on the user row increments, forcing global logout. ([Auth0][29])
 * Refresh tokens are stored server-side only as salted hashes, meeting the requirement to protect long-lived credentials at rest. ([Auth0][28])
 * Password resets, manual deactivation, or OIDC role changes also bump `token_version`, invalidating outstanding refresh tokens and SSE sessions.
@@ -324,7 +324,7 @@ Notifications (SSE/WebSocket):
 
 ### 10.1 Logging (structured)
 
-* Use `tracing` + `tracing_subscriber` JSON formatter; include `request_id`, `user_id`, route, latency; log levels via env. Structured JSON to stdout is best‑practice for container platforms and central log collection. ([Medium][18])
+* Use `tracing` + `tracing_subscriber` JSON formatter; include `request_id`, `user_id`, route, latency; log levels via env. Structured JSON to stdout works well for container platforms and log collectors. ([Medium][18])
 * Avoid logging PII (e.g., full email addresses) unless necessary and mark fields.
 
 ### 10.2 Metrics
@@ -336,7 +336,7 @@ Notifications (SSE/WebSocket):
 
 * **Liveness** `/health/live`: returns OK if process and event loop are responsive.
 * **Readiness** `/health/ready`: verifies DB connectivity, migrations up, pg listener active.
-  Aligns with K8s probes best‑practices (higher failureThreshold for liveness). ([Kubernetes][20])
+  Matches common K8s probe guidance (use a higher `failureThreshold` for liveness). ([Kubernetes][20])
 
 ---
 
@@ -363,7 +363,7 @@ Notifications (SSE/WebSocket):
 
 ### 12.2 Integration Tests (database & end‑to‑end)
 
-* **Tooling:** Docker Compose (per your requirement) orchestrates Postgres with admin user and required extensions.
+* **Tooling:** Docker Compose orchestrates Postgres with an admin user and required extensions.
 * **Harness flow**:
 
   1. **Create ephemeral DB** (random name) via admin; run **reversible SQLx migrations** (`sqlx migrate run`).
@@ -387,7 +387,7 @@ Notifications (SSE/WebSocket):
 
 * **Single SQLx `PgPool`** for migrations & runtime (no separate bulk pool). ([Docs.rs][7])
 * **Reversible migrations**: create with `sqlx migrate add -r <name>` → emits `.up.sql` and `.down.sql`. Every schema change must be reversible; complex data migrations must include down logic or be split. ([Docs.rs][21])
-* **Policy:** migrations run at startup in prod (fail closed on drift); integration tests **also run `revert`** to validate `down.sql`.
+* Run migrations at startup in production; abort on drift. Integration tests also run `sqlx migrate revert` to verify the `down.sql` side.
 * **Partition management** remains additive; new list partitions via stored procedure or app helper.
 
 > (If you prefer Rust‑coded migrations with explicit `up/down`, **Refinery** or **SeaORM Migration** are OSS alternatives; we’ll stay with SQLx CLI for simplicity and consistency.) ([GitHub][23])
@@ -430,7 +430,7 @@ Notifications (SSE/WebSocket):
 
 ---
 
-## 18. Observability & SRE Playbook
+## 18. Observability Notes
 
 * **Logging:** JSON to stdout; include request IDs; redact PII. ([Medium][18])
 * **Metrics:** Prometheus scrape `/metrics`; alerting:
@@ -441,7 +441,7 @@ Notifications (SSE/WebSocket):
 
 ---
 
-## 19. Operational Runbooks (brief)
+## 19. Ops Notes
 
 * **Rolling deploy:**
 
@@ -491,7 +491,7 @@ Notifications (SSE/WebSocket):
 
 ---
 
-## 22. Best‑Practice Dependencies (FOSS only)
+## 22. Dependencies (FOSS only)
 
 * **Rust**
 
