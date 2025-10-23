@@ -1,6 +1,7 @@
 //! Administrative endpoints for sync scheduling and system status.
 
 use crate::error::ApiError;
+use crate::sync::database::{backfill_fts_columns, refresh_search_indexes};
 use crate::sync::pg_config::PgConfig;
 use crate::sync::queue::{JobQueue, JobStatusInfo};
 use crate::sync::reset_database;
@@ -86,6 +87,17 @@ pub struct DatabaseStatusResponse {
 pub struct MessageResponse {
     /// Response text.
     message: String,
+}
+
+/// Request payload for manual search index refresh operations.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchRefreshRequest {
+    /// Restrict the refresh to a specific mailing list slug; omitted for all lists.
+    #[serde(rename = "mailingListSlug")]
+    pub mailing_list_slug: Option<String>,
+    /// When true, reindex supporting GIN/GIN-trgm/vector indexes after recomputing tsvectors.
+    #[serde(default)]
+    pub reindex: bool,
 }
 
 /// Enqueue sync jobs for every enabled mailing list.
@@ -201,6 +213,62 @@ pub async fn cancel_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageRespo
             cancelled_count
         ),
     }))
+}
+
+/// Refresh search-derived fields and optionally reindex supporting indexes.
+#[openapi(tag = "Admin")]
+#[post("/admin/search/index/refresh", data = "<request>")]
+pub async fn refresh_search_index(
+    request: Json<SearchRefreshRequest>,
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<MessageResponse>, ApiError> {
+    let mailing_list_id = if let Some(slug) = &request.mailing_list_slug {
+        let list: Option<(i32,)> = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
+            .bind(slug)
+            .fetch_optional(pool.inner())
+            .await?;
+
+        match list {
+            Some((id,)) => Some(id),
+            None => {
+                return Err(ApiError::BadRequest(format!(
+                    "Mailing list '{}' not found",
+                    slug
+                )));
+            }
+        }
+    } else {
+        None
+    };
+
+    let updated_rows = backfill_fts_columns(pool.inner(), mailing_list_id)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to refresh search vectors: {e}")))?;
+
+    if request.reindex {
+        refresh_search_indexes(pool.inner()).await.map_err(|e| {
+            ApiError::InternalError(format!("Failed to reindex search structures: {e}"))
+        })?;
+    }
+
+    let scope = request
+        .mailing_list_slug
+        .as_deref()
+        .unwrap_or("all mailing lists");
+
+    let message = if request.reindex {
+        format!(
+            "Refreshed search fields for {} ({} row updates and indexes reindexed)",
+            scope, updated_rows
+        )
+    } else {
+        format!(
+            "Refreshed search fields for {} ({} row updates)",
+            scope, updated_rows
+        )
+    };
+
+    Ok(Json(MessageResponse { message }))
 }
 
 /// Drop and recreate the database schema.

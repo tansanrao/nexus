@@ -161,6 +161,7 @@ pub fn rocket() -> Rocket<Build> {
                 routes::admin::reset_db,
                 routes::admin::get_database_status,
                 routes::admin::get_database_config,
+                routes::admin::refresh_search_index,
             ],
         )
         .mount(
@@ -194,19 +195,101 @@ pub mod test_support {
     use rocket::local::asynchronous::Client as AsyncClient;
     use rocket::local::blocking::Client;
     use rocket::{Build, Rocket, Route};
-    use rocket_db_pools::sqlx::PgPool;
+    use rocket_db_pools::sqlx::{self, PgPool};
 
     pub use database::{TestDatabase, TestDatabaseError};
+
+    /// Convenience helpers for seeding auth- and notification-related tables in tests.
+    pub struct TestFixtures<'a> {
+        pool: &'a PgPool,
+    }
+
+    impl<'a> TestFixtures<'a> {
+        /// Create a fixture helper bound to the provided pool.
+        pub fn new(pool: &'a PgPool) -> Self {
+            Self { pool }
+        }
+
+        /// Insert a user row and optional local credentials, returning the new user id.
+        pub async fn insert_user(
+            &self,
+            email: &str,
+            display_name: Option<&str>,
+            role: &str,
+            password_hash: Option<&str>,
+        ) -> Result<i32, sqlx::Error> {
+            let user_id: i32 = sqlx::query_scalar(
+                "INSERT INTO users (auth_provider, email, display_name, role) VALUES ($1, $2, $3, $4) RETURNING id",
+            )
+            .bind("local")
+            .bind(email)
+            .bind(display_name.map(|name| name.to_string()))
+            .bind(role)
+            .fetch_one(self.pool)
+            .await?;
+
+            if let Some(hash) = password_hash {
+                sqlx::query(
+                    "INSERT INTO local_user_credentials (user_id, password_hash) VALUES ($1, $2)",
+                )
+                .bind(user_id)
+                .bind(hash)
+                .execute(self.pool)
+                .await?;
+            }
+
+            Ok(user_id)
+        }
+
+        /// Record a thread follow preference for a user.
+        pub async fn follow_thread(
+            &self,
+            user_id: i32,
+            mailing_list_id: i32,
+            thread_id: i32,
+            level: &str,
+        ) -> Result<(), sqlx::Error> {
+            sqlx::query(
+                "INSERT INTO user_thread_follows (user_id, mailing_list_id, thread_id, level) VALUES ($1, $2, $3, $4)",
+            )
+            .bind(user_id)
+            .bind(mailing_list_id)
+            .bind(thread_id)
+            .bind(level)
+            .execute(self.pool)
+            .await?;
+
+            Ok(())
+        }
+
+        /// Insert a notification row for assertion in tests.
+        pub async fn insert_notification(
+            &self,
+            user_id: i32,
+            mailing_list_id: i32,
+            thread_id: i32,
+            email_id: Option<i32>,
+        ) -> Result<i32, sqlx::Error> {
+            sqlx::query_scalar(
+                "INSERT INTO notifications (user_id, mailing_list_id, thread_id, email_id, type) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+            )
+            .bind(user_id)
+            .bind(mailing_list_id)
+            .bind(thread_id)
+            .bind(email_id)
+            .bind("new_reply")
+            .fetch_one(self.pool)
+            .await
+        }
+    }
 
     pub mod database {
         use log::LevelFilter;
         use rocket_db_pools::sqlx::postgres::{PgConnectOptions, PgPoolOptions};
         use rocket_db_pools::sqlx::{self, ConnectOptions, PgPool};
-        use testcontainers_modules::{
-            postgres::Postgres,
-            testcontainers::{
-                ContainerAsync, core::error::TestcontainersError, runners::AsyncRunner,
-            },
+        use testcontainers::{GenericImage, ImageExt, core::WaitFor};
+        use testcontainers_modules::testcontainers::{
+            ContainerAsync, core::error::TestcontainersError, runners::AsyncRunner,
         };
         use thiserror::Error;
         use tokio::runtime::Handle;
@@ -231,7 +314,7 @@ pub mod test_support {
             pool: Option<PgPool>,
             admin_options: PgConnectOptions,
             database_name: String,
-            container: Option<ContainerAsync<Postgres>>,
+            container: Option<ContainerAsync<GenericImage>>,
         }
 
         impl TestDatabase {
@@ -242,7 +325,24 @@ pub mod test_support {
 
             /// Provision a fresh database given a base connection string.
             pub async fn new() -> Result<Self, TestDatabaseError> {
-                let container = Postgres::default().with_host_auth().start().await?;
+                let image = GenericImage::new("tensorchord/vchord-postgres", "pg18-v0.5.3")
+                    .with_wait_for(WaitFor::message_on_stdout(
+                        "database system is ready to accept connections",
+                    ))
+                    .with_wait_for(WaitFor::message_on_stderr(
+                        "database system is ready to accept connections",
+                    ));
+
+                let request = image
+                    .with_env_var("POSTGRES_DB", "postgres")
+                    .with_env_var("POSTGRES_USER", "postgres")
+                    .with_env_var("POSTGRES_PASSWORD", "postgres")
+                    .with_cmd([
+                        "-c".to_string(),
+                        "shared_preload_libraries=vchord".to_string(),
+                    ]);
+
+                let container = request.start().await?;
 
                 let host = container.get_host().await?.to_string();
                 let port = container.get_host_port_ipv4(5432).await?;
