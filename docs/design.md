@@ -47,7 +47,10 @@ grokmirror (daemon/cron)  →  local git mirrors (public-inbox v2)
                    │                               ▲
                    │                               │
                    ▼                               │
-            React/Vite UI (nginx)  ←──────────────┘
+      Embeddings Service (TEI, nomic-embed-text) ──┘
+                   │
+                   ▼
+            React/Vite UI (nginx)
                    │
                    ├── OIDC Provider (Keycloak by default)
                    ├── Local Auth endpoints (/api/v1/auth/*, JWT issuer)
@@ -59,8 +62,9 @@ Notifications (SSE/WebSocket):
 ```
 
 * **Mirror:** grokmirror mirrors lore.kernel.org repos (epochs) to disk.
-* **API:** Rust + Rocket service: REST API, sync orchestration, parsing, threading, search, auth, notifications.
+* **API:** Rust + Rocket service: REST API, sync orchestration, parsing, threading, search, auth, notifications; calls out to TEI embeddings sidecar for semantic vectors.
 * **DB:** PostgreSQL 18 with LIST partitioning by `mailing_list_id`; global `authors`; **vector embeddings with `pgvector` HNSW**; FTS with `tsvector` + `GIN`; trigram similarity with `pg_trgm`. ([GitHub][2])
+* **Embeddings service:** Text Embeddings Inference container serving `nomic-ai/nomic-embed-text-v1.5` on HTTP; shared across API workers.
 * **UI:** React/Vite, served by nginx; `/api` proxied to API; **OIDC client**; **RapiDoc** for docs. ([authts.github.io][5])
 * **Auth:** OIDC clients exchange tokens with provider; local users authenticate through Rocket endpoints issuing short-lived JWTs and refresh cookies.
 * **Cache:** Unified per‑list cache (DashMap + bincode) for fast JWZ threading (unchanged).
@@ -76,7 +80,7 @@ Notifications (SSE/WebSocket):
   * Routes: `src/routes/*` (grouped by domain: `admin`, `threads`, `emails`, `authors`, `search`, `users`, `notifications`, `health`, `metrics`)
   * Sync & import: `src/sync/*`
   * Threading: `src/threading/*`
-  * **Search:** `src/search/*` (FTS, vector, hybrid, reranker adapters)
+* **Search:** `src/search/*` (FTS, vector, hybrid adapters, embedding client)
   * **Auth:** `src/auth/*` (OIDC verifier, JWKS caching, local credential service, JWT issuer, refresh token store)
   * **Docs:** `src/docs/openapi.rs` (OpenAPI builder)
   * **Migrations:** `migrations/*.up.sql`, `*.down.sql` (**reversible**)
@@ -119,10 +123,11 @@ Notifications (SSE/WebSocket):
 
 * **Queue (`queue.rs`)**: same lifecycle.
 * **Git (`git.rs`)**: same.
-* **Parser (`parser.rs`)**: same; ensure **quote‑stripping** helpers for semantic input.
+* **Parser (`parser.rs`)**: same; ensure **quote‑stripping** helpers plus patch hunk detection for semantic input.
 * **Import (`import/*`)**: same bulk strategy; after import:
 
-  * **Embedding job**: compute embedding for canonical text (normalized subject + body minus quotes/footers) and upsert into `emails.embedding`. Inference via **ONNX Runtime** in‑process (Rust crate), or an optional sidecar service; models below in §6.1.
+  * **Embedding job**: batch canonical text (normalized subject + discussion body with patches removed), call the TEI embeddings service, and upsert vectors in `emails.embedding`.
+  * **Thread embedding aggregator**: enqueue background task to recompute per-thread vectors (e.g., weighted mean) whenever new emails land.
   * Update hybrid search materialized fields (FTS `tsvector` refresh).
 * **Threading (JWZ)**: unchanged; membership hash for idempotency.
 
@@ -151,8 +156,9 @@ Notifications (SSE/WebSocket):
 
 **Partitioned by `mailing_list_id` (LIST)**
 
-* `emails(id, mailing_list_id, message_id UNIQUE, git_commit_hash UNIQUE, author_id, subject, normalized_subject, date, in_reply_to, body, series_id, series_number, series_total, epoch, created_at, threaded_at, patch_type, is_patch_only, patch_metadata JSONB, **embedding VECTOR(384)**, **lex_ts tsvector**, **body_ts tsvector**)`
+* `emails(id, mailing_list_id, message_id UNIQUE, git_commit_hash UNIQUE, author_id, subject, normalized_subject, date, in_reply_to, body, series_id, series_number, series_total, epoch, created_at, threaded_at, patch_type, is_patch_only, patch_metadata JSONB, **embedding VECTOR(768)**, **lex_ts tsvector**, **body_ts tsvector**)`
 * `threads(id, mailing_list_id, root_message_id UNIQUE, subject, start_date, last_date, message_count, membership_hash BYTEA)`
+* `thread_embeddings(id, mailing_list_id, thread_id, embedding VECTOR(768), email_count INTEGER, aggregated_at TIMESTAMPTZ)`
 * `email_recipients(id, mailing_list_id, email_id, author_id, recipient_type {to,cc})`
 * `email_references(mailing_list_id, email_id, referenced_message_id, position)`
 * `thread_memberships(mailing_list_id, thread_id, email_id, depth)`
@@ -175,7 +181,7 @@ Notifications (SSE/WebSocket):
 * Incremental threading: partial index on `emails(threaded_at)` retained.
 * Auth: `user_refresh_tokens(token_id)` unique index plus `CREATE INDEX user_refresh_tokens_user_idx ON user_refresh_tokens(user_id, expires_at DESC);` for revocation sweeps.
 
-> **Note:** Keep embedding dimension in sync with chosen model (default 384).
+> **Note:** Keep embedding dimension in sync with chosen model (default 768).
 
 ---
 
@@ -183,10 +189,9 @@ Notifications (SSE/WebSocket):
 
 ### 6.1 Models (FOSS only)
 
-* **Default embedding:** **BAAI/bge-small-en-v1.5** (384‑d, MIT) — strong quality, small footprint; publish ONNX weights alongside. ([Hugging Face][11])
-
-  * Alternatives: `all-MiniLM-L6-v2` (Apache‑2.0, 384‑d); `nomic-embed-text-v1.5` (Apache‑2.0, resizable dims). ([Hugging Face][12])
-* **Re‑ranker (optional, top‑K ≤ 200):** **cross-encoder/ms-marco-MiniLM‑L12‑v2** (Apache‑2.0); or L6‑v2 for speed. ([Hugging Face][13])
+* **Default embedding:** **nomic-ai/nomic-embed-text-v1.5** (768‑d default, Apache‑2.0) served via Hugging Face Text Embeddings Inference. Supports matryoshka truncation if we later need smaller dimensions. ([Hugging Face][12])
+* **Alternatives (fallback only):** `BAAI/bge-small-en-v1.5` (384‑d, MIT) or `all-MiniLM-L6-v2` (384‑d, Apache‑2.0) if resource constraints force a downgrade. ([Hugging Face][11])
+* **Reranking:** deferred; hybrid search stops at lexical + semantic fusion in this release.
 
 ### 6.2 Indexing
 
@@ -194,18 +199,20 @@ Notifications (SSE/WebSocket):
 
   * Build `lex_ts` (e.g., `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(body,''))`).
   * Maintain trigram indexes for fuzzy matching.
-  * Infer **embedding** from normalized, quote‑stripped content; store in `emails.embedding`.
+  * Infer **email embeddings** from normalized subject + discussion body (strip quotes, signatures, and patch hunks) via TEI; store in `emails.embedding`.
+  * Aggregate **thread embeddings** asynchronously (rolling mean of child emails) into `thread_embeddings`.
 
 ### 6.3 Query Plan
 
 * **Modes:** `lexical | semantic | hybrid` (default hybrid).
+* **Lexical:** FTS (`ts_rank_cd`) with trigram fallback, ordered by score + recency boost.
+* **Semantic:** KNN over `thread_embeddings.embedding` (`<=>` cosine distance), configurable top-K and similarity threshold.
 * **Hybrid retrieval:**
 
-  1. Lexical candidates via FTS (`ts_rank_cd`) + trigram fallback;
-  2. Semantic candidates via `pgvector` KNN;
-  3. **Reciprocal Rank Fusion (RRF)** or **weighted score** merge;
-  4. Optional **cross‑encoder re‑rank** over top‑K;
-  5. Result set supports **time‑decay boost** (e.g., logistic recency).
+  1. Fetch lexical top-K.
+  2. Fetch semantic top-K.
+  3. Merge via weighted score (`score = w_lex * normalized_fts + w_sem * (1 - cosine_distance)`).
+  4. Optionally apply recency decay.
 
   * Postgres provides FTS building blocks; pgvector brings ANN KNN; combining both is a recommended pattern. ([Jonathan Katz][14])
 * **Representative SQL fragments** (simplified):
@@ -216,10 +223,11 @@ Notifications (SSE/WebSocket):
 
 ### 6.4 API
 
-* `GET /:slug/threads/search`
+* `GET /api/v1/:slug/threads/search`
 
-  * `q`, `mode=lexical|semantic|hybrid`, `rerank=true|false`, `k`, `timeBoost=0..1`, `filters` (author, date range, patch only, series).
-* **Scoring fields** returned so UI can show “why” a hit matched.
+  * Query params: `q`, `mode=lexical|semantic|hybrid`, `limit`, `author`, `from`, `to`, `includePatches` (filter), `sort`.
+  * Response includes `mode`, `results[]` with `thread`, `lexicalScore`, `semanticScore`, `combinedScore`, and `explanation` snippets.
+* Author search remains lexical-only but shares pagination/filters via updated params schema.
 
 ---
 
@@ -359,7 +367,7 @@ Notifications (SSE/WebSocket):
 
 ### 12.1 Unit Tests (pure logic)
 
-* Parser, JWZ threading (phantoms, cycles), subject normalization, patch metadata parser, search score fusion, reranker scoring (if mocked), cache behavior.
+* Parser, JWZ threading (phantoms, cycles), subject normalization, patch metadata parser, search score fusion, cache behavior.
 
 ### 12.2 Integration Tests (database & end‑to‑end)
 
@@ -378,7 +386,7 @@ Notifications (SSE/WebSocket):
 * **Search tests:**
 
   * Validate ANN queries return expected neighbors.
-  * Hybrid fusion and reranking deterministic checks (seeded).
+  * Hybrid fusion deterministic checks (seeded) across lexical-only, semantic-only, and hybrid modes.
 * **Notifications tests:** ensure `NOTIFY` → listener → SSE endpoint emits events (with backfill).
 
 ---
@@ -406,7 +414,7 @@ Notifications (SSE/WebSocket):
 ## 15. Frontend (React/Vite) Updates
 
 * **OIDC** via `oidc-client-ts`: PKCE login, auto refresh, logout; handle multiple realms/clients via env. ([authts.github.io][5])
-* **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), re‑rank toggle, score explanations.
+* **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), score explanations, clear fallback messaging when semantic mode unavailable.
 * **Notifications:** EventSource client for `/notifications/stream`; fall back to WebSocket if needed.
 * **Docs:** `/docs` route embedding RapiDoc.
 
@@ -559,7 +567,7 @@ sqlx migrate add -r add_semantic_search_columns
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-ALTER TABLE emails ADD COLUMN embedding vector(384);
+ALTER TABLE emails ADD COLUMN embedding vector(768);
 ALTER TABLE emails ADD COLUMN lex_ts tsvector;
 ALTER TABLE emails ADD COLUMN body_ts tsvector;
 
