@@ -7,6 +7,9 @@
 //! 4. Insert recipients and references in parallel
 //! 5. Populate threading cache
 
+use crate::search::{
+    EmbeddingClient, EmbeddingConfig, EmbeddingError, SearchConfig, build_email_embedding_text,
+};
 use crate::sync::import::{
     data_builder, data_structures::ChunkCacheData, database_operations, stats::ImportStats,
 };
@@ -14,6 +17,9 @@ use crate::sync::parser::ParsedEmail;
 use crate::threading::{EmailThreadingInfo, MailingListCache};
 use rocket_db_pools::sqlx::PgPool;
 use std::collections::HashMap;
+use thiserror::Error;
+
+use pgvector::Vector;
 
 /// Chunk size for streaming imports to avoid overwhelming database connections
 pub const EMAIL_IMPORT_BATCH_SIZE: usize = 25_000;
@@ -25,6 +31,9 @@ pub const EMAIL_IMPORT_BATCH_SIZE: usize = 25_000;
 pub struct BulkImporter {
     pool: PgPool,
     mailing_list_id: i32,
+    embedding_client: Option<EmbeddingClient>,
+    embedding_config: EmbeddingConfig,
+    search_config: SearchConfig,
 }
 
 impl BulkImporter {
@@ -33,10 +42,19 @@ impl BulkImporter {
     /// # Arguments
     /// * `pool` - Database connection pool
     /// * `mailing_list_id` - ID of the mailing list being imported
-    pub fn new(pool: PgPool, mailing_list_id: i32) -> Self {
+    pub fn new(
+        pool: PgPool,
+        mailing_list_id: i32,
+        embedding_client: Option<EmbeddingClient>,
+        embedding_config: EmbeddingConfig,
+        search_config: SearchConfig,
+    ) -> Self {
         Self {
             pool,
             mailing_list_id,
+            embedding_client,
+            embedding_config,
+            search_config,
         }
     }
 
@@ -139,6 +157,14 @@ impl BulkImporter {
         let recipient_author_map: HashMap<String, i32> =
             recipient_author_rows.into_iter().collect();
 
+        if self.search_config.enable_semantic {
+            if let Some(client) = &self.embedding_client {
+                if let Err(err) = self.embed_email_vectors(client, &email_id_map, chunk).await {
+                    log::warn!("chunk embedding update skipped: {}", err);
+                }
+            }
+        }
+
         // Phase 4: Prepare and insert recipients and references in parallel
         let recipients_data = data_builder::build_recipient_batch_data(
             self.mailing_list_id,
@@ -237,6 +263,82 @@ impl BulkImporter {
         Ok(stats)
     }
 
+    async fn embed_email_vectors(
+        &self,
+        client: &EmbeddingClient,
+        email_id_map: &HashMap<String, i32>,
+        chunk: &[(String, ParsedEmail, i32)],
+    ) -> Result<(), EmbeddingPipelineError> {
+        if chunk.is_empty() {
+            return Ok(());
+        }
+
+        let batch_size = self.embedding_config.batch_size.max(1);
+        let mut pending: Vec<(i32, String)> = Vec::new();
+        pending.reserve(chunk.len());
+
+        for (_, email, _) in chunk {
+            let Some(&email_id) = email_id_map.get(&email.message_id) else {
+                continue;
+            };
+
+            let text = build_email_embedding_text(email);
+            if text.trim().is_empty() {
+                continue;
+            }
+
+            pending.push((email_id, text));
+        }
+
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        for batch in pending.chunks(batch_size) {
+            let ids: Vec<i32> = batch.iter().map(|(id, _)| *id).collect();
+            let payloads: Vec<String> = batch.iter().map(|(_, text)| text.clone()).collect();
+            let embeddings = client.embed_documents(&payloads).await?;
+
+            if embeddings.len() != ids.len() {
+                return Err(EmbeddingPipelineError::EmbeddingCountMismatch {
+                    expected: ids.len(),
+                    actual: embeddings.len(),
+                });
+            }
+
+            let vectors: Vec<Vector> = embeddings.into_iter().map(Vector::from).collect();
+
+            self.write_email_embeddings(&ids, &vectors).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn write_email_embeddings(
+        &self,
+        ids: &[i32],
+        vectors: &[Vector],
+    ) -> Result<(), sqlx::Error> {
+        let mut connection = self.pool.acquire().await?;
+
+        sqlx::query(
+            r#"
+            UPDATE emails AS target
+            SET embedding = batch.embedding
+            FROM (
+                SELECT UNNEST($1::int[]) AS id, UNNEST($2::vector[]) AS embedding
+            ) AS batch
+            WHERE target.id = batch.id
+            "#,
+        )
+        .bind(ids)
+        .bind(vectors)
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
+    }
+
     /// Update author activity statistics for the mailing list.
     ///
     /// Calculates aggregate statistics per author including email count,
@@ -275,4 +377,14 @@ impl BulkImporter {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Error)]
+enum EmbeddingPipelineError {
+    #[error("embedding client error: {0}")]
+    Embedding(#[from] EmbeddingError),
+    #[error("embedding response mismatch: expected {expected}, got {actual}")]
+    EmbeddingCountMismatch { expected: usize, actual: usize },
+    #[error("database error: {0}")]
+    Database(#[from] sqlx::Error),
 }

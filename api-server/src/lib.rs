@@ -11,8 +11,8 @@ pub mod sync;
 pub mod threading;
 
 use crate::db::NexusDb;
-use crate::search::{EmbeddingClient, EmbeddingConfig, SearchConfig};
 use crate::request_logger::RequestLogger;
+use crate::search::{EmbeddingClient, EmbeddingConfig, SearchConfig};
 use crate::sync::dispatcher::SyncDispatcher;
 use crate::sync::queue::JobQueue;
 use env_logger::Env;

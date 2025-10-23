@@ -60,7 +60,7 @@ use crate::sync::{
 };
 use crate::threading::container::ThreadInfo;
 use crate::threading::{MailingListCache, build_email_threads};
-use rocket_db_pools::sqlx::{Acquire, PgPool};
+use rocket_db_pools::sqlx::{self, Acquire, PgPool};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -223,6 +223,16 @@ impl SyncDispatcher {
             .build_and_insert_threads(job_id, list_id, &cache)
             .await?;
 
+        if self.search_config.enable_semantic && self.embedding_client.is_some() {
+            if let Err(err) = self.recompute_thread_embeddings(list_id).await {
+                log::warn!(
+                    "job {}: failed to recompute thread embeddings: {}",
+                    job_id,
+                    err
+                );
+            }
+        }
+
         // Phase 4: Persist cache to disk for future incremental syncs
         self.persist_cache_to_storage(job_id, list_id, &cache).await;
 
@@ -304,7 +314,13 @@ impl SyncDispatcher {
         epoch: i32,
         cache: &MailingListCache,
     ) -> Result<usize, String> {
-        let importer = BulkImporter::new(self.pool.clone(), mailing_list_id);
+        let importer = BulkImporter::new(
+            self.pool.clone(),
+            mailing_list_id,
+            self.embedding_client.clone(),
+            self.embedding_config.clone(),
+            self.search_config.clone(),
+        );
         let total = parsed_emails.len();
 
         log::info!(
@@ -877,13 +893,54 @@ impl SyncDispatcher {
     async fn update_author_statistics(&self, job_id: i32, list_id: i32) -> Result<(), String> {
         log::info!("job {}: updating author activity", job_id);
 
-        let importer = BulkImporter::new(self.pool.clone(), list_id);
+        let importer = BulkImporter::new(
+            self.pool.clone(),
+            list_id,
+            self.embedding_client.clone(),
+            self.embedding_config.clone(),
+            self.search_config.clone(),
+        );
         importer
             .update_author_activity()
             .await
             .map_err(|e| format!("Failed to update author activity: {}", e))?;
 
         Ok(())
+    }
+
+    async fn recompute_thread_embeddings(&self, mailing_list_id: i32) -> Result<(), sqlx::Error> {
+        let mut transaction = self.pool.begin().await?;
+
+        sqlx::query("DELETE FROM thread_embeddings WHERE mailing_list_id = $1")
+            .bind(mailing_list_id)
+            .execute(&mut *transaction)
+            .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO thread_embeddings (mailing_list_id, thread_id, embedding, email_count, aggregated_at)
+            SELECT
+                tm.mailing_list_id,
+                tm.thread_id,
+                AVG(e.embedding),
+                COUNT(e.id)::int,
+                NOW()
+            FROM thread_memberships tm
+            JOIN emails e ON e.id = tm.email_id AND e.mailing_list_id = tm.mailing_list_id
+            WHERE tm.mailing_list_id = $1 AND e.embedding IS NOT NULL
+            GROUP BY tm.mailing_list_id, tm.thread_id
+            ON CONFLICT (mailing_list_id, thread_id)
+            DO UPDATE
+            SET embedding = EXCLUDED.embedding,
+                email_count = EXCLUDED.email_count,
+                aggregated_at = NOW()
+            "#,
+        )
+        .bind(mailing_list_id)
+        .execute(&mut *transaction)
+        .await?;
+
+        transaction.commit().await
     }
 
     /// Save sync checkpoints to database.

@@ -34,6 +34,7 @@ bincode = "1.3"
 thiserror = "2.0"
 testcontainers = { version = "0.25", default-features = false }
 testcontainers-modules = { version = "0.13", features = ["postgres"], default-features = false }
+pgvector = { version = "0.3", features = ["sqlx"] }
 
 [dependencies.sqlx]
 version = "0.7"

@@ -10,10 +10,7 @@ pub enum EmbeddingError {
     #[error("embedding HTTP error: {0}")]
     Http(#[from] reqwest::Error),
     #[error("embedding service returned status {status}: {body}")]
-    Service {
-        status: StatusCode,
-        body: String,
-    },
+    Service { status: StatusCode, body: String },
     #[error("failed to decode embedding response: {0}")]
     Decode(#[from] serde_json::Error),
     #[error("embedding response count mismatch: expected {expected}, got {actual}")]
@@ -38,7 +35,10 @@ impl EmbeddingClient {
             .build()
             .map_err(EmbeddingError::Http)?;
 
-        Ok(Self { http: client, config })
+        Ok(Self {
+            http: client,
+            config,
+        })
     }
 
     pub fn config(&self) -> &EmbeddingConfig {
@@ -47,7 +47,12 @@ impl EmbeddingClient {
 
     pub async fn healthcheck(&self) -> Result<(), EmbeddingError> {
         let url = format!("{}/health", self.config.base_url.trim_end_matches('/'));
-        let response = self.http.get(url).send().await.map_err(EmbeddingError::Http)?;
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(EmbeddingError::Http)?;
 
         if response.status().is_success() {
             Ok(())
