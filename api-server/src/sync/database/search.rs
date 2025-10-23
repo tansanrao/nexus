@@ -52,6 +52,7 @@ pub async fn refresh_search_indexes(pool: &PgPool) -> Result<(), sqlx::Error> {
         "REINDEX INDEX idx_emails_body_ts",
         "REINDEX INDEX idx_emails_subject_trgm",
         "REINDEX INDEX idx_emails_embedding_hnsw",
+        "REINDEX INDEX idx_thread_embeddings_hnsw",
     ];
 
     for statement in index_statements {
