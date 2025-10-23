@@ -50,7 +50,7 @@ impl BulkImporter {
     /// 5. Extract cache data for threading
     ///
     /// # Optimizations
-    /// - Uses up to 6 parallel connections from the bulk_write_db pool
+    /// - Uses up to 6 parallel connections from the shared Nexus pool
     /// - Parallelizes data loading operations where possible
     ///
     /// # Arguments

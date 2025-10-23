@@ -6,7 +6,7 @@
 # Environment Variable Override:
 # You can override any configuration using environment variables with the ROCKET_ prefix:
 #
-#   export ROCKET_DATABASES='{nexus_db={url="postgres://user:pass@host:port/db"}, bulk_write_db={url="postgres://user:pass@host:port/db"}}'
+#   export ROCKET_DATABASES='{nexus_db={url="postgres://user:pass@host:port/db"}}'
 #   export ROCKET_ADDRESS="0.0.0.0"
 #   export ROCKET_PORT="8000"
 #
@@ -25,13 +25,3 @@ max_connections = 32
 connect_timeout = 5
 idle_timeout = 300
 max_lifetime = 1800  # 30 minutes
-
-# Separate pool optimized for bulk write operations
-# Higher connection count for parallel bulk imports
-[default.databases.bulk_write_db]
-url = "postgres://postgres:changeme456@localhost:5432/nexus"
-min_connections = 12
-max_connections = 24
-connect_timeout = 10
-idle_timeout = 600
-max_lifetime = 3600  # 60 minutes

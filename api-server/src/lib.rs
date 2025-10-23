@@ -9,7 +9,7 @@ pub mod routes;
 pub mod sync;
 pub mod threading;
 
-use crate::db::{BulkWriteDb, NexusDb};
+use crate::db::NexusDb;
 use crate::request_logger::RequestLogger;
 use crate::sync::dispatcher::SyncDispatcher;
 use crate::sync::queue::JobQueue;
@@ -70,7 +70,6 @@ pub fn rocket() -> Rocket<Build> {
     rocket::build()
         .attach(RequestLogger)
         .attach(NexusDb::init())
-        .attach(BulkWriteDb::init())
         .attach(cors)
         // Run database migrations on startup
         .attach(AdHoc::try_on_ignite(

@@ -33,7 +33,7 @@ services:
     container_name: nexus-api
     environment:
       # Database configuration (uses Rocket.toml env var substitution)
-      ROCKET_DATABASES: '{nexus_db={url="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme456}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-nexus}"}, bulk_write_db={url="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme456}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-nexus}"}}'
+      ROCKET_DATABASES: '{nexus_db={url="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme456}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-nexus}"}}'
       ROCKET_ADDRESS: "0.0.0.0"
       ROCKET_PORT: "8000"
       # Mirror path (shared volume with grokmirror)
