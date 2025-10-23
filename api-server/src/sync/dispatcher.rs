@@ -48,6 +48,7 @@
 //! - **Change Detection**: SHA256 membership hashing skips unchanged threads
 //! - **Checkpoint Recovery**: Resume from last successful epoch
 
+use crate::search::{EmbeddingClient, EmbeddingConfig, SearchConfig};
 use crate::sync::bulk_import::BulkImporter;
 use crate::sync::database::checkpoint;
 use crate::sync::import::coordinator::EMAIL_IMPORT_BATCH_SIZE;
@@ -74,15 +75,32 @@ use std::time::Duration;
 ///
 /// - `pool`: Database connection pool for all operations
 /// - `queue`: Job queue manager for claiming/updating jobs
+/// - `embedding_client`: Optional embeddings service client for semantic search
+/// - `embedding_config`: Embedding configuration (dimension, batching, prefixes)
+/// - `search_config`: Runtime search configuration flags and weights
 pub struct SyncDispatcher {
     pool: PgPool,
     queue: JobQueue,
+    embedding_client: Option<EmbeddingClient>,
+    embedding_config: EmbeddingConfig,
+    search_config: SearchConfig,
 }
 
 impl SyncDispatcher {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(
+        pool: PgPool,
+        embedding_client: Option<EmbeddingClient>,
+        embedding_config: EmbeddingConfig,
+        search_config: SearchConfig,
+    ) -> Self {
         let queue = JobQueue::new(pool.clone());
-        Self { pool, queue }
+        Self {
+            pool,
+            queue,
+            embedding_client,
+            embedding_config,
+            search_config,
+        }
     }
 
     /// Run dispatcher loop forever

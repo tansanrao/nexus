@@ -6,10 +6,12 @@ pub mod error;
 pub mod models;
 pub mod request_logger;
 pub mod routes;
+pub mod search;
 pub mod sync;
 pub mod threading;
 
 use crate::db::NexusDb;
+use crate::search::{EmbeddingClient, EmbeddingConfig, SearchConfig};
 use crate::request_logger::RequestLogger;
 use crate::sync::dispatcher::SyncDispatcher;
 use crate::sync::queue::JobQueue;
@@ -113,14 +115,62 @@ pub fn rocket() -> Rocket<Build> {
                 }
             },
         ))
+        .attach(AdHoc::try_on_ignite(
+            "Search Configuration",
+            |rocket| async move {
+                let mut search_config = SearchConfig::from_env();
+                let embedding_config = EmbeddingConfig::from_env();
+
+                let embedding_client = if search_config.enable_semantic {
+                    match EmbeddingClient::new(embedding_config.clone()) {
+                        Ok(client) => {
+                            if let Err(err) = client.healthcheck().await {
+                                log::warn!(
+                                    "embedding service health check failed: {}. Continuing with best-effort semantic search.",
+                                    err
+                                );
+                            }
+                            Some(client)
+                        }
+                        Err(err) => {
+                            log::error!(
+                                "failed to initialize embedding client: {}. Semantic search disabled.",
+                                err
+                            );
+                            search_config.enable_semantic = false;
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                Ok(rocket
+                    .manage(search_config)
+                    .manage(embedding_config)
+                    .manage(embedding_client))
+            },
+        ))
         // Spawn sync dispatcher in background
         .attach(AdHoc::on_liftoff("Spawn Sync Dispatcher", |rocket| {
             Box::pin(async move {
                 if let Some(pool) = rocket.state::<rocket_db_pools::sqlx::PgPool>() {
                     let dispatcher_pool = pool.clone();
+                    let embedding_client = rocket
+                        .state::<Option<EmbeddingClient>>()
+                        .and_then(|state| state.clone());
+                    let search_config = rocket
+                        .state::<SearchConfig>()
+                        .cloned()
+                        .unwrap_or_default();
+                    let embedding_config = rocket
+                        .state::<EmbeddingConfig>()
+                        .cloned()
+                        .unwrap_or_default();
                     tokio::spawn(async move {
                         log::info!("starting sync dispatcher");
-                        let dispatcher = SyncDispatcher::new(dispatcher_pool);
+                        let dispatcher =
+                            SyncDispatcher::new(dispatcher_pool, embedding_client, embedding_config, search_config);
                         dispatcher.run().await
                     });
                 } else {
