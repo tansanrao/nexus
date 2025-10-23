@@ -1,7 +1,7 @@
 services:
   # PostgreSQL 18 database
   postgres:
-    image: postgres:18
+    image: tensorchord/vchord-postgres:pg18-v0.5.3
     container_name: nexus-postgres
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     environment:

@@ -137,7 +137,8 @@ Notifications (SSE/WebSocket):
 
 > **Extensions required (test & prod):**
 >
-> * `CREATE EXTENSION IF NOT EXISTS vector;` (pgvector, HNSW/IVFFlat) ([GitHub][2])
+> * `CREATE EXTENSION IF NOT EXISTS vector;` (pgvector storage + operators) ([GitHub][2])
+> * `CREATE EXTENSION IF NOT EXISTS vchord;` (VectorChord parallel HNSW/IVFFlat) ([VectorChord][41])
 > * `CREATE EXTENSION IF NOT EXISTS pg_trgm;` (trigram ops) ([PostgreSQL][9])
 
 **Global tables**
@@ -171,7 +172,7 @@ Notifications (SSE/WebSocket):
 
 * FTS: `CREATE INDEX emails_lex_ts_idx ON emails USING GIN(lex_ts);` and `... body_ts_idx ON emails USING GIN(body_ts);` (standard setup). ([PostgreSQL][10])
 * Trigram (for fuzzy subject/author): `CREATE INDEX emails_subject_trgm ON emails USING GIN (subject gin_trgm_ops);` ([PostgreSQL][9])
-* Vector (semantic): `CREATE INDEX emails_embedding_hnsw ON emails USING hnsw (embedding vector_cosine_ops);` (or `vector_l2_ops` depending on model). HNSW gives better speed/recall trade‑off than IVFFlat for many workloads. ([GitHub][2])
+* Vector (semantic): `CREATE INDEX emails_embedding_hnsw ON emails USING vchordrq (embedding vector_cosine_ops);` (or `vector_l2_ops` depending on model). VectorChord’s RAC index builds on `pgvector` operators and offers better speed/recall trade-offs than IVFFlat for many workloads. ([GitHub][2])
 * Incremental threading: partial index on `emails(threaded_at)` retained.
 * Auth: `user_refresh_tokens(token_id)` unique index plus `CREATE INDEX user_refresh_tokens_user_idx ON user_refresh_tokens(user_id, expires_at DESC);` for revocation sweeps.
 
@@ -616,6 +617,7 @@ fn notifications_stream(user: AuthUser, hub: &State<Hub>) -> EventStream![] {
 * SQLx `PgPool` docs; Rocket DB pools. ([Docs.rs][7])
 * Postgres FTS & GIN, `pg_trgm`. ([PostgreSQL][10])
 * `pgvector` HNSW indexing (HNSW vs IVFFlat). ([GitHub][2])
+* VectorChord Postgres extension overview. ([VectorChord][41])
 * Hybrid search with Postgres FTS + vectors. ([Jonathan Katz][14])
 * SSE & Rocket’s APIs; WebSockets via `rocket_ws`. ([MDN Web Docs][17])
 * OIDC libs & providers: `openidconnect` crate; `oidc-client-ts`; Keycloak/Dex/Authelia. ([Docs.rs][15])
@@ -626,3 +628,4 @@ fn notifications_stream(user: AuthUser, hub: &State<Hub>) -> EventStream![] {
 * Refresh token rotation. ([Auth0][29])
 * Secure storage of refresh tokens in cookies. ([Descope][30])
 * Double-submit cookie CSRF protection. ([Okta][31])
+[VectorChord]: https://vectorchord.ai/docs/vchord-postgres
