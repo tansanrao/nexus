@@ -137,8 +137,7 @@ Notifications (SSE/WebSocket):
 
 > **Extensions required (test & prod):**
 >
-> * `CREATE EXTENSION IF NOT EXISTS vector;` (pgvector storage + operators) ([GitHub][2])
-> * `CREATE EXTENSION IF NOT EXISTS vchord;` (VectorChord parallel HNSW/IVFFlat) ([VectorChord][41])
+> * `CREATE EXTENSION IF NOT EXISTS vchord CASCADE;` (installs VectorChord and pulls in pgvector dependency) ([VectorChord][41])
 > * `CREATE EXTENSION IF NOT EXISTS pg_trgm;` (trigram ops) ([PostgreSQL][9])
 
 **Global tables**

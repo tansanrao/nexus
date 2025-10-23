@@ -4,8 +4,7 @@
 -- ============================================================================
 -- Extensions
 -- ============================================================================
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS vchord;
+CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ============================================================================

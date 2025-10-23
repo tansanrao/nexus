@@ -42,7 +42,7 @@ Context: collapsing the API server onto a single SQLx pool and reshaping the sch
 4. **Schema growth for search/auth/notifications**
    - Add `embedding VECTOR(384)`, `lex_ts`, `body_ts`, and the indexes from design §5/§6.2.
    - Create the user/auth tables (`users`, `local_user_credentials`, `user_profiles`, `user_refresh_tokens`, `user_thread_follows`, `notifications`, `notification_cursors`) with FK constraints and reasonable defaults.
-   - Ensure `CREATE EXTENSION IF NOT EXISTS vector`, `vchord`, and `pg_trgm` are present via repeatable or earliest migration.
+   - Ensure `CREATE EXTENSION IF NOT EXISTS vchord CASCADE` and `pg_trgm` are present via repeatable or earliest migration.
    - Keep down scripts honest—dropping everything created above.
 
 5. **Backfill + hooks**
