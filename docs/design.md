@@ -386,6 +386,7 @@ Notifications (SSE/WebSocket):
 ## 13. Database Migrations (refactor)
 
 * **Single SQLx `PgPool`** for migrations & runtime (no separate bulk pool). ([Docs.rs][7])
+  * Default Rocket config keeps `max_connections = 32`; adjust via `ROCKET_DATABASES__nexus_db__max_connections` after observing ingest pressure.
 * **Reversible migrations**: create with `sqlx migrate add -r <name>` → emits `.up.sql` and `.down.sql`. Every schema change must be reversible; complex data migrations must include down logic or be split. ([Docs.rs][21])
 * Run migrations at startup in production; abort on drift. Integration tests also run `sqlx migrate revert` to verify the `down.sql` side.
 * **Partition management** remains additive; new list partitions via stored procedure or app helper.
@@ -606,6 +607,12 @@ fn notifications_stream(user: AuthUser, hub: &State<Hub>) -> EventStream![] {
 ```
 
 (Rocket provides an `Event`/`EventStream` API for SSE.) ([api.rocket.rs][6])
+
+---
+
+## Changelog
+
+* **October 23, 2025** — Database refactor: unified Rocket onto a single SQLx pool, adopted VectorChord-based migrations, and added admin refresh hooks for search indexing.
 
 ---
 

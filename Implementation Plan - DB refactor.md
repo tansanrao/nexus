@@ -31,34 +31,34 @@ Context: collapsing the API server onto a single SQLx pool and reshaping the sch
    - [x] Trim `api-server/src/db.rs` to expose one `NexusDb`.
    - [x] Update Rocket ignite fairings so migrations, job queue, and sync dispatcher all grab the same pool from state.
    - [x] Drop the extra database stanza from `Rocket.toml` and `ROCKET_DATABASES` docs; keep notes on tuning the unified pool size.
-   - [ ] Document pool sizing guidance once we observe load with the new schema.
+   - [x] Document pool sizing guidance once we observe load with the new schema.
 
 3. **Migration system refresh**
    - [x] Replace legacy migrations with a fresh reversible `0001_initial` (extensions + schema).
    - [x] Wire `sqlx::migrate!` to the new directory and make sure build/tests still compile (`cargo check`).
-   - [ ] Add tooling notes (`README` / docs) about installing `sqlx-cli` and the expected `run` + `revert` workflow.
-   - [ ] Update CI or local scripts so reverting the latest migration is part of the database check.
+   - [x] Add tooling notes (`README` / docs) about installing `sqlx-cli` and the expected `run` + `revert` workflow.
+   - [x] Update CI or local scripts so reverting the latest migration is part of the database check.
 
-4. **Schema growth for search/auth/notifications**
-   - Add `embedding VECTOR(384)`, `lex_ts`, `body_ts`, and the indexes from design §5/§6.2.
-   - Create the user/auth tables (`users`, `local_user_credentials`, `user_profiles`, `user_refresh_tokens`, `user_thread_follows`, `notifications`, `notification_cursors`) with FK constraints and reasonable defaults.
-   - Ensure `CREATE EXTENSION IF NOT EXISTS vchord CASCADE` and `pg_trgm` are present via repeatable or earliest migration.
-   - Keep down scripts honest—dropping everything created above.
+4. **Schema growth for search/auth/notifications** ✅ (Oct 23, 2025)
+   - [x] Add `embedding VECTOR(384)`, `lex_ts`, `body_ts`, and the indexes from design §5/§6.2.
+   - [x] Create the user/auth tables (`users`, `local_user_credentials`, `user_profiles`, `user_refresh_tokens`, `user_thread_follows`, `notifications`, `notification_cursors`) with FK constraints and reasonable defaults.
+   - [x] Ensure `CREATE EXTENSION IF NOT EXISTS vchord CASCADE` and `pg_trgm` are present via repeatable or earliest migration.
+   - [x] Keep down scripts honest—dropping everything created above.
 
 5. **Backfill + hooks**
-   - Write a simple SQL or Rust task to backfill `lex_ts`/`body_ts` for existing rows; leave embeddings NULL with a comment about the future job.
-   - Make the import pipeline populate the new fields going forward (feature flag optional).
-   - Sketch the admin trigger for `/admin/search/index/refresh` so the schema supports it when implemented.
+   - [x] Write a simple SQL or Rust task to backfill `lex_ts`/`body_ts` for existing rows; leave embeddings NULL with a comment about the future job.
+   - [x] Make the import pipeline populate the new fields going forward (feature flag optional).
+   - [x] Sketch the admin trigger for `/admin/search/index/refresh` so the schema supports it when implemented.
 
 6. **Tests and validation**
-   - Update the integration test harness to use the single pool and the SQLx migrator.
-   - Add a migration test that applies the latest migration then reverts it.
-   - Extend fixtures to touch the new tables for when we start testing auth/notifications.
+   - [x] Update the integration test harness to use the single pool and the SQLx migrator.
+   - [x] Add a migration test that applies the latest migration then reverts it.
+   - [x] Extend fixtures to touch the new tables for when we start testing auth/notifications.
 
 7. **Docs & rollout**
-   - Tidy `docs/design.md` changelog once this lands.
-   - Refresh Compose/env docs to mention the single pool and required extensions.
-   - Stage dry run: boot from scratch, run migrations, smoke the API, then `sqlx migrate revert` the latest migration to confirm the rollback path.
+   - [x] Tidy `docs/design.md` changelog once this lands.
+   - [x] Refresh Compose/env docs to mention the single pool and required extensions.
+   - [x] Stage dry run: boot from scratch, run migrations, smoke the API, then `sqlx migrate revert` the latest migration to confirm the rollback path.
 
 ## Success Criteria
 

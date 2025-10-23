@@ -1,4 +1,4 @@
-.PHONY: help build build-api build-frontend up up-frontend frontend-up down restart logs logs-api logs-frontend logs-postgres ps clean clean-all shell-api shell-frontend shell-postgres health init seed
+.PHONY: help build build-api build-frontend up up-frontend frontend-up down restart logs logs-api logs-frontend logs-postgres ps clean clean-all shell-api shell-frontend shell-postgres health init seed migrate-run migrate-revert
 
 # Default target
 help:
@@ -28,6 +28,8 @@ help:
 	@echo "  make health             - Check health status of services"
 	@echo "  make init               - Initialize database (reset & seed)"
 	@echo "  make seed               - Seed mailing lists"
+	@echo "  make migrate-run        - Apply SQLx migrations (requires sqlx-cli)"
+	@echo "  make migrate-revert     - Revert the latest SQLx migration"
 	@echo ""
 	@echo "  make clean              - Stop and remove containers"
 	@echo "  make clean-all          - Stop and remove containers, volumes, and images"
@@ -120,6 +122,23 @@ seed:
 	curl -X POST http://localhost:8000/api/admin/mailing-lists/seed
 	@echo ""
 	@echo "Mailing lists seeded successfully!"
+
+# Migration helpers
+migrate-run:
+	@echo "Applying SQLx migrations..."
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "DATABASE_URL must be set (e.g. postgres://postgres:changeme456@localhost:5432/nexus)"; \
+		exit 1; \
+	fi
+	sqlx migrate run
+
+migrate-revert:
+	@echo "Reverting latest SQLx migration..."
+	@if [ -z "$$DATABASE_URL" ]; then \
+		echo "DATABASE_URL must be set (e.g. postgres://postgres:changeme456@localhost:5432/nexus)"; \
+		exit 1; \
+	fi
+	sqlx migrate revert --target 0
 
 # Cleanup
 clean:
