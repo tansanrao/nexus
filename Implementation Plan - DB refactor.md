@@ -10,6 +10,7 @@ Context: collapsing the API server onto a single SQLx pool and reshaping the sch
 - Drop `BulkWriteDb` and make every code path share one managed `PgPool` (design §§4.2, 13).
 - Switch to reversible SQLx migrations and keep `sqlx migrate run` / `revert` happy in dev and CI (design §13).
 - Extend the schema with the columns, tables, and indexes described in design §5 (emails embeddings + FTS fields, auth, notifications).
+- Ship vector search on top of VectorChord so we get fast HNSW + RAC indexes without giving up pgvector compatibility.
 - Keep startup strict: refuse to boot if migrations are pending or drifted.
 
 ## Non-Goals
@@ -21,26 +22,27 @@ Context: collapsing the API server onto a single SQLx pool and reshaping the sch
 
 ## Checklist
 
-1. **Take stock of today’s setup**
-   - Find every call site of `BulkWriteDb` and note any assumptions about connection counts.
-   - Review existing migrations (`0000_initial.sql`, `0001_patch_metadata.sql`) against the design schema.
-   - Confirm our Postgres images already ship with `pgvector` + `pg_trgm`; tweak Compose if not.
+1. **Take stock of today’s setup** ✅ (Oct 23, 2025)
+   - [x] Find every call site of `BulkWriteDb` and note any assumptions about connection counts.
+   - [x] Review existing migrations (`0000_initial.sql`, `0001_patch_metadata.sql`) against the design schema.
+   - [x] Confirm our Postgres images already ship with vector extensions (swapped to VectorChord image).
 
-2. **Single-pool runtime refactor**
-   - Trim `api-server/src/db.rs` to expose one `NexusDb`.
-   - Update Rocket ignite fairings so migrations, job queue, and sync dispatcher all grab the same pool from state.
-   - Drop the extra database stanza from `Rocket.toml` and `ROCKET_DATABASES` docs; keep notes on tuning the unified pool size.
+2. **Single-pool runtime refactor** ✅ (Oct 23, 2025)
+   - [x] Trim `api-server/src/db.rs` to expose one `NexusDb`.
+   - [x] Update Rocket ignite fairings so migrations, job queue, and sync dispatcher all grab the same pool from state.
+   - [x] Drop the extra database stanza from `Rocket.toml` and `ROCKET_DATABASES` docs; keep notes on tuning the unified pool size.
+   - [ ] Document pool sizing guidance once we observe load with the new schema.
 
 3. **Migration system refresh**
-   - Convert the current migrations into SQLx reversible pairs (`*.up.sql` / `*.down.sql`) without breaking fresh installs.
-   - Wire `sqlx::migrate!` to the new directory and make sure build/tests still compile.
-  - Add tooling notes (`README` / docs) about installing `sqlx-cli` and the expected `run` + `revert` workflow.
-   - Update CI or local scripts so reverting the latest migration is part of the database check.
+   - [x] Replace legacy migrations with a fresh reversible `0001_initial` (extensions + schema).
+   - [x] Wire `sqlx::migrate!` to the new directory and make sure build/tests still compile (`cargo check`).
+   - [ ] Add tooling notes (`README` / docs) about installing `sqlx-cli` and the expected `run` + `revert` workflow.
+   - [ ] Update CI or local scripts so reverting the latest migration is part of the database check.
 
 4. **Schema growth for search/auth/notifications**
    - Add `embedding VECTOR(384)`, `lex_ts`, `body_ts`, and the indexes from design §5/§6.2.
    - Create the user/auth tables (`users`, `local_user_credentials`, `user_profiles`, `user_refresh_tokens`, `user_thread_follows`, `notifications`, `notification_cursors`) with FK constraints and reasonable defaults.
-   - Ensure `CREATE EXTENSION IF NOT EXISTS vector` and `pg_trgm` are present via repeatable or earliest migration.
+   - Ensure `CREATE EXTENSION IF NOT EXISTS vector`, `vchord`, and `pg_trgm` are present via repeatable or earliest migration.
    - Keep down scripts honest—dropping everything created above.
 
 5. **Backfill + hooks**
