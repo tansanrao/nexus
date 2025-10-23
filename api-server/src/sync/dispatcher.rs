@@ -50,8 +50,8 @@
 
 use crate::sync::bulk_import::BulkImporter;
 use crate::sync::database::checkpoint;
-use crate::sync::parser::ParsedEmail;
 use crate::sync::import::coordinator::EMAIL_IMPORT_BATCH_SIZE;
+use crate::sync::parser::ParsedEmail;
 use crate::sync::{
     SyncOrchestrator,
     git::{MailingListSyncConfig, RepoConfig},
@@ -304,8 +304,7 @@ impl SyncDispatcher {
 
         // Process in chunks to avoid connection timeouts and memory issues
         let mut total_imported = 0;
-        let num_chunks =
-            (total + EMAIL_IMPORT_BATCH_SIZE - 1) / EMAIL_IMPORT_BATCH_SIZE;
+        let num_chunks = (total + EMAIL_IMPORT_BATCH_SIZE - 1) / EMAIL_IMPORT_BATCH_SIZE;
 
         for (chunk_idx, chunk) in emails_with_epoch
             .chunks(EMAIL_IMPORT_BATCH_SIZE)

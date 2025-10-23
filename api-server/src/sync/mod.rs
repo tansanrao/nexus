@@ -68,7 +68,7 @@ pub mod pg_config;
 pub mod queue;
 
 use crate::sync::git::{GitManager, MailingListSyncConfig};
-use crate::sync::parser::{parse_email, ParsedEmail};
+use crate::sync::parser::{ParsedEmail, parse_email};
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

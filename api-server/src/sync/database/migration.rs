@@ -1,9 +1,12 @@
 //! Database migration management for the sync system.
 //!
-//! This module handles running SQLx migrations to set up and update the database schema.
-//! Migrations are idempotent - running them multiple times is safe.
+//! This module validates and applies SQLx migrations before the API starts serving
+//! requests. We always ensure the database is on the latest schema and abort startup
+//! when drift is detected.
 
-use rocket_db_pools::sqlx::PgPool;
+use rocket_db_pools::sqlx::{self, PgPool, migrate::Migrator};
+
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 /// Run database migrations.
 ///
@@ -16,11 +19,13 @@ use rocket_db_pools::sqlx::PgPool;
 /// # Returns
 /// `Ok(())` if migrations succeed, error otherwise
 pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
-    log::info!("running database migrations");
+    log::info!("checking database migration state");
 
-    sqlx::migrate!("./migrations").run(pool).await?;
+    // `run` ensures the migrations table exists, verifies checksums, and applies
+    // any pending migrations before we start serving traffic.
+    MIGRATOR.run(pool).await?;
 
-    log::info!("database migrations completed");
+    log::info!("database migrations up to date");
     Ok(())
 }
 
