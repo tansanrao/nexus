@@ -124,17 +124,21 @@ Notifications (SSE/WebSocket):
 * **Queue (`queue.rs`)**: same lifecycle.
 * **Git (`git.rs`)**: same.
 * **Parser (`parser.rs`)**: same; ensure **quote‑stripping** helpers plus patch hunk detection for semantic input.
-* **Import (`import/*`)**: same bulk strategy; after import:
+* **Import (`import/*`)**: same bulk strategy; after import the dispatcher enqueues follow-up work instead of blocking the sync job:
 
-  * **Embedding job**: batch canonical text (normalized subject + discussion body with patches removed), call the TEI embeddings service, and upsert vectors in `emails.embedding`.
-  * **Thread embedding aggregator**: enqueue background task to recompute per-thread vectors (e.g., weighted mean) whenever new emails land.
-  * Update hybrid search materialized fields (FTS `tsvector` refresh).
+  * **Embedding refresh job** (`job_type = embedding_refresh`): walks emails without vectors, batches canonical text (normalized subject + discussion body with patches removed), calls the TEI embeddings service, and upserts vectors in `emails.embedding`.
+  * **Thread embedding aggregator**: runs after the embedding job commits rows to recompute per-thread vectors (e.g., weighted mean) whenever new emails land; implemented as part of the same follow-up job to guarantee ordering.
+  * Update hybrid search materialized fields (FTS `tsvector` refresh) either inline or via a dedicated index-maintenance job depending on operator settings.
 * **Threading (JWZ)**: unchanged; membership hash for idempotency.
 
 ### 4.4 Admin/Control Plane
 
 * Same seed/reset/status endpoints.
-* Additional: **/admin/search/index/refresh** (rebuild FTS/pgvector indexes per list or all).
+* Additional search maintenance APIs (all return queued job metadata so operators can track progress):
+  * **POST /admin/search/index/refresh** – recompute lexical `tsvector` columns and optionally run `REINDEX` for supporting GIN/vector indexes; accepts optional `mailingListSlug`.
+  * **POST /admin/search/index/reset** – drop and recreate HNSW/GIN indexes for either a specific list or the entire corpus; enqueues `index_maintenance` jobs because these operations can be long running.
+  * **POST /admin/search/embeddings/reset** – null out `emails.embedding` (and derived `thread_embeddings`) for the requested scope and enqueue fresh embedding jobs to rebuild from scratch.
+  * **POST /admin/search/embeddings/rebuild** – schedule an embedding refresh without dropping existing vectors, useful when backfilling missed emails or switching models.
 
 ---
 
@@ -152,7 +156,7 @@ Notifications (SSE/WebSocket):
 * `authors(id, email UNIQUE, canonical_name, first_seen, last_seen)`
 * `author_name_aliases(author_id, name, usage_count, first_seen, last_seen)`
 * `author_mailing_list_activity(author_id, mailing_list_id, first_email_date, last_email_date, email_count, thread_count)`
-* `sync_jobs(id, mailing_list_id, phase, priority, created_at, started_at, completed_at, error_message)`
+* `jobs(id, mailing_list_id NULL, job_type {import, embedding_refresh, index_maintenance}, status {queued, running, succeeded, failed, cancelled}, priority, payload JSONB, created_at, started_at, completed_at, error_message, last_heartbeat TIMESTAMPTZ)`
 
 **Partitioned by `mailing_list_id` (LIST)**
 
@@ -181,6 +185,16 @@ Notifications (SSE/WebSocket):
 * Incremental threading: partial index on `emails(threaded_at)` retained.
 * Auth: `user_refresh_tokens(token_id)` unique index plus `CREATE INDEX user_refresh_tokens_user_idx ON user_refresh_tokens(user_id, expires_at DESC);` for revocation sweeps.
 
+### 5.1 Job Queue Semantics
+
+* Job lifecycle uses a normalized status vocabulary: `queued` (awaiting worker), `running` (claimed and active), `succeeded`, `failed`, and `cancelled`. Status transitions are enforced via database constraints and timestamp updates (`started_at`, `completed_at`, `last_heartbeat`).
+* `job_type` controls execution logic:
+  * `import` – full mailing list sync/import, responsible for writing raw email rows and scheduling follow-up work.
+  * `embedding_refresh` – fills in missing embeddings and recomputes derived thread vectors for one mailing list scope at a time (payload carries list slug, window, and optional cursor info).
+  * `index_maintenance` – handles REINDEX/DROP+CREATE sequences and other heavyweight maintenance tasks.
+* All jobs carry a `payload` JSONB blob so admin APIs can describe scope (`mailingListSlug`, `startId`, `endId`, `forceReindex`). Workers validate the payload schema before execution.
+* Admin status endpoints (`/admin/sync/status` et al.) expose the same structure so the frontend can render a unified queue, regardless of job type, and show per-job progress (`processed_count`, `total_count`) when workers emit heartbeats.
+
 > **Note:** Keep embedding dimension in sync with chosen model (default 768).
 
 ---
@@ -199,8 +213,8 @@ Notifications (SSE/WebSocket):
 
   * Build `lex_ts` (e.g., `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(body,''))`).
   * Maintain trigram indexes for fuzzy matching.
-  * Infer **email embeddings** from normalized subject + discussion body (strip quotes, signatures, and patch hunks) via TEI; store in `emails.embedding`.
-  * Aggregate **thread embeddings** asynchronously (rolling mean of child emails) into `thread_embeddings`.
+  * Mark newly imported emails for semantic follow-up and enqueue an `embedding_refresh` job; the job dequeues batches lacking vectors, sends them to TEI, and persists results into `emails.embedding` with retries/backoff.
+  * Aggregate **thread embeddings** as part of the same job once child email vectors are materialized (rolling mean of child emails) into `thread_embeddings`.
 
 ### 6.3 Query Plan
 
@@ -416,6 +430,7 @@ Notifications (SSE/WebSocket):
 * **OIDC** via `oidc-client-ts`: PKCE login, auto refresh, logout; handle multiple realms/clients via env. ([authts.github.io][5])
 * **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), score explanations, clear fallback messaging when semantic mode unavailable.
 * **Notifications:** EventSource client for `/notifications/stream`; fall back to WebSocket if needed.
+* **Admin settings:** database/search panel surfaces queue-backed maintenance actions (refresh/reset embeddings/indexes), renders unified job status chips, and requires explicit confirmation for destructive operations.
 * **Docs:** `/docs` route embedding RapiDoc.
 
 ---
@@ -444,7 +459,7 @@ Notifications (SSE/WebSocket):
 * **Logging:** JSON to stdout; include request IDs; redact PII. ([Medium][18])
 * **Metrics:** Prometheus scrape `/metrics`; alerting:
 
-  * Import backlog age, sync failure rate, SSE client count, 95p render/search latency, DB connection utilization.
+  * Import backlog age, embedding-refresh backlog age, sync failure rate, SSE client count, 95p render/search latency, DB connection utilization.
 * **Tracing (optional):** OpenTelemetry OTLP to Collector → Jaeger/Tempo. ([OpenTelemetry][19])
 * **Health checks:** liveness/readiness as in §10.3. ([Kubernetes][20])
 
@@ -458,7 +473,7 @@ Notifications (SSE/WebSocket):
   * Step 2: update API (handles new schema).
   * Step 3: update frontend.
   * Step 4: verify `/health/ready`, dashboards.
-* **Search index maintenance:** reindex per list via admin endpoint during low traffic.
+* **Search index maintenance:** prefer admin APIs over manual SQL—`/admin/search/index/refresh` for lightweight vacuum/reindex, `/admin/search/index/reset` for destructive rebuilds (queues `index_maintenance` jobs), and `/admin/search/embeddings/(reset|rebuild)` for semantic backfills. Run destructive operations during low traffic and monitor queue depth.
 * **Notifications:** if high‑volume `NOTIFY` becomes a bottleneck (see §9 note), switch to **NATS JetStream** or Valkey pub/sub for fanout. ([NATS.io][24])
 
 ---
