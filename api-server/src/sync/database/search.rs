@@ -61,3 +61,29 @@ pub async fn refresh_search_indexes(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     Ok(())
 }
+
+/// Drop and recreate the primary search indexes.
+///
+/// Useful when indexes become corrupted or when changing operator classes. This
+/// operation acquires locks equivalent to `DROP INDEX` and `CREATE INDEX`, so it
+/// should be executed during a maintenance window.
+pub async fn rebuild_search_indexes(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let statements = [
+        "DROP INDEX IF EXISTS idx_emails_lex_ts",
+        "DROP INDEX IF EXISTS idx_emails_body_ts",
+        "DROP INDEX IF EXISTS idx_emails_subject_trgm",
+        "DROP INDEX IF EXISTS idx_emails_embedding_hnsw",
+        "DROP INDEX IF EXISTS idx_thread_embeddings_hnsw",
+        "CREATE INDEX idx_emails_lex_ts ON emails USING GIN (lex_ts)",
+        "CREATE INDEX idx_emails_body_ts ON emails USING GIN (body_ts)",
+        "CREATE INDEX idx_emails_subject_trgm ON emails USING GIN (subject gin_trgm_ops)",
+        "CREATE INDEX idx_emails_embedding_hnsw ON emails USING vchordrq (embedding vector_cosine_ops)",
+        "CREATE INDEX idx_thread_embeddings_hnsw ON thread_embeddings USING vchordrq (embedding vector_cosine_ops)",
+    ];
+
+    for statement in statements {
+        sqlx::query(statement).execute(pool).await?;
+    }
+
+    Ok(())
+}

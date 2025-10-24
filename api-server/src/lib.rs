@@ -212,6 +212,9 @@ pub fn rocket() -> Rocket<Build> {
                 routes::admin::get_database_status,
                 routes::admin::get_database_config,
                 routes::admin::refresh_search_index,
+                routes::admin::reset_search_indexes,
+                routes::admin::reset_embeddings,
+                routes::admin::rebuild_embeddings,
             ],
         )
         .mount(

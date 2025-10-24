@@ -14,4 +14,4 @@ pub mod search;
 pub use checkpoint::{load_last_indexed_commits, save_last_indexed_commits, save_last_threaded_at};
 pub use migration::{reset_database, run_migrations};
 pub use partition::{create_mailing_list_partitions, drop_mailing_list_partitions};
-pub use search::{backfill_fts_columns, refresh_search_indexes};
+pub use search::{backfill_fts_columns, rebuild_search_indexes, refresh_search_indexes};

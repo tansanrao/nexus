@@ -1,15 +1,15 @@
 //! Administrative endpoints for sync scheduling and system status.
 
 use crate::error::ApiError;
-use crate::sync::database::{backfill_fts_columns, refresh_search_indexes};
 use crate::sync::pg_config::PgConfig;
-use crate::sync::queue::{JobQueue, JobStatusInfo};
+use crate::sync::queue::{JobQueue, JobStatus, JobStatusInfo, JobType};
 use crate::sync::reset_database;
 use rocket::{State, get, post, serde::json::Json};
 use rocket_db_pools::sqlx;
 use rocket_okapi::okapi::schemars::JsonSchema;
 use rocket_okapi::openapi;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 /// Request body for enqueuing sync jobs targeting specific mailing lists.
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -36,13 +36,18 @@ pub struct QueuedJobInfo {
     id: i32,
     /// Mailing list identifier.
     #[serde(rename = "mailingListId")]
-    mailing_list_id: i32,
+    mailing_list_id: Option<i32>,
     /// Mailing list slug.
     #[serde(rename = "mailingListSlug")]
-    mailing_list_slug: String,
+    mailing_list_slug: Option<String>,
     /// Mailing list display name.
     #[serde(rename = "mailingListName")]
-    mailing_list_name: String,
+    mailing_list_name: Option<String>,
+    /// Job type discriminator.
+    #[serde(rename = "jobType")]
+    job_type: JobType,
+    /// Current job status.
+    status: JobStatus,
     /// Position in the queue (1-based).
     position: i32,
 }
@@ -100,6 +105,56 @@ pub struct SearchRefreshRequest {
     pub reindex: bool,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct JobEnqueueResponse {
+    #[serde(rename = "jobId")]
+    job_id: i32,
+    #[serde(rename = "jobType")]
+    job_type: JobType,
+    #[serde(rename = "mailingListId")]
+    mailing_list_id: Option<i32>,
+    message: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct IndexMaintenanceRequest {
+    #[serde(rename = "mailingListSlug")]
+    mailing_list_slug: Option<String>,
+    #[serde(default)]
+    pub reindex: bool,
+}
+
+impl Default for IndexMaintenanceRequest {
+    fn default() -> Self {
+        Self {
+            mailing_list_slug: None,
+            reindex: false,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct EmbeddingJobRequest {
+    #[serde(rename = "mailingListSlug")]
+    pub mailing_list_slug: Option<String>,
+    #[serde(rename = "chunkSize")]
+    pub chunk_size: Option<usize>,
+    #[serde(rename = "resumeFromId")]
+    pub resume_from_id: Option<i32>,
+}
+
+impl Default for EmbeddingJobRequest {
+    fn default() -> Self {
+        Self {
+            mailing_list_slug: None,
+            chunk_size: None,
+            resume_from_id: None,
+        }
+    }
+}
+
 /// Enqueue sync jobs for every enabled mailing list.
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/start")]
@@ -134,7 +189,7 @@ pub async fn queue_sync(
 
         if let Some((id,)) = list {
             let job_id = queue
-                .enqueue_job(id)
+                .enqueue_import_job(id)
                 .await
                 .map_err(|e| ApiError::InternalError(format!("Failed to enqueue job: {e}")))?;
             job_ids.push(job_id);
@@ -173,22 +228,37 @@ pub async fn get_sync_status(
     let mut queued_jobs = Vec::new();
 
     for (idx, job) in jobs.iter().enumerate() {
-        if matches!(job.phase.as_str(), "waiting" | "parsing" | "threading") {
-            if current_job.is_none() {
+        match job.status {
+            JobStatus::Running if current_job.is_none() => {
                 current_job = Some(job.clone());
-            } else {
+            }
+            JobStatus::Queued => {
                 queued_jobs.push(QueuedJobInfo {
                     id: job.id,
                     mailing_list_id: job.mailing_list_id,
                     mailing_list_slug: job.slug.clone(),
                     mailing_list_name: job.name.clone(),
+                    job_type: job.job_type,
+                    status: job.status,
                     position: (idx + 1) as i32,
                 });
+            }
+            _ => {}
+        }
+    }
+
+    if current_job.is_none() {
+        if let Some(head) = jobs.first() {
+            if head.status == JobStatus::Running {
+                current_job = Some(head.clone());
             }
         }
     }
 
-    let is_running = current_job.is_some();
+    let is_running = current_job
+        .as_ref()
+        .map(|job| job.status == JobStatus::Running)
+        .unwrap_or(false);
 
     Ok(Json(SyncStatusResponse {
         current_job,
@@ -221,54 +291,169 @@ pub async fn cancel_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageRespo
 pub async fn refresh_search_index(
     request: Json<SearchRefreshRequest>,
     pool: &State<sqlx::PgPool>,
-) -> Result<Json<MessageResponse>, ApiError> {
-    let mailing_list_id = if let Some(slug) = &request.mailing_list_slug {
-        let list: Option<(i32,)> = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
-            .bind(slug)
-            .fetch_optional(pool.inner())
-            .await?;
+) -> Result<Json<JobEnqueueResponse>, ApiError> {
+    let queue = JobQueue::new(pool.inner().clone());
+    let data = request.into_inner();
 
-        match list {
-            Some((id,)) => Some(id),
-            None => {
-                return Err(ApiError::BadRequest(format!(
-                    "Mailing list '{}' not found",
-                    slug
-                )));
-            }
-        }
+    let (mailing_list_id, slug_value) = if let Some(slug) = data.mailing_list_slug.as_ref() {
+        let id = resolve_mailing_list_id_by_slug(pool.inner(), slug).await?;
+        (Some(id), Some(slug.clone()))
     } else {
-        None
+        (None, None)
     };
 
-    let updated_rows = backfill_fts_columns(pool.inner(), mailing_list_id)
-        .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to refresh search vectors: {e}")))?;
-
-    if request.reindex {
-        refresh_search_indexes(pool.inner()).await.map_err(|e| {
-            ApiError::InternalError(format!("Failed to reindex search structures: {e}"))
-        })?;
+    let mut payload_map = serde_json::Map::new();
+    payload_map.insert("action".to_string(), json!("refresh"));
+    payload_map.insert("reindex".to_string(), json!(data.reindex));
+    if let Some(slug) = slug_value.as_ref() {
+        payload_map.insert("mailingListSlug".to_string(), json!(slug));
     }
 
-    let scope = request
-        .mailing_list_slug
-        .as_deref()
-        .unwrap_or("all mailing lists");
+    let payload = Value::Object(payload_map);
 
-    let message = if request.reindex {
-        format!(
-            "Refreshed search fields for {} ({} row updates and indexes reindexed)",
-            scope, updated_rows
-        )
+    let job_id = queue
+        .enqueue_job(JobType::IndexMaintenance, mailing_list_id, payload, 5)
+        .await
+        .map_err(|e| {
+            ApiError::InternalError(format!("Failed to enqueue index refresh job: {e}"))
+        })?;
+
+    Ok(Json(JobEnqueueResponse {
+        job_id,
+        job_type: JobType::IndexMaintenance,
+        mailing_list_id,
+        message: "Queued index refresh job".to_string(),
+    }))
+}
+
+/// Drop and recreate search indexes.
+#[openapi(tag = "Admin")]
+#[post("/admin/search/index/reset", data = "<request>")]
+pub async fn reset_search_indexes(
+    request: Json<IndexMaintenanceRequest>,
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<JobEnqueueResponse>, ApiError> {
+    let queue = JobQueue::new(pool.inner().clone());
+    let data = request.into_inner();
+
+    if let Some(slug) = data.mailing_list_slug.as_ref() {
+        return Err(ApiError::BadRequest(format!(
+            "Index reset cannot target mailing list '{slug}'"
+        )));
+    }
+
+    let mut payload_map = serde_json::Map::new();
+    payload_map.insert("action".to_string(), json!("reset"));
+    payload_map.insert("reindex".to_string(), json!(data.reindex));
+    let payload = Value::Object(payload_map);
+
+    let job_id = queue
+        .enqueue_job(JobType::IndexMaintenance, None, payload, 15)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to enqueue index reset job: {e}")))?;
+
+    Ok(Json(JobEnqueueResponse {
+        job_id,
+        job_type: JobType::IndexMaintenance,
+        mailing_list_id: None,
+        message: "Queued index reset job".to_string(),
+    }))
+}
+
+/// Reset embeddings (set to NULL) and rebuild for the requested scope.
+#[openapi(tag = "Admin")]
+#[post("/admin/search/embeddings/reset", data = "<request>")]
+pub async fn reset_embeddings(
+    request: Json<EmbeddingJobRequest>,
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<JobEnqueueResponse>, ApiError> {
+    enqueue_embedding_job(
+        request.into_inner(),
+        pool,
+        true,
+        "admin_reset",
+        "Queued embedding reset job",
+    )
+    .await
+}
+
+/// Rebuild embeddings without clearing existing data first.
+#[openapi(tag = "Admin")]
+#[post("/admin/search/embeddings/rebuild", data = "<request>")]
+pub async fn rebuild_embeddings(
+    request: Json<EmbeddingJobRequest>,
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<JobEnqueueResponse>, ApiError> {
+    enqueue_embedding_job(
+        request.into_inner(),
+        pool,
+        false,
+        "admin_rebuild",
+        "Queued embedding rebuild job",
+    )
+    .await
+}
+
+async fn enqueue_embedding_job(
+    request: EmbeddingJobRequest,
+    pool: &State<sqlx::PgPool>,
+    reset_first: bool,
+    trigger: &str,
+    message: &str,
+) -> Result<Json<JobEnqueueResponse>, ApiError> {
+    let queue = JobQueue::new(pool.inner().clone());
+
+    let (mailing_list_id, slug_value) = if let Some(slug) = request.mailing_list_slug.as_ref() {
+        let id = resolve_mailing_list_id_by_slug(pool.inner(), slug).await?;
+        (Some(id), Some(slug.clone()))
     } else {
-        format!(
-            "Refreshed search fields for {} ({} row updates)",
-            scope, updated_rows
-        )
+        (None, None)
     };
 
-    Ok(Json(MessageResponse { message }))
+    let mut payload_map = serde_json::Map::new();
+    payload_map.insert("mode".to_string(), json!("rebuild_all"));
+    payload_map.insert("resetFirst".to_string(), json!(reset_first));
+    payload_map.insert("trigger".to_string(), json!(trigger));
+    if let Some(slug) = slug_value.as_ref() {
+        payload_map.insert("mailingListSlug".to_string(), json!(slug));
+    }
+    if let Some(chunk_size) = request.chunk_size {
+        payload_map.insert("chunkSize".to_string(), json!(chunk_size));
+    }
+    if let Some(resume) = request.resume_from_id {
+        payload_map.insert("resumeFromId".to_string(), json!(resume));
+    }
+
+    let payload = Value::Object(payload_map);
+
+    let job_id = queue
+        .enqueue_job(JobType::EmbeddingRefresh, mailing_list_id, payload, 10)
+        .await
+        .map_err(|e| ApiError::InternalError(format!("Failed to enqueue embedding job: {e}")))?;
+
+    Ok(Json(JobEnqueueResponse {
+        job_id,
+        job_type: JobType::EmbeddingRefresh,
+        mailing_list_id,
+        message: message.to_string(),
+    }))
+}
+
+async fn resolve_mailing_list_id_by_slug(pool: &sqlx::PgPool, slug: &str) -> Result<i32, ApiError> {
+    let row: Option<(i32,)> = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
+        .bind(slug)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            ApiError::InternalError(format!("Failed to lookup mailing list '{slug}': {e}"))
+        })?;
+
+    match row {
+        Some((id,)) => Ok(id),
+        None => Err(ApiError::BadRequest(format!(
+            "Mailing list '{slug}' not found"
+        ))),
+    }
 }
 
 /// Drop and recreate the database schema.
