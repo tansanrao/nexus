@@ -117,15 +117,16 @@ impl EmbeddingClient {
 
             let body = response.bytes().await.map_err(EmbeddingError::Http)?;
             let parsed: EmbeddingResponse = serde_json::from_slice(&body)?;
+            let embeddings = parsed.into_embeddings();
 
-            if parsed.embeddings.len() != chunk.len() {
+            if embeddings.len() != chunk.len() {
                 return Err(EmbeddingError::CountMismatch {
                     expected: chunk.len(),
-                    actual: parsed.embeddings.len(),
+                    actual: embeddings.len(),
                 });
             }
 
-            for embedding in parsed.embeddings {
+            for embedding in embeddings {
                 if embedding.len() != self.config.dimension {
                     return Err(EmbeddingError::DimensionMismatch {
                         expected: self.config.dimension,
@@ -150,6 +151,17 @@ struct EmbeddingRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct EmbeddingResponse {
-    embeddings: Vec<Vec<f32>>,
+#[serde(untagged)]
+enum EmbeddingResponse {
+    Bare(Vec<Vec<f32>>),
+    Wrapped { embeddings: Vec<Vec<f32>> },
+}
+
+impl EmbeddingResponse {
+    fn into_embeddings(self) -> Vec<Vec<f32>> {
+        match self {
+            EmbeddingResponse::Bare(values) => values,
+            EmbeddingResponse::Wrapped { embeddings } => embeddings,
+        }
+    }
 }

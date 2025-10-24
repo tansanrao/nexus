@@ -7,16 +7,37 @@ use crate::sync::parser::ParsedEmail;
 /// patch content (diffs, diffstats, trailers) so semantic search focuses on the
 /// discussion rather than the code changes.
 pub fn build_email_embedding_text(email: &ParsedEmail) -> String {
-    let mut body = email.body.clone();
+    build_embedding_text_from_parts(
+        email.subject.as_str(),
+        email.body.as_str(),
+        email.patch_type,
+        email.is_patch_only,
+        email.patch_metadata.as_ref(),
+    )
+}
 
-    if matches!(email.patch_type, PatchType::Attachment) && email.is_patch_only {
-        body.clear();
-    } else if let Some(metadata) = &email.patch_metadata {
-        body = strip_patch_sections(&body, metadata);
-    }
+/// Build the canonical embedding text from primitive email fields.
+///
+/// This helper is used by background jobs that operate on persisted email rows
+/// (instead of freshly parsed messages) so they can reuse the same text
+/// assembly logic as the live import pipeline.
+pub fn build_embedding_text_from_parts(
+    subject: &str,
+    body: &str,
+    patch_type: PatchType,
+    is_patch_only: bool,
+    patch_metadata: Option<&PatchMetadata>,
+) -> String {
+    let cleaned_body = if matches!(patch_type, PatchType::Attachment) && is_patch_only {
+        String::new()
+    } else if let Some(metadata) = patch_metadata {
+        strip_patch_sections(body, metadata)
+    } else {
+        body.to_string()
+    };
 
-    let body = normalize_whitespace(body.trim());
-    let subject = email.subject.trim();
+    let subject = subject.trim();
+    let body = normalize_whitespace(cleaned_body.trim());
 
     if body.is_empty() {
         subject.to_string()
