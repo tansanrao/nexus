@@ -1,6 +1,7 @@
 import { ScrollArea } from '../components/ui/scroll-area';
 import { SyncPanel } from '../components/settings/SyncPanel';
 import { DatabasePanel } from '../components/settings/DatabasePanel';
+import { SearchMaintenancePanel } from '../components/settings/SearchMaintenancePanel';
 
 export function SettingsDatabase() {
   return (
@@ -17,6 +18,7 @@ export function SettingsDatabase() {
               </p>
             </header>
 
+            <SearchMaintenancePanel />
             <SyncPanel />
             <DatabasePanel />
           </div>

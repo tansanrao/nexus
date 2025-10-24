@@ -107,6 +107,45 @@ export interface ThreadWithStarter extends Thread {
   starter_email: string;
 }
 
+export type SearchMode = 'lexical' | 'semantic' | 'hybrid';
+
+export interface ThreadSearchHit {
+  thread: ThreadWithStarter;
+  lexical_score?: number | null;
+  semantic_score?: number | null;
+  combined_score?: number | null;
+}
+
+export type ThreadListItem = ThreadSearchHit;
+
+export interface ThreadSearchResponse {
+  mode: SearchMode;
+  query: string;
+  page: number;
+  size: number;
+  total: number;
+  results: ThreadSearchHit[];
+  warnings?: string[];
+}
+
+export interface ThreadSearchMeta {
+  requestedMode: SearchMode;
+  effectiveMode: SearchMode;
+  warnings: string[];
+  query: string;
+}
+
+export interface MessageResponse {
+  message: string;
+}
+
+export interface JobEnqueueResponse {
+  jobId: number;
+  jobType: JobType;
+  mailingListId: number | null;
+  message: string;
+}
+
 export interface PageMetadata {
   page: number;
   size: number;
@@ -123,14 +162,17 @@ export interface DataResponse<T> {
   data: T;
 }
 
-export type JobPhase = 'waiting' | 'parsing' | 'threading' | 'done' | 'errored';
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export type JobType = 'import' | 'embedding_refresh' | 'index_maintenance';
 
 export interface JobStatusInfo {
   id: number;
-  mailing_list_id: number;
-  slug: string;
-  name: string;
-  phase: JobPhase;
+  mailingListId: number | null;
+  slug?: string | null;
+  name?: string | null;
+  jobType: JobType;
+  status: JobStatus;
   priority: number;
   created_at: string;
   started_at: string | null;
@@ -140,9 +182,11 @@ export interface JobStatusInfo {
 
 export interface QueuedJob {
   id: number;
-  mailingListId: number;
-  mailingListSlug: string;
-  mailingListName: string;
+  mailingListId: number | null;
+  mailingListSlug: string | null;
+  mailingListName: string | null;
+  jobType: JobType;
+  status: JobStatus;
   position: number;
 }
 

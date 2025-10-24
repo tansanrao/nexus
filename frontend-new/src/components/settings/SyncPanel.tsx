@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '../../lib/api';
-import type { GlobalSyncStatus, MailingList } from '../../types';
+import type { GlobalSyncStatus, JobStatus, JobType, MailingList } from '../../types';
 import { Section } from '../ui/section';
 import { CompactButton } from '../ui/compact-button';
 import { Input } from '../ui/input';
@@ -144,18 +144,22 @@ export function SyncPanel() {
           <div className="surface-muted px-3 py-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="font-semibold">{currentJob.name}</div>
+                <div className="font-semibold">
+                  {currentJob.name ?? currentJob.slug ?? `Job #${currentJob.id}`}
+                </div>
                 <div className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                  {currentJob.slug}
+                  {currentJob.slug
+                    ? `${jobTypeLabel(currentJob.jobType)} • ${currentJob.slug}`
+                    : jobTypeLabel(currentJob.jobType)}
                 </div>
               </div>
               <span
                 className={cn(
                   'rounded-sm border px-2 py-1 text-[11px] uppercase tracking-[0.08em]',
-                  statusTone(currentJob.phase)
+                  statusTone(currentJob.status)
                 )}
               >
-                {phaseLabel(currentJob.phase)}
+                {statusLabel(currentJob.status)}
               </span>
             </div>
             {currentJob.started_at && (
@@ -276,24 +280,45 @@ export function SyncPanel() {
   );
 }
 
-function phaseLabel(phase: string) {
-  const map: Record<string, string> = {
-    waiting: 'Waiting',
-    parsing: 'Parsing',
-    threading: 'Threading',
-    done: 'Done',
-    errored: 'Error',
-  };
-  return map[phase] ?? 'Waiting';
+function statusLabel(status: JobStatus) {
+  switch (status) {
+    case 'queued':
+      return 'Queued';
+    case 'running':
+      return 'Running';
+    case 'succeeded':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return status;
+  }
 }
 
-function statusTone(phase: string) {
-  switch (phase) {
-    case 'errored':
+function statusTone(status: JobStatus) {
+  switch (status) {
+    case 'failed':
       return 'border-destructive/60 text-destructive';
-    case 'done':
+    case 'succeeded':
       return 'border-green-500/60 text-green-600';
+    case 'cancelled':
+      return 'border-amber-500/60 text-amber-600';
     default:
       return 'border-border/60 text-muted-foreground';
+  }
+}
+
+function jobTypeLabel(jobType: JobType) {
+  switch (jobType) {
+    case 'import':
+      return 'Sync job';
+    case 'embedding_refresh':
+      return 'Embedding refresh';
+    case 'index_maintenance':
+      return 'Index maintenance';
+    default:
+      return jobType;
   }
 }

@@ -9,27 +9,25 @@ import type {
   DataResponse,
   GlobalSyncStatus,
   DatabaseStatus,
+  ThreadSearchResponse,
+  SearchMode,
+  MessageResponse,
+  JobEnqueueResponse,
 } from '../types';
 import { getApiBaseUrl } from '../contexts/ApiConfigContext';
 
 type ThreadSortField = 'startDate' | 'lastDate' | 'messageCount';
 type SortOrder = 'asc' | 'desc';
-type ThreadSearchType = 'subject' | 'fullText';
 
 interface AuthorThreadQueryParams {
   page?: number;
   size?: number;
   sortBy?: ThreadSortField;
   order?: SortOrder;
-  searchType?: ThreadSearchType;
   query?: string;
 }
 
 const API_PREFIX = '/api/v1';
-
-interface MessageResponse {
-  message: string;
-}
 
 interface ToggleResponse {
   message: string;
@@ -46,6 +44,22 @@ interface SeedResponse {
   mailingListsCreated: number;
   repositoriesCreated: number;
   partitionsCreated: number;
+}
+
+interface SearchIndexRefreshParams {
+  mailingListSlug?: string;
+  reindex?: boolean;
+}
+
+interface IndexMaintenanceParams {
+  mailingListSlug?: string;
+  reindex?: boolean;
+}
+
+interface EmbeddingJobParams {
+  mailingListSlug?: string;
+  chunkSize?: number;
+  resumeFromId?: number;
 }
 
 export class ApiClient {
@@ -110,9 +124,6 @@ export class ApiClient {
     if (params.order) {
       searchParams.set('order', params.order);
     }
-    if (params.searchType) {
-      searchParams.set('searchType', params.searchType);
-    }
     if (params.query && params.query.trim()) {
       searchParams.set('q', params.query.trim());
     }
@@ -150,6 +161,72 @@ export class ApiClient {
     });
   }
 
+  async refreshSearchIndex(params: SearchIndexRefreshParams = {}): Promise<JobEnqueueResponse> {
+    const payload: Record<string, unknown> = {};
+    if (params.mailingListSlug && params.mailingListSlug.trim()) {
+      payload.mailingListSlug = params.mailingListSlug.trim();
+    }
+    if (typeof params.reindex === 'boolean') {
+      payload.reindex = params.reindex;
+    }
+
+    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/index/refresh`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async resetSearchIndexes(params: IndexMaintenanceParams = {}): Promise<JobEnqueueResponse> {
+    const payload: Record<string, unknown> = {};
+    if (params.mailingListSlug && params.mailingListSlug.trim()) {
+      payload.mailingListSlug = params.mailingListSlug.trim();
+    }
+    if (typeof params.reindex === 'boolean') {
+      payload.reindex = params.reindex;
+    }
+
+    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/index/reset`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async resetEmbeddings(params: EmbeddingJobParams = {}): Promise<JobEnqueueResponse> {
+    const payload: Record<string, unknown> = {};
+    if (params.mailingListSlug && params.mailingListSlug.trim()) {
+      payload.mailingListSlug = params.mailingListSlug.trim();
+    }
+    if (typeof params.chunkSize === 'number') {
+      payload.chunkSize = params.chunkSize;
+    }
+    if (typeof params.resumeFromId === 'number') {
+      payload.resumeFromId = params.resumeFromId;
+    }
+
+    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/embeddings/reset`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async rebuildEmbeddings(params: EmbeddingJobParams = {}): Promise<JobEnqueueResponse> {
+    const payload: Record<string, unknown> = {};
+    if (params.mailingListSlug && params.mailingListSlug.trim()) {
+      payload.mailingListSlug = params.mailingListSlug.trim();
+    }
+    if (typeof params.chunkSize === 'number') {
+      payload.chunkSize = params.chunkSize;
+    }
+    if (typeof params.resumeFromId === 'number') {
+      payload.resumeFromId = params.resumeFromId;
+    }
+
+    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/embeddings/rebuild`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async getThreads(
     slug: string,
     page: number = 1,
@@ -172,26 +249,22 @@ export class ApiClient {
   async searchThreads(
     slug: string,
     query: string,
-    searchType: ThreadSearchType = 'subject',
+    mode: SearchMode = 'hybrid',
     page: number = 1,
-    size: number = 50,
-    sortBy: ThreadSortField = 'lastDate',
-    order: SortOrder = 'desc'
-  ): Promise<PaginatedResponse<ThreadWithStarter>> {
+    size: number = 25
+  ): Promise<ThreadSearchResponse> {
     const params = new URLSearchParams({
       page: page.toString(),
       size: size.toString(),
-      sortBy,
-      order,
     });
 
     if (query.trim()) {
       params.set('q', query.trim());
     }
 
-    params.set('searchType', searchType);
+    params.set('mode', mode);
 
-    return this.request<PaginatedResponse<ThreadWithStarter>>(
+    return this.request<ThreadSearchResponse>(
       `${API_PREFIX}/${slug}/threads/search?${params.toString()}`
     );
   }
