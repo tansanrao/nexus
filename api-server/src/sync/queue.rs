@@ -2,14 +2,13 @@ use chrono::{DateTime, Utc};
 use rocket_db_pools::sqlx::{self, PgPool};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, sqlx::Type, PartialEq, Eq)]
 #[sqlx(type_name = "job_type", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum JobType {
     Import,
-    EmbeddingRefresh,
     IndexMaintenance,
 }
 
@@ -221,42 +220,6 @@ impl JobQueue {
         .await?;
 
         Ok(jobs)
-    }
-
-    /// Enqueue an embedding refresh job if one is not already queued or running for the mailing list.
-    pub async fn enqueue_embedding_refresh_if_needed(
-        &self,
-        mailing_list_id: i32,
-        trigger: &str,
-    ) -> Result<Option<i32>, sqlx::Error> {
-        let existing: Option<(i32,)> = sqlx::query_as(
-            r#"SELECT id FROM jobs
-               WHERE job_type = 'embedding_refresh'
-                 AND mailing_list_id = $1
-                 AND status IN ('queued', 'running')
-               ORDER BY created_at ASC
-               LIMIT 1"#,
-        )
-        .bind(mailing_list_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        if existing.is_some() {
-            return Ok(None);
-        }
-
-        let payload = json!({ "trigger": trigger });
-
-        let id = self
-            .enqueue_job(
-                JobType::EmbeddingRefresh,
-                Some(mailing_list_id),
-                payload,
-                -10,
-            )
-            .await?;
-
-        Ok(Some(id))
     }
 }
 

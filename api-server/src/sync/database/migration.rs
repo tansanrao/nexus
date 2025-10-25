@@ -47,63 +47,39 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
 pub async fn reset_database(pool: &PgPool) -> Result<(), sqlx::Error> {
     log::info!("resetting database schema");
 
-    // Drop all existing tables in reverse order of dependencies
-    // PostgreSQL CASCADE will handle partitions
-    sqlx::query("DROP TABLE IF EXISTS thread_memberships CASCADE")
+    // Drop the public schema entirely to ensure we remove every artifact from
+    // prior migrations (tables, types, sequences, etc.). Recreate it with the
+    // default grants so subsequent migrations run against a clean slate.
+    sqlx::query("DROP SCHEMA IF EXISTS public CASCADE")
         .execute(pool)
         .await?;
 
-    sqlx::query("DROP TABLE IF EXISTS threads CASCADE")
+    sqlx::query("CREATE SCHEMA public").execute(pool).await?;
+
+    sqlx::query("GRANT ALL ON SCHEMA public TO postgres")
         .execute(pool)
         .await?;
 
-    sqlx::query("DROP TABLE IF EXISTS email_recipients CASCADE")
+    sqlx::query("GRANT ALL ON SCHEMA public TO public")
         .execute(pool)
         .await?;
 
-    sqlx::query("DROP TABLE IF EXISTS email_references CASCADE")
+    sqlx::query("COMMENT ON SCHEMA public IS 'standard public schema'")
         .execute(pool)
         .await?;
 
-    sqlx::query("DROP TABLE IF EXISTS emails CASCADE")
+    // Drop extension metadata so migrations can recreate them with the expected
+    // options. Extensions live outside the schema, so we explicitly remove any
+    // that the migrator manages.
+    sqlx::query("DROP EXTENSION IF EXISTS vchord CASCADE")
         .execute(pool)
         .await?;
 
-    sqlx::query("DROP TABLE IF EXISTS author_mailing_list_activity CASCADE")
+    sqlx::query("DROP EXTENSION IF EXISTS pg_trgm CASCADE")
         .execute(pool)
         .await?;
 
-    sqlx::query("DROP TABLE IF EXISTS author_name_aliases CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS authors CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS mailing_list_repositories CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS mailing_lists CASCADE")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS sync_jobs CASCADE")
-        .execute(pool)
-        .await?;
-
-    // Drop custom types so migrations can recreate them cleanly
-    sqlx::query("DROP TYPE IF EXISTS patch_type CASCADE")
-        .execute(pool)
-        .await?;
-
-    // Drop the sqlx migrations tracking table to allow re-running migrations
-    sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations CASCADE")
-        .execute(pool)
-        .await?;
-
-    log::info!("all tables dropped, running migrations");
+    log::info!("all schemas dropped, running migrations");
 
     // Run all migrations from scratch
     sqlx::migrate!("./migrations").run(pool).await?;

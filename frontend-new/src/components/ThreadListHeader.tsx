@@ -4,7 +4,6 @@
 export interface ThreadFilters {
   sortBy: 'startDate' | 'lastDate' | 'messageCount';
   order: 'asc' | 'desc';
-  searchType: 'subject' | 'fullText';
 }
 
 // Empty component - all functionality moved to TopBar

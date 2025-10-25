@@ -5,7 +5,6 @@
 //! The types follow Rocket's `FromForm` conventions and derive `JsonSchema` so
 //! generated documentation reflects the available parameters and their defaults.
 
-use crate::search::SearchMode;
 use rocket::form::{self, FromForm, FromFormField, ValueField};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -34,10 +33,6 @@ fn default_author_sort_field() -> AuthorSortField {
 
 fn default_thread_sort_field() -> ThreadSortField {
     ThreadSortField::LastDate
-}
-
-fn default_search_mode() -> SearchMode {
-    SearchMode::Hybrid
 }
 
 fn default_optional_string() -> Option<String> {
@@ -338,10 +333,6 @@ pub struct ThreadSearchParams {
     /// Free-text search term. If omitted, the endpoint returns an empty result set.
     #[serde(default = "default_optional_string")]
     pub q: Option<String>,
-    /// Preferred search mode (`lexical`, `semantic`, or `hybrid`). Defaults to `hybrid`.
-    #[field(default = SearchMode::Hybrid)]
-    #[serde(default = "default_search_mode")]
-    pub mode: SearchMode,
     /// Page of results to fetch (defaults to 1).
     #[field(default = 1)]
     #[serde(default = "default_page")]
@@ -356,7 +347,6 @@ impl Default for ThreadSearchParams {
     fn default() -> Self {
         Self {
             q: None,
-            mode: default_search_mode(),
             page: default_page(),
             size: default_search_page_size(),
         }

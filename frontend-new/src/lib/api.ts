@@ -10,7 +10,6 @@ import type {
   GlobalSyncStatus,
   DatabaseStatus,
   ThreadSearchResponse,
-  SearchMode,
   MessageResponse,
   JobEnqueueResponse,
 } from '../types';
@@ -54,12 +53,6 @@ interface SearchIndexRefreshParams {
 interface IndexMaintenanceParams {
   mailingListSlug?: string;
   reindex?: boolean;
-}
-
-interface EmbeddingJobParams {
-  mailingListSlug?: string;
-  chunkSize?: number;
-  resumeFromId?: number;
 }
 
 export class ApiClient {
@@ -191,42 +184,6 @@ export class ApiClient {
     });
   }
 
-  async resetEmbeddings(params: EmbeddingJobParams = {}): Promise<JobEnqueueResponse> {
-    const payload: Record<string, unknown> = {};
-    if (params.mailingListSlug && params.mailingListSlug.trim()) {
-      payload.mailingListSlug = params.mailingListSlug.trim();
-    }
-    if (typeof params.chunkSize === 'number') {
-      payload.chunkSize = params.chunkSize;
-    }
-    if (typeof params.resumeFromId === 'number') {
-      payload.resumeFromId = params.resumeFromId;
-    }
-
-    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/embeddings/reset`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async rebuildEmbeddings(params: EmbeddingJobParams = {}): Promise<JobEnqueueResponse> {
-    const payload: Record<string, unknown> = {};
-    if (params.mailingListSlug && params.mailingListSlug.trim()) {
-      payload.mailingListSlug = params.mailingListSlug.trim();
-    }
-    if (typeof params.chunkSize === 'number') {
-      payload.chunkSize = params.chunkSize;
-    }
-    if (typeof params.resumeFromId === 'number') {
-      payload.resumeFromId = params.resumeFromId;
-    }
-
-    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/embeddings/rebuild`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  }
-
   async getThreads(
     slug: string,
     page: number = 1,
@@ -249,7 +206,6 @@ export class ApiClient {
   async searchThreads(
     slug: string,
     query: string,
-    mode: SearchMode = 'hybrid',
     page: number = 1,
     size: number = 25
   ): Promise<ThreadSearchResponse> {
@@ -261,8 +217,6 @@ export class ApiClient {
     if (query.trim()) {
       params.set('q', query.trim());
     }
-
-    params.set('mode', mode);
 
     return this.request<ThreadSearchResponse>(
       `${API_PREFIX}/${slug}/threads/search?${params.toString()}`

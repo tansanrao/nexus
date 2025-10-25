@@ -3,7 +3,6 @@
 //! Every struct in this module derives `JsonSchema` so `rocket_okapi` can describe
 //! the payloads accurately in the generated OpenAPI document.
 
-use crate::search::SearchMode;
 use chrono::{DateTime, Utc};
 use rocket_db_pools::sqlx::postgres::{PgRow, PgTypeInfo};
 use rocket_db_pools::sqlx::{self, FromRow, Row, Type, types::Json};
@@ -327,12 +326,6 @@ pub struct ThreadSearchHit {
     /// Lexical score (0..1) when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lexical_score: Option<f32>,
-    /// Semantic similarity score (0..1) when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub semantic_score: Option<f32>,
-    /// Combined hybrid score (0..1) when applicable.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub combined_score: Option<f32>,
 }
 
 impl ThreadSearchHit {
@@ -340,8 +333,6 @@ impl ThreadSearchHit {
         Self {
             thread,
             lexical_score: None,
-            semantic_score: None,
-            combined_score: None,
         }
     }
 }
@@ -350,8 +341,6 @@ impl ThreadSearchHit {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSearchResponse {
-    /// Effective search mode after applying fallbacks.
-    pub mode: SearchMode,
     /// Original query string trimmed.
     pub query: String,
     /// One-based page index.
@@ -362,9 +351,6 @@ pub struct ThreadSearchResponse {
     pub total: i64,
     /// Ranked search hits.
     pub results: Vec<ThreadSearchHit>,
-    /// Non-fatal warnings (e.g., fallbacks).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
 }
 
 /// Pagination metadata accompanying list responses.

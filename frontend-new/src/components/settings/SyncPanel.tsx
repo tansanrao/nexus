@@ -314,8 +314,6 @@ function jobTypeLabel(jobType: JobType) {
   switch (jobType) {
     case 'import':
       return 'Sync job';
-    case 'embedding_refresh':
-      return 'Embedding refresh';
     case 'index_maintenance':
       return 'Index maintenance';
     default:

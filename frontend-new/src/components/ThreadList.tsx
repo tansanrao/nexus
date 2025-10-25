@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { Input } from './ui/input';
-import type { ThreadWithStarter } from '../types';
+import type { ThreadListItem, ThreadWithStarter } from '../types';
 import { Pagination } from './Pagination';
 import { useTimezone } from '../contexts/timezone-context';
 import { formatDateCompact } from '../utils/timezone';
@@ -20,8 +20,10 @@ const isWithinLastWeek = (dateString: string): boolean => {
   return diffInMs <= 7 * msInDay;
 };
 
+const formatScore = (score: number): string => `${Math.round(score * 100)}%`;
+
 interface ThreadListProps {
-  threads: ThreadWithStarter[];
+  threads: ThreadListItem[];
   loading: boolean;
   selectedThreadId: number | null;
   onThreadSelect: (thread: ThreadWithStarter) => void;
@@ -49,6 +51,10 @@ export function ThreadList({
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setLocalQuery(searchQuery);
+  }, [searchQuery]);
 
   const debouncedSearch = useCallback((query: string) => {
     if (debounceTimeoutRef.current) {
@@ -146,7 +152,8 @@ export function ThreadList({
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
-          {threads.map((thread) => {
+          {threads.map((item) => {
+            const { thread, lexical_score } = item;
             const startDateText = formatDateCompact(thread.start_date, timezone);
             const shouldPrefix =
               isWithinLastWeek(thread.start_date) &&
@@ -191,6 +198,11 @@ export function ThreadList({
                     )}
                   </div>
                 </div>
+                {typeof lexical_score === 'number' && (
+                  <div className="mt-2 text-[11px] text-muted-foreground">
+                    Lexical relevance {formatScore(lexical_score)}
+                  </div>
+                )}
               </div>
             );
           })}

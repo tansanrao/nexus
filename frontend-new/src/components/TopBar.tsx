@@ -1,5 +1,4 @@
 import {
-  Filter,
   List,
   ArrowDown,
   ArrowUp,
@@ -50,13 +49,6 @@ export function TopBar({
     lastDate: 'Last Activity',
     messageCount: 'Message Count',
   };
-
-
-  const searchTypeLabels = {
-    subject: 'Subject Only',
-    fullText: 'Full Text',
-  };
-
   const collapseTitle = threadsCollapsed ? 'Expand thread list' : 'Collapse thread list';
   const collapseIcon = threadsCollapsed ? <PanelLeftOpen className="h-3 w-3" /> : <PanelLeftClose className="h-3 w-3" />;
   const isDiffView = rightPanelView === 'diff';
@@ -138,31 +130,6 @@ export function TopBar({
                       </DropdownMenuRadioItem>
                       <DropdownMenuRadioItem value="messageCount">
                         {sortByLabels.messageCount}
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                {/* Filter Options */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-accent-foreground hover:bg-accent-foreground/10">
-                      <Filter className="h-3 w-3" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48 space-y-1" onCloseAutoFocus={(e) => e.preventDefault()}>
-                    <DropdownMenuLabel>Search Mode</DropdownMenuLabel>
-                    <DropdownMenuRadioGroup
-                      value={filters.searchType}
-                      onValueChange={(value) => {
-                        onFiltersChange({ ...filters, searchType: value as ThreadFilters['searchType'] });
-                      }}
-                    >
-                      <DropdownMenuRadioItem value="subject">
-                        {searchTypeLabels.subject}
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="fullText">
-                        {searchTypeLabels.fullText}
                       </DropdownMenuRadioItem>
                     </DropdownMenuRadioGroup>
                   </DropdownMenuContent>

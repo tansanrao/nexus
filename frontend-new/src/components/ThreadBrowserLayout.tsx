@@ -2,12 +2,12 @@ import type { ReactNode } from 'react';
 import { ThreadList } from './ThreadList';
 import { ThreadView } from './ThreadView';
 import { ThreadDiffView } from './ThreadDiffView';
-import type { ThreadWithStarter } from '../types';
+import type { ThreadListItem, ThreadWithStarter } from '../types';
 import { cn } from '../lib/utils';
 import { useThreadDetail } from '../hooks/useThreadDetail';
 
 interface ThreadBrowserLayoutProps {
-  threads: ThreadWithStarter[];
+  threads: ThreadListItem[];
   loading: boolean;
   selectedThreadId: number | null;
   onThreadSelect: (thread: ThreadWithStarter) => void;

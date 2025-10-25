@@ -107,32 +107,19 @@ export interface ThreadWithStarter extends Thread {
   starter_email: string;
 }
 
-export type SearchMode = 'lexical' | 'semantic' | 'hybrid';
-
 export interface ThreadSearchHit {
   thread: ThreadWithStarter;
   lexical_score?: number | null;
-  semantic_score?: number | null;
-  combined_score?: number | null;
 }
 
 export type ThreadListItem = ThreadSearchHit;
 
 export interface ThreadSearchResponse {
-  mode: SearchMode;
   query: string;
   page: number;
   size: number;
   total: number;
   results: ThreadSearchHit[];
-  warnings?: string[];
-}
-
-export interface ThreadSearchMeta {
-  requestedMode: SearchMode;
-  effectiveMode: SearchMode;
-  warnings: string[];
-  query: string;
 }
 
 export interface MessageResponse {
@@ -164,7 +151,7 @@ export interface DataResponse<T> {
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
-export type JobType = 'import' | 'embedding_refresh' | 'index_maintenance';
+export type JobType = 'import' | 'index_maintenance';
 
 export interface JobStatusInfo {
   id: number;

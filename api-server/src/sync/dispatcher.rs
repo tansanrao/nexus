@@ -48,10 +48,6 @@
 //! - **Change Detection**: SHA256 membership hashing skips unchanged threads
 //! - **Checkpoint Recovery**: Resume from last successful epoch
 
-use crate::models::{PatchMetadata, PatchType};
-use crate::search::{
-    EmbeddingClient, EmbeddingConfig, SearchConfig, build_embedding_text_from_parts,
-};
 use crate::sync::bulk_import::BulkImporter;
 use crate::sync::database::checkpoint;
 use crate::sync::import::coordinator::EMAIL_IMPORT_BATCH_SIZE;
@@ -63,10 +59,8 @@ use crate::sync::{
 };
 use crate::threading::container::ThreadInfo;
 use crate::threading::{MailingListCache, build_email_threads};
-use pgvector::Vector;
 use rocket_db_pools::sqlx::{self, Acquire, PgPool};
 use serde::Deserialize;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -81,71 +75,9 @@ use std::time::Duration;
 ///
 /// - `pool`: Database connection pool for all operations
 /// - `queue`: Job queue manager for claiming/updating jobs
-/// - `embedding_client`: Optional embeddings service client for semantic search
-/// - `embedding_config`: Embedding configuration (dimension, batching, prefixes)
-/// - `search_config`: Runtime search configuration flags and weights
 pub struct SyncDispatcher {
     pool: PgPool,
     queue: JobQueue,
-    embedding_client: Option<EmbeddingClient>,
-    embedding_config: EmbeddingConfig,
-    search_config: SearchConfig,
-}
-
-#[derive(Debug)]
-struct EmbeddingScope {
-    id: i32,
-    slug: Option<String>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct EmbeddingCandidate {
-    id: i32,
-    subject: Option<String>,
-    normalized_subject: Option<String>,
-    body: Option<String>,
-    patch_type: PatchType,
-    is_patch_only: bool,
-    patch_metadata: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-struct EmbeddingJobPayload {
-    mode: EmbeddingJobMode,
-    #[serde(rename = "resumeFromId")]
-    resume_from_id: Option<i32>,
-    #[serde(rename = "mailingListSlug")]
-    mailing_list_slug: Option<String>,
-    #[serde(rename = "resetFirst")]
-    reset_first: bool,
-    #[serde(rename = "chunkSize")]
-    chunk_size: Option<usize>,
-}
-
-impl Default for EmbeddingJobPayload {
-    fn default() -> Self {
-        Self {
-            mode: EmbeddingJobMode::Missing,
-            resume_from_id: None,
-            mailing_list_slug: None,
-            reset_first: false,
-            chunk_size: None,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-enum EmbeddingJobMode {
-    Missing,
-    RebuildAll,
-}
-
-impl Default for EmbeddingJobMode {
-    fn default() -> Self {
-        EmbeddingJobMode::Missing
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,20 +108,9 @@ enum IndexJobAction {
 }
 
 impl SyncDispatcher {
-    pub fn new(
-        pool: PgPool,
-        embedding_client: Option<EmbeddingClient>,
-        embedding_config: EmbeddingConfig,
-        search_config: SearchConfig,
-    ) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         let queue = JobQueue::new(pool.clone());
-        Self {
-            pool,
-            queue,
-            embedding_client,
-            embedding_config,
-            search_config,
-        }
+        Self { pool, queue }
     }
 
     /// Run dispatcher loop forever
@@ -215,7 +136,6 @@ impl SyncDispatcher {
 
             let result = match job.job_type {
                 JobType::Import => self.process_import_job(job).await,
-                JobType::EmbeddingRefresh => self.process_embedding_refresh_job(job).await,
                 JobType::IndexMaintenance => self.process_index_job(job).await,
             };
 
@@ -327,27 +247,6 @@ impl SyncDispatcher {
         // Phase 6: Save checkpoints
         self.save_sync_checkpoints(job_id, list_id, &epoch_checkpoints)
             .await?;
-
-        // Schedule embedding refresh asynchronously so search vectors remain fresh.
-        if self.search_config.enable_semantic && self.embedding_client.is_some() {
-            if let Err(err) = self
-                .queue
-                .enqueue_embedding_refresh_if_needed(list_id, "import_complete")
-                .await
-            {
-                log::warn!(
-                    "job {}: failed to enqueue embedding refresh job for list {}: {}",
-                    job_id,
-                    list_id,
-                    err
-                );
-            }
-        } else {
-            log::debug!(
-                "job {}: skipping embedding refresh enqueue (semantic disabled or client unavailable)",
-                job_id
-            );
-        }
 
         // Complete job
         self.queue
@@ -1005,158 +904,6 @@ impl SyncDispatcher {
         Ok(())
     }
 
-    async fn process_embedding_refresh_job(&self, job: Job) -> Result<(), String> {
-        let job_id = job.id;
-
-        let Some(client) = self.embedding_client.clone() else {
-            let message =
-                "Embedding service is not configured; cannot process embedding refresh job"
-                    .to_string();
-            if let Err(err) = self.queue.fail_job(job_id, message.clone()).await {
-                log::error!(
-                    "job {}: failed to mark job as failed after missing embedding client: {}",
-                    job_id,
-                    err
-                );
-            }
-            return Err(message);
-        };
-
-        let payload = if job.payload.is_null() {
-            EmbeddingJobPayload::default()
-        } else {
-            match serde_json::from_value(job.payload.clone()) {
-                Ok(value) => value,
-                Err(err) => {
-                    let message = format!("Invalid embedding job payload: {}", err);
-                    if let Err(queue_err) = self.queue.fail_job(job_id, message.clone()).await {
-                        log::error!(
-                            "job {}: failed to mark job as failed after payload parsing error: {}",
-                            job_id,
-                            queue_err
-                        );
-                    }
-                    return Err(message);
-                }
-            }
-        };
-
-        let scope = match self.resolve_embedding_scope(&job, &payload).await {
-            Ok(scope) => scope,
-            Err(err) => {
-                if let Err(queue_err) = self.queue.fail_job(job_id, err.clone()).await {
-                    log::error!(
-                        "job {}: failed to mark job as failed after scope resolution error: {}",
-                        job_id,
-                        queue_err
-                    );
-                }
-                return Err(err);
-            }
-        };
-
-        if scope.is_empty() {
-            let message = "Embedding job resolved to zero mailing lists".to_string();
-            if let Err(queue_err) = self.queue.fail_job(job_id, message.clone()).await {
-                log::error!(
-                    "job {}: failed to mark job as failed after empty scope: {}",
-                    job_id,
-                    queue_err
-                );
-            }
-            return Err(message);
-        }
-
-        let mut total_processed = 0usize;
-
-        for entry in scope {
-            if payload.reset_first {
-                if let Err(err) = self.reset_embeddings_for_scope(Some(entry.id)).await {
-                    let message = format!(
-                        "Failed to reset embeddings for mailing list {}: {}",
-                        entry.slug.as_deref().unwrap_or("<unknown>"),
-                        err
-                    );
-                    if let Err(queue_err) = self.queue.fail_job(job_id, message.clone()).await {
-                        log::error!(
-                            "job {}: failed to mark job as failed after reset error: {}",
-                            job_id,
-                            queue_err
-                        );
-                    }
-                    return Err(message);
-                }
-
-                if let Err(err) = self.queue.heartbeat(job_id).await {
-                    log::warn!(
-                        "job {}: failed to record heartbeat after reset: {}",
-                        job_id,
-                        err
-                    );
-                }
-            }
-
-            log::info!(
-                "job {}: refreshing embeddings for mailing list {} ({})",
-                job_id,
-                entry.id,
-                entry.slug.as_deref().unwrap_or("<unknown>")
-            );
-
-            match self
-                .process_embeddings_for_list(&client, entry.id, &payload, job_id)
-                .await
-            {
-                Ok(processed) => {
-                    total_processed += processed;
-
-                    if processed > 0 || payload.reset_first {
-                        if let Err(err) = self.recompute_thread_embeddings(entry.id).await {
-                            let message = format!(
-                                "Failed to recompute thread embeddings for mailing list {}: {}",
-                                entry.slug.as_deref().unwrap_or("<unknown>"),
-                                err
-                            );
-                            if let Err(queue_err) =
-                                self.queue.fail_job(job_id, message.clone()).await
-                            {
-                                log::error!(
-                                    "job {}: failed to mark job as failed after thread embedding error: {}",
-                                    job_id,
-                                    queue_err
-                                );
-                            }
-                            return Err(message);
-                        }
-                    }
-                }
-                Err(err) => {
-                    if let Err(queue_err) = self.queue.fail_job(job_id, err.clone()).await {
-                        log::error!(
-                            "job {}: failed to mark job as failed after embedding batch error: {}",
-                            job_id,
-                            queue_err
-                        );
-                    }
-                    return Err(err);
-                }
-            }
-        }
-
-        if let Err(err) = self.queue.complete_job(job_id).await {
-            let message = format!("Failed to mark embedding refresh job complete: {}", err);
-            return Err(message);
-        }
-
-        log::info!(
-            "job {}: embedding refresh complete ({} embeddings updated)",
-            job_id,
-            total_processed
-        );
-
-        Ok(())
-    }
-
     async fn process_index_job(&self, job: Job) -> Result<(), String> {
         let job_id = job.id;
 
@@ -1251,250 +998,6 @@ impl SyncDispatcher {
         Ok(())
     }
 
-    async fn resolve_embedding_scope(
-        &self,
-        job: &Job,
-        payload: &EmbeddingJobPayload,
-    ) -> Result<Vec<EmbeddingScope>, String> {
-        if let Some(list_id) = job.mailing_list_id {
-            let slug =
-                sqlx::query_as::<_, (String,)>("SELECT slug FROM mailing_lists WHERE id = $1")
-                    .bind(list_id)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .map_err(|e| format!("Failed to load mailing list {}: {}", list_id, e))?;
-
-            if let Some((slug,)) = slug {
-                return Ok(vec![EmbeddingScope {
-                    id: list_id,
-                    slug: Some(slug),
-                }]);
-            }
-
-            return Err(format!("Mailing list {} not found", list_id));
-        }
-
-        if let Some(slug) = payload.mailing_list_slug.as_ref() {
-            let id = self.lookup_mailing_list_id(slug).await?;
-            return Ok(vec![EmbeddingScope {
-                id,
-                slug: Some(slug.clone()),
-            }]);
-        }
-
-        let rows: Vec<(i32, String)> =
-            sqlx::query_as("SELECT id, slug FROM mailing_lists ORDER BY sync_priority DESC")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| format!("Failed to enumerate mailing lists: {}", e))?;
-
-        Ok(rows
-            .into_iter()
-            .map(|(id, slug)| EmbeddingScope {
-                id,
-                slug: Some(slug),
-            })
-            .collect())
-    }
-
-    async fn reset_embeddings_for_scope(
-        &self,
-        mailing_list_id: Option<i32>,
-    ) -> Result<(), sqlx::Error> {
-        let mut transaction = self.pool.begin().await?;
-
-        if let Some(id) = mailing_list_id {
-            sqlx::query("UPDATE emails SET embedding = NULL WHERE mailing_list_id = $1")
-                .bind(id)
-                .execute(&mut *transaction)
-                .await?;
-
-            sqlx::query("DELETE FROM thread_embeddings WHERE mailing_list_id = $1")
-                .bind(id)
-                .execute(&mut *transaction)
-                .await?;
-        } else {
-            sqlx::query("UPDATE emails SET embedding = NULL")
-                .execute(&mut *transaction)
-                .await?;
-
-            sqlx::query("TRUNCATE thread_embeddings")
-                .execute(&mut *transaction)
-                .await?;
-        }
-
-        transaction.commit().await?;
-        Ok(())
-    }
-
-    async fn process_embeddings_for_list(
-        &self,
-        client: &EmbeddingClient,
-        mailing_list_id: i32,
-        payload: &EmbeddingJobPayload,
-        job_id: i32,
-    ) -> Result<usize, String> {
-        let mut processed = 0usize;
-        let mut resume_cursor = payload.resume_from_id;
-        let batch_limit = payload
-            .chunk_size
-            .unwrap_or(self.embedding_config.batch_size)
-            .max(1);
-
-        loop {
-            let candidates = self
-                .fetch_embedding_candidates(
-                    mailing_list_id,
-                    payload.mode,
-                    resume_cursor,
-                    batch_limit,
-                )
-                .await
-                .map_err(|e| format!("Failed to fetch embedding candidates: {}", e))?;
-
-            if candidates.is_empty() {
-                break;
-            }
-
-            let mut ids = Vec::with_capacity(candidates.len());
-            let mut documents = Vec::with_capacity(candidates.len());
-            let mut last_candidate_id = None;
-
-            for candidate in candidates {
-                last_candidate_id = Some(candidate.id);
-
-                let subject = candidate
-                    .normalized_subject
-                    .as_deref()
-                    .filter(|value| !value.trim().is_empty())
-                    .or_else(|| candidate.subject.as_deref())
-                    .unwrap_or_default();
-
-                let body = candidate.body.as_deref().unwrap_or_default();
-
-                let patch_metadata: Option<PatchMetadata> = candidate
-                    .patch_metadata
-                    .as_ref()
-                    .map(|value| serde_json::from_value(value.clone()))
-                    .transpose()
-                    .map_err(|e| {
-                        format!(
-                            "Failed to decode patch metadata for email {}: {}",
-                            candidate.id, e
-                        )
-                    })?;
-
-                let text = build_embedding_text_from_parts(
-                    subject,
-                    body,
-                    candidate.patch_type,
-                    candidate.is_patch_only,
-                    patch_metadata.as_ref(),
-                );
-
-                let trimmed = text.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-
-                ids.push(candidate.id);
-                documents.push(trimmed.to_string());
-            }
-
-            if let Some(last) = last_candidate_id {
-                resume_cursor = Some(last);
-            }
-
-            if ids.is_empty() {
-                continue;
-            }
-
-            let embeddings = client
-                .embed_documents(&documents)
-                .await
-                .map_err(|e| format!("Embedding service error: {}", e))?;
-
-            if embeddings.len() != ids.len() {
-                let message = format!(
-                    "Embedding count mismatch: expected {}, got {}",
-                    ids.len(),
-                    embeddings.len()
-                );
-                return Err(message);
-            }
-
-            self.persist_embeddings(&ids, &embeddings)
-                .await
-                .map_err(|e| format!("Failed to persist embeddings: {}", e))?;
-
-            processed += ids.len();
-
-            if let Err(err) = self.queue.heartbeat(job_id).await {
-                log::warn!(
-                    "job {}: failed to record heartbeat after embedding batch: {}",
-                    job_id,
-                    err
-                );
-            }
-        }
-
-        Ok(processed)
-    }
-
-    async fn fetch_embedding_candidates(
-        &self,
-        mailing_list_id: i32,
-        mode: EmbeddingJobMode,
-        resume_from_id: Option<i32>,
-        limit: usize,
-    ) -> Result<Vec<EmbeddingCandidate>, sqlx::Error> {
-        let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-            "SELECT id, subject, normalized_subject, body, patch_type, is_patch_only, patch_metadata FROM emails WHERE mailing_list_id = ",
-        );
-        builder.push_bind(mailing_list_id);
-
-        if matches!(mode, EmbeddingJobMode::Missing) {
-            builder.push(" AND embedding IS NULL");
-        }
-
-        if let Some(cursor) = resume_from_id {
-            builder.push(" AND id > ");
-            builder.push_bind(cursor);
-        }
-
-        builder.push(" ORDER BY id ASC LIMIT ");
-        builder.push_bind(limit as i64);
-
-        let query = builder.build_query_as::<EmbeddingCandidate>();
-        query.fetch_all(&self.pool).await
-    }
-
-    async fn persist_embeddings(
-        &self,
-        ids: &[i32],
-        embeddings: &[Vec<f32>],
-    ) -> Result<(), sqlx::Error> {
-        let vectors: Vec<Vector> = embeddings.iter().cloned().map(Vector::from).collect();
-        let mut connection = self.pool.acquire().await?;
-
-        sqlx::query(
-            r#"
-            UPDATE emails AS target
-            SET embedding = batch.embedding
-            FROM (
-                SELECT UNNEST($1::int[]) AS id, UNNEST($2::vector[]) AS embedding
-            ) AS batch
-            WHERE target.id = batch.id
-            "#,
-        )
-        .bind(ids)
-        .bind(&vectors)
-        .execute(&mut *connection)
-        .await?;
-
-        Ok(())
-    }
-
     async fn lookup_mailing_list_id(&self, slug: &str) -> Result<i32, String> {
         let result: Option<(i32,)> = sqlx::query_as("SELECT id FROM mailing_lists WHERE slug = $1")
             .bind(slug)
@@ -1505,41 +1008,6 @@ impl SyncDispatcher {
         result
             .map(|(id,)| id)
             .ok_or_else(|| format!("Mailing list '{}' not found", slug))
-    }
-
-    async fn recompute_thread_embeddings(&self, mailing_list_id: i32) -> Result<(), sqlx::Error> {
-        let mut transaction = self.pool.begin().await?;
-
-        sqlx::query("DELETE FROM thread_embeddings WHERE mailing_list_id = $1")
-            .bind(mailing_list_id)
-            .execute(&mut *transaction)
-            .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO thread_embeddings (mailing_list_id, thread_id, embedding, email_count, aggregated_at)
-            SELECT
-                tm.mailing_list_id,
-                tm.thread_id,
-                AVG(e.embedding),
-                COUNT(e.id)::int,
-                NOW()
-            FROM thread_memberships tm
-            JOIN emails e ON e.id = tm.email_id AND e.mailing_list_id = tm.mailing_list_id
-            WHERE tm.mailing_list_id = $1 AND e.embedding IS NOT NULL
-            GROUP BY tm.mailing_list_id, tm.thread_id
-            ON CONFLICT (mailing_list_id, thread_id)
-            DO UPDATE
-            SET embedding = EXCLUDED.embedding,
-                email_count = EXCLUDED.email_count,
-                aggregated_at = NOW()
-            "#,
-        )
-        .bind(mailing_list_id)
-        .execute(&mut *transaction)
-        .await?;
-
-        transaction.commit().await
     }
 
     /// Save sync checkpoints to database.

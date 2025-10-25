@@ -3,6 +3,8 @@
 Last updated: October 23, 2025  
 Context: reworking Nexus search to deliver hybrid lexical + semantic relevance with fresh embeddings, moving embedding inference to a dedicated service, and tightening the ingestion/runtime story ahead of v0.2 launch.
 
+**Update – October 24, 2025:** Semantic search work is paused while we focus on infrastructure readiness. The backend has reverted to lexical-only search, embeddings remain in the schema for future use, and UI/admin controls for embeddings are hidden. The open items below that reference embeddings are deferred until we restart the effort.
+
 ---
 
 ## Goals
@@ -34,6 +36,7 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
 - **Inference service**: run Hugging Face Text Embeddings Inference (`ghcr.io/huggingface/text-embeddings-inference:cpu-1.8` by default) with `--model-id nomic-ai/nomic-embed-text-v1.5`; expose HTTP on `http://embeddings:8080`.
 - **Patch stripping**: normalize email bodies by removing patch hunks/attachments before embedding to focus on discussion text.
 - **Prefix discipline**: prepend `search_document:` for corpus items and `search_query:` for user queries prior to inference to match model expectations.
+- **TEI concurrency**: expose `EMBEDDINGS_MAX_CONCURRENT_REQUESTS` so deployments (especially GPU-backed) can dial in router parallelism without code changes.
 - **Batching & retries**: ingestion pipeline sends batches (size configurable) to the service; implement exponential backoff and circuit breaker before falling back to lexical-only search.
 - **Feature flags**: gate semantic scoring behind a config switch (`SEARCH_ENABLE_VECTOR`, `EMBEDDING_DIMENSION`) so we can roll out gradually.
 - **Metrics & health**: embed latency histograms, per-batch failure counters, and a Rocket readiness check that fails fast if the embedding service is unavailable beyond a configurable threshold.
@@ -57,51 +60,51 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
    - [x] Introduce `job_type` enum plus `status` + `payload` columns on `sync_jobs` (or successor table) to support embedding/index work units and consistent lifecycle timestamps.
    - [ ] Add search-maintenance specific tables if needed (e.g., `embedding_refresh_cursor`) to enable idempotent incremental rebuilds.
 
-3. **Embedding Service Integration**
+3. **Embedding Service Integration** _(Deferred)_
    - [x] Add an `embeddings` service to `docker-compose.yml` using the TEI image, mounting a cache volume and wiring `HF_TOKEN` passthrough when needed.
    - [x] Define healthcheck (`GET /health`) and align Compose depends_on/condition so API waits for the service.
    - [ ] Provide local overrides for GPU users (notes on alternative TEI images) without breaking CPU default.
    - [x] Document environment knobs: `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL_ID`, `EMBEDDINGS_DIM`.
 
-4. **API Ingestion & Sync**
-   - [x] Implement embedding client module (Tokio HTTP, connection pooling) with request/response schema matching TEI `/embed`.
-   - [x] Extend sync/import pipeline to batch canonical email content, strip patches, apply prefixes, call service, and store email vectors + `lex_ts`/`body_ts` updates in one transaction.
-   - [x] Add background job to aggregate/upsert thread embeddings whenever new emails arrive or existing emails change.
-   - [ ] Build retry/backoff strategy and dead-letter logging for failed batches; escalate after threshold.
-   - [x] Split ingestion flow so sync/import jobs enqueue `embedding-refresh` work instead of embedding inline; dispatcher claims follow-up jobs and populates vectors before marking import complete.
-   - [ ] Record import completion metadata that embedding jobs can use to scope missing-vector queries (e.g., `imported_email_ids`, `last_processed_date`).
-   - [x] Add admin job (`/admin/search/embeddings/rebuild`) to re-embed slices (per list, date range) for backfills and wire it to the new queue architecture.
+4. **API Ingestion & Sync** _(Deferred semantic pieces)_
+   - [ ] (Deferred) Implement embedding client module (Tokio HTTP, connection pooling) with request/response schema matching TEI `/embed`.
+   - [ ] (Deferred) Extend sync/import pipeline to batch canonical email content, call the service, and persist email vectors alongside lexical artifacts.
+   - [ ] (Deferred) Add background job to aggregate/upsert thread embeddings whenever new emails arrive or existing emails change.
+   - [ ] (Deferred) Build retry/backoff strategy and dead-letter logging for failed embedding batches; escalate after threshold.
+   - [ ] (Deferred) Split ingestion flow so sync/import jobs enqueue embedding work instead of embedding inline once the service returns.
+   - [ ] (Deferred) Record import completion metadata that embedding jobs can use to scope missing-vector queries (e.g., `imported_email_ids`, `last_processed_date`).
+   - [ ] (Deferred) Reintroduce admin jobs (`/admin/search/embeddings/rebuild`) when semantic refreshes resume.
 
-5. **Search Query Path**
-   - [x] Implement endpoints supporting `mode=lexical|semantic|hybrid` with REST-friendly request/response shapes aligned with other APIs.
-   - [x] Build semantic query path (KNN via `<=>`) using thread embeddings; fuse with FTS score only in hybrid mode.
-   - [x] Ensure lexical-only author search remains unchanged but leverages any new shared query params.
-   - [x] Add fallback path when embeddings missing (e.g., lexical only with warning header).
-   - [x] Update API response schema to include match breakdown (lexical score, semantic score) and mode echoes.
-   - [ ] Add integration tests covering mode toggles, empty embeddings, and service outages (mock client).
+5. **Search Query Path** _(Lexical live; semantic deferred)_
+   - [x] Maintain lexical search endpoint with REST-friendly request/response shapes.
+   - [ ] (Deferred) Reintroduce semantic query path (KNN via `<=>`) and hybrid fusion once embeddings return.
+   - [x] Ensure lexical-only author search remains unchanged and leverages shared query params.
+   - [ ] (Deferred) Restore fallback logic and warnings once semantic search is back.
+   - [x] Update API response schema to reflect lexical-only results (mode field removed).
+   - [ ] (Deferred) Add integration tests covering mode toggles, empty embeddings, and service outages when semantic modes return.
 
-6. **Frontend Experience**
-   - [x] Update `frontend-new` search UI to show semantic relevance indicators and allow toggling between lexical-only, semantic-only, and hybrid modes.
-   - [x] Surface loading/error states when semantic service is unavailable; include copy that references automatic fallback.
-   - [x] Rework the admin settings database panel to call the new queue-powered endpoints (drop/reset/rebuild embeddings and indexes) with confirmation UX and live job status.
+6. **Frontend Experience** _(Semantic UI deferred)_
+   - [x] Simplify the search UI for lexical-only mode and remove semantic toggles until the feature returns.
+   - [ ] (Deferred) Surface semantic service status/fallback messaging when semantic search is re-enabled.
+   - [ ] (Deferred) Re-add admin controls for embedding maintenance once backfills are possible.
    - [x] Align job status chips/labels in the UI with the normalized server vocabulary (`queued`, `running`, `succeeded`, `failed`, `cancelled`).
-   - [ ] Add analytics/logging hook (if available) to track new search usage.
+   - [ ] Add analytics/logging hook (if available) to track search usage.
 
 7. **Ops, Observability & Tooling**
-   - [ ] Expose Prometheus metrics: embedding request latency, batch size, retry count, vector vs lexical usage split.
-   - [ ] Wire logs to include embedding service status in health output (`/health`, `/metrics`).
-   - [ ] Add Makefile target (`make embeddings-shell` or similar) to exec into the service for debugging.
-   - [ ] Provide load test plan (e.g., k6 script) to validate throughput with TEI CPU container.
-   - [ ] Emit queue depth / job age metrics for both import and embedding jobs; add alerting guidance for stuck jobs.
-   - [ ] Document operational runbooks for admin endpoints (drop/regenerate vectors, full reset) including expected runtime impact.
+   - [ ] (Deferred) Expose Prometheus metrics: embedding request latency, batch size, retry count, vector vs lexical usage split.
+   - [ ] (Deferred) Wire logs to include embedding service status in health output (`/health`, `/metrics`).
+   - [ ] (Deferred) Add Makefile target (`make embeddings-shell` or similar) to exec into the service for debugging.
+   - [ ] Provide load test plan (e.g., k6 script) to validate throughput under the lexical-only workload; extend for TEI once reinstated.
+   - [ ] Emit queue depth / job age metrics for import jobs (embedding jobs deferred) and add alerting guidance for stuck jobs.
+   - [ ] Document operational runbooks for admin endpoints (drop/regenerate indexes) including expected runtime impact.
 
 8. **Testing & QA**
-   - [ ] Unit-test embedding client (prefix handling, dimensionality guard, error unwrap).
-   - [ ] Integration test end-to-end search (seed data, ensure lexical-only vs semantic-only vs hybrid ordering behaves as expected).
+   - [ ] (Deferred) Unit-test embedding client (prefix handling, dimensionality guard, error unwrap).
+   - [ ] Integration test end-to-end lexical search (seed data, ensure ordering behaves as expected).
    - [ ] Document manual QA script: bootstrap DB, run sync subset, verify Compose workflow (`make up`, `npm run dev`, search flows).
-   - [x] Add Playwright smoke test covering search mode toggles and UI summary.
-   - [ ] Add integration coverage for the job queue dispatcher: import job enqueues embedding job, embedding job updates missing vectors, status transitions stay consistent.
-   - [ ] Add API contract tests for the new admin endpoints (drop/rebuild embeddings, index reset) and ensure idempotency under retry.
+   - [ ] (Deferred) Add Playwright coverage for semantic mode toggles when they return.
+   - [ ] (Deferred) Add integration coverage for the job queue dispatcher once embedding jobs are reinstated.
+   - [ ] Update API contract tests for index reset endpoints; embedding endpoints remain deferred.
 
 9. **Documentation & Rollout**
    - [ ] Update `docs/design.md` and `README.md` sections on search setup, including Compose instructions and troubleshooting.
@@ -113,19 +116,19 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
 
 ## Testing Strategy
 
-- **Automated**: Extend existing Rust integration tests (Testcontainers) to start TEI mock (or recorded responses) and assert hybrid scoring. Add frontend Vitest coverage for the new UI toggles.
+- **Automated**: Focus on Rust integration tests for lexical scoring; defer TEI mock coverage until semantic search resumes.
 - **Manual**: Compose stack smoke test, health endpoint verification, sample query comparisons (before vs after), and load sampling to ensure latency targets (<300 ms for top-K 50 on CPU).
-- **Backfill rehearsal**: Dry-run re-embedding on a staging snapshot to size runtime and validate migration rollbacks.
+- **Backfill rehearsal**: (Deferred) Dry-run re-embedding on a staging snapshot to size runtime and validate migration rollbacks.
 
 ## Risks & Mitigations
 
-- **Service availability**: Embedding service outage could block ingestion. Mitigate with retries, circuit breaker, and lexical fallback; alert on sustained failures.
-- **Storage bloat**: 768-D doubles vector storage vs 384-D; monitor table growth and consider matryoshka truncation if needed.
-- **Prefix misuse**: Missing `search_query:` / `search_document:` degrades quality; enforce via code-level helper and add unit tests.
+- **Service availability**: (Deferred) Semantic service outage risk returns once embeddings are enabled. Current lexical-only stack has no external inference dependency.
+- **Storage bloat**: 768-D doubles vector storage vs 384-D; monitor table growth even while columns stay NULL, and consider matryoshka truncation if/when embeddings populate.
+- **Prefix misuse**: (Deferred) Missing `search_query:` / `search_document:` prefixes would degrade semantic quality; keep helpers ready for when embeddings return.
 - **Patch stripping regressions**: If patch detection removes relevant conversational content, search quality drops; maintain heuristics and tests over sample emails.
-- **Latency on CPU**: TEI CPU image may struggle under load; provide GPU path and consider caching hot embeddings.
-- **Queue drift**: If embedding jobs stall, imports might appear complete while semantic search lags; surface queue health metrics and expose manual recovery APIs.
-- **Operational misuse**: Dropping embeddings/indexes on prod during peak hours could spike load; document guardrails and require confirmation tokens in admin UI.
+- **Latency on CPU**: (Deferred) TEI CPU image may struggle under load; provide GPU path and consider caching hot embeddings when workload is re-enabled.
+- **Queue drift**: (Deferred) If embedding jobs stall, imports might appear complete while semantic search lags; surface queue health metrics and expose manual recovery APIs.
+- **Operational misuse**: Dropping indexes on prod during peak hours could spike load; document guardrails and require confirmation tokens in admin UI.
 
 ## Open Questions
 

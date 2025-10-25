@@ -10,11 +10,7 @@ import { cn } from '../../lib/utils';
 const STORAGE_KEY = 'nexus::search-index-history';
 const MAX_HISTORY_ENTRIES = 8;
 
-type MaintenanceOperation =
-  | 'refresh_index'
-  | 'reset_index'
-  | 'reset_embeddings'
-  | 'rebuild_embeddings';
+type MaintenanceOperation = 'refresh_index' | 'reset_index';
 
 interface HistoryEntry {
   id: string;
@@ -182,123 +178,6 @@ export function SearchMaintenancePanel() {
     }
   };
 
-  const handleResetEmbeddings = async () => {
-    const trimmedSlug = mailingListSlug.trim();
-    const scope = trimmedSlug || 'All mailing lists';
-    if (
-      !window.confirm(
-        `This will clear existing embeddings for ${scope} and schedule a rebuild. Continue?`
-      )
-    ) {
-      return;
-    }
-
-    setIsRunning(true);
-    setError(null);
-    const startedAt = performance.now();
-    setActiveRun({
-      scope,
-      operation: 'reset_embeddings',
-      startedAt: Date.now(),
-    });
-
-    try {
-      const params = trimmedSlug.length > 0 ? { mailingListSlug: trimmedSlug } : {};
-      const response = await apiClient.resetEmbeddings(params);
-      const duration = performance.now() - startedAt;
-      const entry: HistoryEntry = {
-        id: cryptoRandomId(),
-        timestamp: new Date().toISOString(),
-        scope,
-        operation: 'reset_embeddings',
-        jobId: response.jobId ?? null,
-        jobType: response.jobType,
-        success: true,
-        message: response.message,
-        durationMs: duration,
-      };
-      setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY_ENTRIES));
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to reset embeddings';
-      setError(message);
-      const duration = performance.now() - startedAt;
-      const entry: HistoryEntry = {
-        id: cryptoRandomId(),
-        timestamp: new Date().toISOString(),
-        scope,
-        operation: 'reset_embeddings',
-        jobId: null,
-        jobType: undefined,
-        success: false,
-        message,
-        durationMs: duration,
-      };
-      setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY_ENTRIES));
-    } finally {
-      setIsRunning(false);
-      setActiveRun(null);
-    }
-  };
-
-  const handleRebuildEmbeddings = async () => {
-    const trimmedSlug = mailingListSlug.trim();
-    const scope = trimmedSlug || 'All mailing lists';
-    if (
-      !window.confirm(
-        `This will re-embed existing emails for ${scope}. Continue?`
-      )
-    ) {
-      return;
-    }
-
-    setIsRunning(true);
-    setError(null);
-    const startedAt = performance.now();
-    setActiveRun({
-      scope,
-      operation: 'rebuild_embeddings',
-      startedAt: Date.now(),
-    });
-
-    try {
-      const params = trimmedSlug.length > 0 ? { mailingListSlug: trimmedSlug } : {};
-      const response = await apiClient.rebuildEmbeddings(params);
-      const duration = performance.now() - startedAt;
-      const entry: HistoryEntry = {
-        id: cryptoRandomId(),
-        timestamp: new Date().toISOString(),
-        scope,
-        operation: 'rebuild_embeddings',
-        jobId: response.jobId ?? null,
-        jobType: response.jobType,
-        success: true,
-        message: response.message,
-        durationMs: duration,
-      };
-      setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY_ENTRIES));
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to rebuild embeddings';
-      setError(message);
-      const duration = performance.now() - startedAt;
-      const entry: HistoryEntry = {
-        id: cryptoRandomId(),
-        timestamp: new Date().toISOString(),
-        scope,
-        operation: 'rebuild_embeddings',
-        jobId: null,
-        jobType: undefined,
-        success: false,
-        message,
-        durationMs: duration,
-      };
-      setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY_ENTRIES));
-    } finally {
-      setIsRunning(false);
-      setActiveRun(null);
-    }
-  };
   const handleRefresh = async () => {
     const trimmedSlug = mailingListSlug.trim();
     const payload =
@@ -366,13 +245,11 @@ export function SearchMaintenancePanel() {
 
   const refreshBusy = isRunning && activeRun?.operation === 'refresh_index';
   const resetIndexBusy = isRunning && activeRun?.operation === 'reset_index';
-  const resetEmbeddingsBusy = isRunning && activeRun?.operation === 'reset_embeddings';
-  const rebuildEmbeddingsBusy = isRunning && activeRun?.operation === 'rebuild_embeddings';
 
   return (
     <Section
       title="Search maintenance"
-      description="Recompute lexical vectors, rebuild indexes, or refresh embeddings after imports."
+      description="Recompute lexical vectors or rebuild indexes after imports."
       actions={
         <div className="flex flex-wrap gap-2">
           <CompactButton onClick={handleRefresh} disabled={isRunning}>
@@ -380,12 +257,6 @@ export function SearchMaintenancePanel() {
           </CompactButton>
           <CompactButton onClick={handleResetIndexes} disabled={isRunning}>
             {resetIndexBusy ? 'Resetting…' : 'Reset indexes'}
-          </CompactButton>
-          <CompactButton onClick={handleResetEmbeddings} disabled={isRunning}>
-            {resetEmbeddingsBusy ? 'Resetting embeddings…' : 'Reset embeddings'}
-          </CompactButton>
-          <CompactButton onClick={handleRebuildEmbeddings} disabled={isRunning}>
-            {rebuildEmbeddingsBusy ? 'Rebuilding…' : 'Rebuild embeddings'}
           </CompactButton>
           {history.length > 0 && (
             <CompactButton onClick={handleClearHistory}>
@@ -503,10 +374,6 @@ function operationLabel(operation: MaintenanceOperation): string {
       return 'Refresh index';
     case 'reset_index':
       return 'Reset indexes';
-    case 'reset_embeddings':
-      return 'Reset embeddings';
-    case 'rebuild_embeddings':
-      return 'Rebuild embeddings';
     default:
       return operation;
   }
@@ -518,8 +385,6 @@ function jobTypeLabel(jobType?: JobType | string): string {
   switch (normalized) {
     case 'import':
       return 'Sync job';
-    case 'embedding_refresh':
-      return 'Embedding refresh';
     case 'index_maintenance':
       return 'Index maintenance';
     default:

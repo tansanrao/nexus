@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { ThreadBrowserLayout } from '../components/ThreadBrowserLayout';
-import { useThreadBrowser } from '../hooks/useThreadBrowser';
+import { useThreadBrowser, type ThreadFetchResult } from '../hooks/useThreadBrowser';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
 import type { AuthorWithStats, ThreadWithStarter, PaginatedResponse } from '../types';
@@ -23,15 +23,22 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
   const [createdTotal, setCreatedTotal] = useState<number | null>(null);
   const [participatedTotal, setParticipatedTotal] = useState<number | null>(null);
 
-  const getEmptyPage = useCallback(
-    (page: number, size: number): PaginatedResponse<ThreadWithStarter> => ({
-      data: [],
-      page: {
-        page,
-        size,
-        totalPages: 0,
-        totalElements: 0,
-      },
+  const getEmptyResult = useCallback(
+    (page: number): ThreadFetchResult => ({
+      items: [],
+      page,
+      totalPages: 0,
+      total: 0,
+    }),
+    []
+  );
+
+  const mapToFetchResult = useCallback(
+    (response: PaginatedResponse<ThreadWithStarter>): ThreadFetchResult => ({
+      items: response.data.map((thread) => ({ thread })),
+      page: response.page.page ?? 1,
+      totalPages: response.page.totalPages,
+      total: response.page.totalElements,
     }),
     []
   );
@@ -48,13 +55,13 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
       pageSize: number;
       filters: ThreadFilters;
       searchTerm: string;
-    }) => {
+    }): Promise<ThreadFetchResult> => {
       // Filters provided by the thread browser hook are not currently used for author scoped views.
       const activeMailingList = selectedMailingList ?? mailingList;
       const authorIdNumber = parseInt(authorId, 10);
 
       if (!activeMailingList || !Number.isFinite(authorIdNumber)) {
-        return getEmptyPage(page, pageSize);
+        return getEmptyResult(page);
       }
 
       const query = searchTerm.trim();
@@ -75,7 +82,7 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
           if (shouldUpdateTotals) {
             setCreatedTotal(response.page.totalElements);
           }
-          return response;
+          return mapToFetchResult(response);
         }
 
         const response = await apiClient.getAuthorThreadsParticipated(
@@ -86,13 +93,13 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
         if (shouldUpdateTotals) {
           setParticipatedTotal(response.page.totalElements);
         }
-        return response;
+        return mapToFetchResult(response);
       } catch (err) {
         console.error('Error fetching author threads:', err);
-        return getEmptyPage(page, pageSize);
+        return getEmptyResult(page);
       }
     },
-    [activeTab, authorId, getEmptyPage, selectedMailingList]
+    [activeTab, authorId, getEmptyResult, mapToFetchResult, selectedMailingList]
   );
 
   // Use the shared thread browser hook

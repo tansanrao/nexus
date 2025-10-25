@@ -62,7 +62,7 @@ Notifications (SSE/WebSocket):
 ```
 
 * **Mirror:** grokmirror mirrors lore.kernel.org repos (epochs) to disk.
-* **API:** Rust + Rocket service: REST API, sync orchestration, parsing, threading, search, auth, notifications; calls out to TEI embeddings sidecar for semantic vectors.
+* **API:** Rust + Rocket service: REST API, sync orchestration, parsing, threading, search, auth, notifications. Semantic inference is currently disabled, but the API continues to populate schema fields for future use.
 * **DB:** PostgreSQL 18 with LIST partitioning by `mailing_list_id`; global `authors`; **vector embeddings with `pgvector` HNSW**; FTS with `tsvector` + `GIN`; trigram similarity with `pg_trgm`. ([GitHub][2])
 * **Embeddings service:** Text Embeddings Inference container serving `nomic-ai/nomic-embed-text-v1.5` on HTTP; shared across API workers.
 * **UI:** React/Vite, served by nginx; `/api` proxied to API; **OIDC client**; **RapiDoc** for docs. ([authts.github.io][5])
@@ -80,7 +80,7 @@ Notifications (SSE/WebSocket):
   * Routes: `src/routes/*` (grouped by domain: `admin`, `threads`, `emails`, `authors`, `search`, `users`, `notifications`, `health`, `metrics`)
   * Sync & import: `src/sync/*`
   * Threading: `src/threading/*`
-* **Search:** `src/search/*` (FTS, vector, hybrid adapters, embedding client)
+* **Search:** Lexical-only queries served from `routes/threads.rs`; vector fields remain in the schema but are not populated during ingestion.
   * **Auth:** `src/auth/*` (OIDC verifier, JWKS caching, local credential service, JWT issuer, refresh token store)
   * **Docs:** `src/docs/openapi.rs` (OpenAPI builder)
   * **Migrations:** `migrations/*.up.sql`, `*.down.sql` (**reversible**)
@@ -126,8 +126,6 @@ Notifications (SSE/WebSocket):
 * **Parser (`parser.rs`)**: same; ensure **quote‑stripping** helpers plus patch hunk detection for semantic input.
 * **Import (`import/*`)**: same bulk strategy; after import the dispatcher enqueues follow-up work instead of blocking the sync job:
 
-  * **Embedding refresh job** (`job_type = embedding_refresh`): walks emails without vectors, batches canonical text (normalized subject + discussion body with patches removed), calls the TEI embeddings service, and upserts vectors in `emails.embedding`.
-  * **Thread embedding aggregator**: runs after the embedding job commits rows to recompute per-thread vectors (e.g., weighted mean) whenever new emails land; implemented as part of the same follow-up job to guarantee ordering.
   * Update hybrid search materialized fields (FTS `tsvector` refresh) either inline or via a dedicated index-maintenance job depending on operator settings.
 * **Threading (JWZ)**: unchanged; membership hash for idempotency.
 
@@ -156,7 +154,7 @@ Notifications (SSE/WebSocket):
 * `authors(id, email UNIQUE, canonical_name, first_seen, last_seen)`
 * `author_name_aliases(author_id, name, usage_count, first_seen, last_seen)`
 * `author_mailing_list_activity(author_id, mailing_list_id, first_email_date, last_email_date, email_count, thread_count)`
-* `jobs(id, mailing_list_id NULL, job_type {import, embedding_refresh, index_maintenance}, status {queued, running, succeeded, failed, cancelled}, priority, payload JSONB, created_at, started_at, completed_at, error_message, last_heartbeat TIMESTAMPTZ)`
+* `jobs(id, mailing_list_id NULL, job_type {import, index_maintenance}, status {queued, running, succeeded, failed, cancelled}, priority, payload JSONB, created_at, started_at, completed_at, error_message, last_heartbeat TIMESTAMPTZ)`
 
 **Partitioned by `mailing_list_id` (LIST)**
 
@@ -190,7 +188,6 @@ Notifications (SSE/WebSocket):
 * Job lifecycle uses a normalized status vocabulary: `queued` (awaiting worker), `running` (claimed and active), `succeeded`, `failed`, and `cancelled`. Status transitions are enforced via database constraints and timestamp updates (`started_at`, `completed_at`, `last_heartbeat`).
 * `job_type` controls execution logic:
   * `import` – full mailing list sync/import, responsible for writing raw email rows and scheduling follow-up work.
-  * `embedding_refresh` – fills in missing embeddings and recomputes derived thread vectors for one mailing list scope at a time (payload carries list slug, window, and optional cursor info).
   * `index_maintenance` – handles REINDEX/DROP+CREATE sequences and other heavyweight maintenance tasks.
 * All jobs carry a `payload` JSONB blob so admin APIs can describe scope (`mailingListSlug`, `startId`, `endId`, `forceReindex`). Workers validate the payload schema before execution.
 * Admin status endpoints (`/admin/sync/status` et al.) expose the same structure so the frontend can render a unified queue, regardless of job type, and show per-job progress (`processed_count`, `total_count`) when workers emit heartbeats.
@@ -203,9 +200,8 @@ Notifications (SSE/WebSocket):
 
 ### 6.1 Models (FOSS only)
 
-* **Default embedding:** **nomic-ai/nomic-embed-text-v1.5** (768‑d default, Apache‑2.0) served via Hugging Face Text Embeddings Inference. Supports matryoshka truncation if we later need smaller dimensions. ([Hugging Face][12])
-* **Alternatives (fallback only):** `BAAI/bge-small-en-v1.5` (384‑d, MIT) or `all-MiniLM-L6-v2` (384‑d, Apache‑2.0) if resource constraints force a downgrade. ([Hugging Face][11])
-* **Reranking:** deferred; hybrid search stops at lexical + semantic fusion in this release.
+* **Embeddings (future):** The schema retains 768‑dimension vectors compatible with **nomic-ai/nomic-embed-text-v1.5** so we can re-enable semantic search later. Presently, inference is disabled and these columns remain `NULL`.
+* **Reranking:** deferred; search currently returns lexical rankings only.
 
 ### 6.2 Indexing
 
@@ -213,33 +209,19 @@ Notifications (SSE/WebSocket):
 
   * Build `lex_ts` (e.g., `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(body,''))`).
   * Maintain trigram indexes for fuzzy matching.
-  * Mark newly imported emails for semantic follow-up and enqueue an `embedding_refresh` job; the job dequeues batches lacking vectors, sends them to TEI, and persists results into `emails.embedding` with retries/backoff.
-  * Aggregate **thread embeddings** as part of the same job once child email vectors are materialized (rolling mean of child emails) into `thread_embeddings`.
+  * (Optional) embeddings remain for future backfills but are not populated during the current lexical-only rollout.
 
 ### 6.3 Query Plan
 
-* **Modes:** `lexical | semantic | hybrid` (default hybrid).
-* **Lexical:** FTS (`ts_rank_cd`) with trigram fallback, ordered by score + recency boost.
-* **Semantic:** KNN over `thread_embeddings.embedding` (`<=>` cosine distance), configurable top-K and similarity threshold.
-* **Hybrid retrieval:**
-
-  1. Fetch lexical top-K.
-  2. Fetch semantic top-K.
-  3. Merge via weighted score (`score = w_lex * normalized_fts + w_sem * (1 - cosine_distance)`).
-  4. Optionally apply recency decay.
-
-  * Postgres provides FTS building blocks; pgvector brings ANN KNN; combining both is a recommended pattern. ([Jonathan Katz][14])
-* **Representative SQL fragments** (simplified):
-
-  * KNN: `ORDER BY embedding <=> $query_vec LIMIT 200` (cosine/L2).
-  * FTS: `WHERE lex_ts @@ plainto_tsquery('english', $q)` with `ORDER BY ts_rank_cd(...) DESC`.
-  * Fusion: Do in SQL (CTEs) or in Rust (recommended for clarity).
+* **Mode:** Lexical FTS with trigram fallback.
+* **Ranking:** `ts_rank_cd` over `lex_ts` combined with trigram scoring, with recent activity as a tie-breaker.
+* **Representative SQL fragment:** `WHERE lex_ts @@ plainto_tsquery('english', $q) ORDER BY ts_rank_cd(...) DESC`.
 
 ### 6.4 API
 
 * `GET /api/v1/:slug/threads/search`
 
-  * Query params: `q`, `mode=lexical|semantic|hybrid`, `limit`, `author`, `from`, `to`, `includePatches` (filter), `sort`.
+  * Query params: `q`, `limit`, `author`, `from`, `to`, `includePatches` (filter), `sort`.
   * Response includes `mode`, `results[]` with `thread`, `lexicalScore`, `semanticScore`, `combinedScore`, and `explanation` snippets.
 * Author search remains lexical-only but shares pagination/filters via updated params schema.
 
@@ -351,7 +333,7 @@ Notifications (SSE/WebSocket):
 
 ### 10.2 Metrics
 
-* Expose `/metrics` with **Prometheus** exporter (`metrics` + `metrics-exporter-prometheus`). Counters & histograms for request rate/latency, sync phases, parse failures, DB bulk counts, SSE clients, queue depth, embedding latency. ([Crates.io][4])
+* Expose `/metrics` with **Prometheus** exporter (`metrics` + `metrics-exporter-prometheus`). Counters & histograms for request rate/latency, sync phases, parse failures, DB bulk counts, SSE clients, and queue depth. ([Crates.io][4])
 * Optional **OpenTelemetry**: OTLP traces to a collector; instrument key spans (sync phases, search path, DB). ([OpenTelemetry][19])
 
 ### 10.3 Health Checks
@@ -430,7 +412,7 @@ Notifications (SSE/WebSocket):
 * **OIDC** via `oidc-client-ts`: PKCE login, auto refresh, logout; handle multiple realms/clients via env. ([authts.github.io][5])
 * **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), score explanations, clear fallback messaging when semantic mode unavailable.
 * **Notifications:** EventSource client for `/notifications/stream`; fall back to WebSocket if needed.
-* **Admin settings:** database/search panel surfaces queue-backed maintenance actions (refresh/reset embeddings/indexes), renders unified job status chips, and requires explicit confirmation for destructive operations.
+* **Admin settings:** database/search panel surfaces queue-backed maintenance actions for lexical indexes and renders unified job status chips. Embedding controls are hidden until the feature returns.
 * **Docs:** `/docs` route embedding RapiDoc.
 
 ---
@@ -473,7 +455,7 @@ Notifications (SSE/WebSocket):
   * Step 2: update API (handles new schema).
   * Step 3: update frontend.
   * Step 4: verify `/health/ready`, dashboards.
-* **Search index maintenance:** prefer admin APIs over manual SQL—`/admin/search/index/refresh` for lightweight vacuum/reindex, `/admin/search/index/reset` for destructive rebuilds (queues `index_maintenance` jobs), and `/admin/search/embeddings/(reset|rebuild)` for semantic backfills. Run destructive operations during low traffic and monitor queue depth.
+* **Search index maintenance:** prefer admin APIs over manual SQL—`/admin/search/index/refresh` for lightweight vacuum/reindex and `/admin/search/index/reset` for destructive rebuilds (queues `index_maintenance` jobs). Run destructive operations during low traffic and monitor queue depth.
 * **Notifications:** if high‑volume `NOTIFY` becomes a bottleneck (see §9 note), switch to **NATS JetStream** or Valkey pub/sub for fanout. ([NATS.io][24])
 
 ---

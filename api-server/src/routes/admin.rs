@@ -134,27 +134,6 @@ impl Default for IndexMaintenanceRequest {
     }
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(default)]
-pub struct EmbeddingJobRequest {
-    #[serde(rename = "mailingListSlug")]
-    pub mailing_list_slug: Option<String>,
-    #[serde(rename = "chunkSize")]
-    pub chunk_size: Option<usize>,
-    #[serde(rename = "resumeFromId")]
-    pub resume_from_id: Option<i32>,
-}
-
-impl Default for EmbeddingJobRequest {
-    fn default() -> Self {
-        Self {
-            mailing_list_slug: None,
-            chunk_size: None,
-            resume_from_id: None,
-        }
-    }
-}
-
 /// Enqueue sync jobs for every enabled mailing list.
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/start")]
@@ -357,85 +336,6 @@ pub async fn reset_search_indexes(
         job_type: JobType::IndexMaintenance,
         mailing_list_id: None,
         message: "Queued index reset job".to_string(),
-    }))
-}
-
-/// Reset embeddings (set to NULL) and rebuild for the requested scope.
-#[openapi(tag = "Admin")]
-#[post("/admin/search/embeddings/reset", data = "<request>")]
-pub async fn reset_embeddings(
-    request: Json<EmbeddingJobRequest>,
-    pool: &State<sqlx::PgPool>,
-) -> Result<Json<JobEnqueueResponse>, ApiError> {
-    enqueue_embedding_job(
-        request.into_inner(),
-        pool,
-        true,
-        "admin_reset",
-        "Queued embedding reset job",
-    )
-    .await
-}
-
-/// Rebuild embeddings without clearing existing data first.
-#[openapi(tag = "Admin")]
-#[post("/admin/search/embeddings/rebuild", data = "<request>")]
-pub async fn rebuild_embeddings(
-    request: Json<EmbeddingJobRequest>,
-    pool: &State<sqlx::PgPool>,
-) -> Result<Json<JobEnqueueResponse>, ApiError> {
-    enqueue_embedding_job(
-        request.into_inner(),
-        pool,
-        false,
-        "admin_rebuild",
-        "Queued embedding rebuild job",
-    )
-    .await
-}
-
-async fn enqueue_embedding_job(
-    request: EmbeddingJobRequest,
-    pool: &State<sqlx::PgPool>,
-    reset_first: bool,
-    trigger: &str,
-    message: &str,
-) -> Result<Json<JobEnqueueResponse>, ApiError> {
-    let queue = JobQueue::new(pool.inner().clone());
-
-    let (mailing_list_id, slug_value) = if let Some(slug) = request.mailing_list_slug.as_ref() {
-        let id = resolve_mailing_list_id_by_slug(pool.inner(), slug).await?;
-        (Some(id), Some(slug.clone()))
-    } else {
-        (None, None)
-    };
-
-    let mut payload_map = serde_json::Map::new();
-    payload_map.insert("mode".to_string(), json!("rebuild_all"));
-    payload_map.insert("resetFirst".to_string(), json!(reset_first));
-    payload_map.insert("trigger".to_string(), json!(trigger));
-    if let Some(slug) = slug_value.as_ref() {
-        payload_map.insert("mailingListSlug".to_string(), json!(slug));
-    }
-    if let Some(chunk_size) = request.chunk_size {
-        payload_map.insert("chunkSize".to_string(), json!(chunk_size));
-    }
-    if let Some(resume) = request.resume_from_id {
-        payload_map.insert("resumeFromId".to_string(), json!(resume));
-    }
-
-    let payload = Value::Object(payload_map);
-
-    let job_id = queue
-        .enqueue_job(JobType::EmbeddingRefresh, mailing_list_id, payload, 10)
-        .await
-        .map_err(|e| ApiError::InternalError(format!("Failed to enqueue embedding job: {e}")))?;
-
-    Ok(Json(JobEnqueueResponse {
-        job_id,
-        job_type: JobType::EmbeddingRefresh,
-        mailing_list_id,
-        message: message.to_string(),
     }))
 }
 

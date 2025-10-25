@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-import type { ThreadWithStarter, PaginatedResponse } from '../types';
+import type { ThreadWithStarter, ThreadListItem, ThreadSearchResponse } from '../types';
 import type { ThreadFilters } from '../components/ThreadListHeader';
 
 interface FetchThreadsParams {
@@ -13,8 +13,15 @@ interface FetchThreadsParams {
   searchTerm: string;
 }
 
+export interface ThreadFetchResult {
+  items: ThreadListItem[];
+  page: number;
+  totalPages: number;
+  total: number;
+}
+
 interface UseThreadBrowserOptions {
-  fetchThreads?: (params: FetchThreadsParams) => Promise<PaginatedResponse<ThreadWithStarter>>;
+  fetchThreads?: (params: FetchThreadsParams) => Promise<ThreadFetchResult>;
   reloadDeps?: unknown[];
   pageSize?: number;
 }
@@ -22,7 +29,7 @@ interface UseThreadBrowserOptions {
 export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
   const { selectedMailingList } = useApiConfig();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [threads, setThreads] = useState<ThreadWithStarter[]>([]);
+  const [threadItems, setThreadItems] = useState<ThreadListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedThread, setSelectedThread] = useState<ThreadWithStarter | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,7 +40,6 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
   const [filters, setFilters] = useState<ThreadFilters>({
     sortBy: 'lastDate',
     order: 'desc',
-    searchType: 'subject',
   });
   const pageSize = options.pageSize ?? 50;
   const reloadDeps = options.reloadDeps ?? [];
@@ -53,26 +59,36 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     if (threadParam) {
       const threadIdFromUrl = parseInt(threadParam, 10);
       if (Number.isFinite(threadIdFromUrl)) {
-        const existing = threads.find(t => t.id === threadIdFromUrl);
+        const existing = threadItems.find((item) => item.thread.id === threadIdFromUrl);
         if (existing) {
-          setSelectedThread(existing);
+          setSelectedThread(existing.thread);
         } else if (selectedMailingList) {
           // Fetch single thread and set selection without replacing list
           apiClient
             .getThread(selectedMailingList, threadIdFromUrl)
-            .then(detail => setSelectedThread(detail.thread as ThreadWithStarter))
+            .then((detail) => setSelectedThread(detail.thread as ThreadWithStarter))
             .catch(() => {});
         }
       }
     }
-  }, [searchParams, threads, selectedMailingList]);
+  }, [searchParams, threadItems, selectedMailingList]);
 
   // Auto-select first thread when threads are loaded and no thread is selected
   useEffect(() => {
-    if (threads.length > 0 && !selectedThread) {
-      setSelectedThread(threads[0]);
+    if (threadItems.length === 0) {
+      setSelectedThread(null);
+      return;
     }
-  }, [threads, selectedThread]);
+
+    if (selectedThread) {
+      const stillVisible = threadItems.some((item) => item.thread.id === selectedThread.id);
+      if (!stillVisible) {
+        setSelectedThread(threadItems[0].thread);
+      }
+    } else {
+      setSelectedThread(threadItems[0].thread);
+    }
+  }, [threadItems, selectedThread]);
 
   const loadThreads = useCallback(
     async (
@@ -89,7 +105,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
       try {
         let currentPageToFetch = requestedPage;
 
-        const fetchPage = async (targetPage: number) => {
+        const fetchPage = async (targetPage: number): Promise<ThreadFetchResult> => {
           if (customFetchThreads) {
             return customFetchThreads({
               mailingList: selectedMailingList,
@@ -101,43 +117,48 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
           }
 
           if (searchTerm) {
-            return apiClient.searchThreads(
+            const response = await apiClient.searchThreads(
               selectedMailingList,
               searchTerm,
-              activeFilters.searchType,
               targetPage,
               pageSize,
-              activeFilters.sortBy,
-              activeFilters.order
             );
+            const totalPages = response.total > 0 ? Math.ceil(response.total / response.size) : 0;
+            return {
+              items: mapSearchResultsToItems(response),
+              page: response.page,
+              totalPages,
+              total: response.total,
+            };
           }
 
-          return apiClient.getThreads(
+          const result = await apiClient.getThreads(
             selectedMailingList,
             targetPage,
             pageSize,
             activeFilters.sortBy,
             activeFilters.order
           );
+          return {
+            items: result.data.map((thread) => ({ thread })),
+            page: result.page.page ?? targetPage,
+            totalPages: result.page.totalPages,
+            total: result.page.totalElements,
+          };
         };
 
         let result = await fetchPage(currentPageToFetch);
-        let { totalPages: totalPagesFromApi } = result.page;
+        let totalPagesFromApi = result.totalPages;
 
         if (totalPagesFromApi > 0 && currentPageToFetch > totalPagesFromApi) {
           currentPageToFetch = totalPagesFromApi;
           result = await fetchPage(currentPageToFetch);
-          totalPagesFromApi = result.page.totalPages;
+          totalPagesFromApi = result.totalPages;
         }
 
-        const threadsData = result.data;
-        const totalElements =
-          typeof result.page.totalElements === 'number'
-            ? result.page.totalElements
-            : threadsData.length;
+        const totalElements = typeof result.total === 'number' ? result.total : threadItems.length;
 
-        let resolvedPage =
-          result.page.page && result.page.page > 0 ? result.page.page : currentPageToFetch;
+        let resolvedPage = result.page && result.page > 0 ? result.page : currentPageToFetch;
         if (totalElements === 0) {
           resolvedPage = 1;
         }
@@ -149,15 +170,17 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
             ? Math.ceil(totalElements / pageSize)
             : 0;
         const normalizedMaxPage =
-          totalPagesComputed > 0 ? totalPagesComputed : threadsData.length > 0 ? resolvedPage : 1;
+          totalPagesComputed > 0 ? totalPagesComputed : result.items.length > 0 ? resolvedPage : 1;
         const hasMorePages =
-          totalPagesComputed > 0 ? resolvedPage < totalPagesComputed : threadsData.length === pageSize;
+          totalPagesComputed > 0 ? resolvedPage < totalPagesComputed : result.items.length === pageSize;
 
-        setThreads(threadsData);
+        setThreadItems(result.items);
         setHasMore(hasMorePages);
         setMaxPage(normalizedMaxPage);
         setTotalThreads(totalElements);
         setCurrentPage(Math.max(1, resolvedPage));
+
+        // no additional search metadata to record when search is lexical-only
       } catch (err) {
         console.error('Error loading threads:', err);
       } finally {
@@ -171,6 +194,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
       pageSize,
       searchQuery,
       selectedMailingList,
+      threadItems,
     ]
   );
 
@@ -202,7 +226,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
   };
 
   return {
-    threads,
+    threads: threadItems,
     loading,
     selectedThread,
     searchQuery,
@@ -217,4 +241,11 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     handlePageChange,
     handleFiltersChange,
   };
+}
+
+function mapSearchResultsToItems(response: ThreadSearchResponse): ThreadListItem[] {
+  return response.results.map((hit) => ({
+    thread: hit.thread,
+    lexical_score: hit.lexical_score,
+  }));
 }
