@@ -5,6 +5,8 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
 
 **Update – October 24, 2025:** Semantic search work is paused while we focus on infrastructure readiness. The backend has reverted to lexical-only search, embeddings remain in the schema for future use, and UI/admin controls for embeddings are hidden. The open items below that reference embeddings are deferred until we restart the effort.
 
+**Update – October 25, 2025:** We are tuning lexical search to handle ~80 GB of mailing list content efficiently. Focus areas: eliminate git patch noise from FTS inputs, add optional `start_date`/`end_date` filters on the thread search endpoint, and adjust ranking to weight subjects and thread-starter messages most heavily with a recency boost tie-breaker.
+
 ---
 
 ## Goals
@@ -16,6 +18,7 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
 - Elevate UX: expose lexical-only, semantic-only, and hybrid modes with clear toggles and score context in the UI.
 - Keep operational posture tight: metrics, retries, migrations, docs, and local dev ergonomics all ready before rollout.
 - Move embedding inference and index maintenance onto a durable job queue so imports finish quickly while follow-up search work runs asynchronously with visible status and retry semantics.
+- Deliver fast lexical search over large corpora by stripping git patch payloads from FTS documents, weighting thread subjects and first-post discussions higher than later replies, exposing optional date range filters, and adding a lightweight recency boost to the ranking pipeline.
 
 ## Non-Goals
 
@@ -42,6 +45,19 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
 - **Metrics & health**: embed latency histograms, per-batch failure counters, and a Rocket readiness check that fails fast if the embedding service is unavailable beyond a configurable threshold.
 - **Job queue standardisation**: promote `sync_jobs` to a typed job queue with `job_type = {import, embedding-refresh, index-maintenance}` and unified status vocabulary (`queued`, `running`, `succeeded`, `failed`, `cancelled`) exposed through admin APIs and UI.
 - **Admin control surface**: provide explicit endpoints to drop embeddings, rebuild indexes, and schedule per-mailing-list or global refreshes so operators can trigger remediation without touching the database manually.
+- **Thread search vector**: introduce a derived `threads.search_vector` (or equivalent view) composed via `setweight`—subject lines weigh `A`, the first email discussion weighs `B`, and subsequent replies weigh `D`. All text runs through the patch-stripper so diff/trailer ranges never enter the tsvector.
+- **Discussion sanitizer**: rely on `PatchMetadata.diff_sections`/`trailer_sections` recorded during parsing to drop inline diffs, trailer blocks, and diffstats when generating full-text fields. Fallback to heuristics for legacy rows missing metadata.
+- **Date scoping**: extend `/threads/search` params with optional `start_date`/`end_date` (UTC ISO dates). Default to the full archive when unset; guard invalid ranges and add OpenAPI coverage.
+- **Recency boost**: blend lexical rank with a decay factor such as `exp(-GREATEST(0, EXTRACT(EPOCH FROM NOW() - t.last_date)) / recency_half_life)` so recent threads tie-break older hits without overwhelming strong lexical matches.
+- **Supporting indexes**: add/confirm `threads (mailing_list_id, last_date DESC)` and consider covering indexes on `(mailing_list_id, start_date, id)` to keep date-bounded queries fast.
+- **Bulk refresh workflow**: extend search maintenance jobs to rebuild the new sanitized vectors after imports or when patch metadata backfills complete.
+
+### Lexical Sanitization Strategy
+
+- Implement a reusable Rust helper `strip_patch_payload(body: &str, metadata: Option<&PatchMetadata>) -> Cow<'_, str>` that removes line ranges identified by `diff_sections`, `diffstat_section`, and `trailer_sections`; drop entire bodies when `is_patch_only` is `true`.
+- When `PatchMetadata` is absent but `patch_type != PatchType::None`, fall back to parser heuristics (diff regex, trailer scan) to avoid indexing raw patches for legacy rows.
+- Preserve conversational quoting (`>`-prefixed) and inline replies while collapsing excessive blank lines during reconstruction so `tsvector` density stays high without altering message meaning.
+- Store the sanitized discussion text alongside original email data (`emails.search_body` or equivalent view) so both ingestion and backfill paths can call the same helper before refreshing FTS columns.
 
 ---
 
@@ -59,6 +75,10 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
    - [ ] Extend repeatable migration to assert `CREATE EXTENSION IF NOT EXISTS vectorchord` still succeeds post-dimension change and ensure down migration notes dimensionality limitations.
    - [x] Introduce `job_type` enum plus `status` + `payload` columns on `sync_jobs` (or successor table) to support embedding/index work units and consistent lifecycle timestamps.
    - [ ] Add search-maintenance specific tables if needed (e.g., `embedding_refresh_cursor`) to enable idempotent incremental rebuilds.
+   - [x] Add `emails.search_body TEXT` (nullable, toasted) populated by the sanitizer; keep `emails.body` untouched for raw rendering.
+   - [x] Add `threads.search_vector TSVECTOR` plus `CREATE INDEX idx_threads_search_vector ON threads USING GIN (search_vector)`.
+   - [ ] Extend repeatable migration / triggers so thread inserts/updates refresh `search_vector` via sanitized email text and subject weighting.
+   - [x] Ensure `idx_threads_last_date` covers the recency-sort path; add composite index `(mailing_list_id, last_date DESC)` if planner regressions show up.
 
 3. **Embedding Service Integration** _(Deferred)_
    - [x] Add an `embeddings` service to `docker-compose.yml` using the TEI image, mounting a cache volume and wiring `HF_TOKEN` passthrough when needed.
@@ -82,6 +102,66 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
    - [ ] (Deferred) Restore fallback logic and warnings once semantic search is back.
    - [x] Update API response schema to reflect lexical-only results (mode field removed).
    - [ ] (Deferred) Add integration tests covering mode toggles, empty embeddings, and service outages when semantic modes return.
+   - [x] Add optional `start_date` / `end_date` filters to `ThreadSearchParams`, enforce validation, and document defaults in OpenAPI + `docs/design.md`.
+   - [x] Build a sanitization helper (Rust) that consumes `PatchMetadata` to remove diff/diffstat/trailer lines from email bodies before they feed FTS columns.
+   - [ ] Recompute stored `tsvector` data (new `threads.search_vector` or refreshed `lex_ts`) using weighted `setweight` composition: subject (`A`), thread-starter body (`B`), remaining replies (`D`).
+   - [x] Update the SQL ranking pipeline to blend weighted lexical scores with a recency decay factor; benchmark alternative decay constants against sample queries.
+   - [ ] Confirm email ingestion keeps `PatchMetadata` populated (add backfill or guardrails for legacy rows) so sanitization stays deterministic.
+   - [ ] Add integration coverage that exercises date filters, subject weighting, and recency tie-breaking on representative fixtures.
+
+```sql
+-- Weighted lexical search with optional date bounds and recency decay.
+WITH query AS (
+    SELECT websearch_to_tsquery('english', $2) AS tsq,
+           COALESCE($7::double precision, 31 * 24 * 3600) AS half_life_seconds
+),
+filtered_threads AS (
+    SELECT t.*
+    FROM threads t
+    WHERE t.mailing_list_id = $1
+      AND ($5 IS NULL OR t.last_date >= $5)
+      AND ($6 IS NULL OR t.start_date <= $6)
+),
+thread_docs AS (
+    SELECT
+        t.id,
+        setweight(to_tsvector('english', COALESCE(t.subject, '')), 'A') ||
+        setweight(to_tsvector('english', COALESCE(fe.search_body, '')), 'B') ||
+        setweight(to_tsvector('english', COALESCE(rest.tail_text, '')), 'D') AS search_vector,
+        t.last_date
+    FROM filtered_threads t
+    LEFT JOIN emails fe
+        ON fe.message_id = t.root_message_id
+       AND fe.mailing_list_id = t.mailing_list_id
+    LEFT JOIN LATERAL (
+        SELECT string_agg(e.search_body, ' ' ORDER BY e.date) AS tail_text
+        FROM thread_memberships tm
+        JOIN emails e ON tm.email_id = e.id
+        WHERE tm.thread_id = t.id
+          AND tm.mailing_list_id = t.mailing_list_id
+          AND e.id <> fe.id
+    ) rest ON TRUE
+),
+ranked AS (
+    SELECT
+        td.id,
+        ts_rank_cd(td.search_vector, query.tsq) AS text_score,
+        exp(-GREATEST(0, EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'utc') - td.last_date))) / query.half_life_seconds) AS recency_factor,
+        td.last_date
+    FROM thread_docs td
+    CROSS JOIN query
+    WHERE td.search_vector @@ query.tsq
+)
+SELECT
+    r.id,
+    (r.text_score * (1.0 + $8::double precision * r.recency_factor)) AS blended_score,
+    r.text_score,
+    r.recency_factor,
+    r.last_date
+FROM ranked r
+ORDER BY blended_score DESC, r.last_date DESC
+LIMIT $3 OFFSET $4;
+```
 
 6. **Frontend Experience** _(Semantic UI deferred)_
    - [x] Simplify the search UI for lexical-only mode and remove semantic toggles until the feature returns.
@@ -97,6 +177,7 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
    - [ ] Provide load test plan (e.g., k6 script) to validate throughput under the lexical-only workload; extend for TEI once reinstated.
    - [ ] Emit queue depth / job age metrics for import jobs (embedding jobs deferred) and add alerting guidance for stuck jobs.
    - [ ] Document operational runbooks for admin endpoints (drop/regenerate indexes) including expected runtime impact.
+   - [ ] Capture benchmarks for the sanitized FTS pipeline (index build time, query latency with/without date filters) and record tuning guidance for `WORK_MEM`/GIN maintenance.
 
 8. **Testing & QA**
    - [ ] (Deferred) Unit-test embedding client (prefix handling, dimensionality guard, error unwrap).
@@ -105,6 +186,7 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
    - [ ] (Deferred) Add Playwright coverage for semantic mode toggles when they return.
    - [ ] (Deferred) Add integration coverage for the job queue dispatcher once embedding jobs are reinstated.
    - [ ] Update API contract tests for index reset endpoints; embedding endpoints remain deferred.
+   - [ ] Add regression fixtures ensuring patch stripping preserves conversational text while removing diffs, and that recency decays never promote empty hits.
 
 9. **Documentation & Rollout**
    - [ ] Update `docs/design.md` and `README.md` sections on search setup, including Compose instructions and troubleshooting.
@@ -129,6 +211,7 @@ Context: reworking Nexus search to deliver hybrid lexical + semantic relevance w
 - **Latency on CPU**: (Deferred) TEI CPU image may struggle under load; provide GPU path and consider caching hot embeddings when workload is re-enabled.
 - **Queue drift**: (Deferred) If embedding jobs stall, imports might appear complete while semantic search lags; surface queue health metrics and expose manual recovery APIs.
 - **Operational misuse**: Dropping indexes on prod during peak hours could spike load; document guardrails and require confirmation tokens in admin UI.
+- **Recency overweighting**: Aggressive decay constants could bury historically important threads; log parameter defaults, expose configuration, and add analytics to monitor click-through on older results.
 
 ## Open Questions
 
