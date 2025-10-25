@@ -5,8 +5,9 @@
 //! The types follow Rocket's `FromForm` conventions and derive `JsonSchema` so
 //! generated documentation reflects the available parameters and their defaults.
 
-use rocket::form::{self, FromForm, FromFormField, ValueField};
-use rocket_okapi::okapi::schemars::JsonSchema;
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use rocket::form::{self, FromFormField, ValueField};
+use rocket_okapi::okapi::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
 
 const fn default_page() -> i64 {
@@ -39,8 +40,26 @@ fn default_optional_string() -> Option<String> {
     None
 }
 
+/// Wrapper for parsing ISO-8601 dates from query parameters.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+pub struct DateParam(pub NaiveDate);
+
+impl<'r> FromFormField<'r> for DateParam {
+    fn from_value(field: ValueField<'r>) -> form::Result<'r, Self> {
+        let trimmed = field.value.trim();
+        match NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+            Ok(date) => Ok(DateParam(date)),
+            Err(_) => Err(form::Error::validation(format!(
+                "invalid date '{}', expected YYYY-MM-DD",
+                field.value
+            )))?,
+        }
+    }
+}
+
 /// Common pagination parameters applied to list endpoints.
-#[derive(Debug, Clone, Serialize, Deserialize, FromForm, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, rocket::form::FromForm)]
 #[serde(rename_all = "camelCase")]
 pub struct PaginationParams {
     /// One-based page index (defaults to the first page).
@@ -162,7 +181,7 @@ impl<'r> FromFormField<'r> for AuthorSortField {
 }
 
 /// Query parameters accepted by the author search endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize, FromForm, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, rocket::form::FromForm, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthorSearchParams {
     /// Optional full-text search term matched against author name/email.
@@ -272,7 +291,7 @@ impl<'r> FromFormField<'r> for ThreadSortField {
 }
 
 /// Query parameters supported by the thread list endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize, FromForm, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, rocket::form::FromForm, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadListParams {
     /// Page of results to fetch (defaults to 1).
@@ -327,7 +346,7 @@ impl ThreadListParams {
 }
 
 /// Query parameters for the thread search endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize, FromForm, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, rocket::form::FromForm)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSearchParams {
     /// Free-text search term. If omitted, the endpoint returns an empty result set.
@@ -341,6 +360,14 @@ pub struct ThreadSearchParams {
     #[field(default = 25)]
     #[serde(default = "default_search_page_size")]
     pub size: i64,
+    /// Optional inclusive lower bound (UTC date) for thread last activity.
+    #[field(name = "startDate")]
+    #[serde(default)]
+    pub start_date: Option<DateParam>,
+    /// Optional inclusive upper bound (UTC date) for thread start date.
+    #[field(name = "endDate")]
+    #[serde(default)]
+    pub end_date: Option<DateParam>,
 }
 
 impl Default for ThreadSearchParams {
@@ -349,6 +376,8 @@ impl Default for ThreadSearchParams {
             q: None,
             page: default_page(),
             size: default_search_page_size(),
+            start_date: None,
+            end_date: None,
         }
     }
 }
@@ -371,11 +400,57 @@ impl ThreadSearchParams {
     pub fn size(&self) -> i64 {
         self.size.clamp(1, MAX_PAGE_SIZE)
     }
+
+    /// Inclusive lower bound converted to UTC midnight.
+    pub fn start_date_utc(&self) -> Option<DateTime<Utc>> {
+        self.start_date.as_ref().and_then(|param| {
+            param
+                .0
+                .and_hms_opt(0, 0, 0)
+                .map(|naive| Utc.from_utc_datetime(&naive))
+        })
+    }
+
+    /// Inclusive upper bound converted to UTC end-of-day.
+    pub fn end_date_utc(&self) -> Option<DateTime<Utc>> {
+        self.end_date.as_ref().and_then(|param| {
+            param
+                .0
+                .and_hms_milli_opt(23, 59, 59, 999)
+                .map(|naive| Utc.from_utc_datetime(&naive))
+        })
+    }
+}
+
+impl JsonSchema for ThreadSearchParams {
+    fn schema_name() -> String {
+        "ThreadSearchParams".to_string()
+    }
+
+    fn json_schema(generator: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        #[derive(Serialize, JsonSchema)]
+        #[serde(rename_all = "camelCase")]
+        struct ThreadSearchParamsDoc {
+            #[serde(default = "default_optional_string")]
+            q: Option<String>,
+            #[serde(default = "default_page")]
+            page: i64,
+            #[serde(default = "default_search_page_size")]
+            size: i64,
+            #[serde(default)]
+            start_date: Option<String>,
+            #[serde(default)]
+            end_date: Option<String>,
+        }
+
+        ThreadSearchParamsDoc::json_schema(generator)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Timelike;
     use rocket::form::Form;
 
     #[test]
@@ -384,10 +459,35 @@ mod tests {
         assert_eq!(parsed.q.as_deref(), Some("test"));
         assert_eq!(parsed.page(), 2);
         assert_eq!(parsed.size(), 10);
+        assert!(parsed.start_date.is_none());
+        assert!(parsed.end_date.is_none());
 
         let parsed_default: ThreadSearchParams = Form::parse("").unwrap();
         assert_eq!(parsed_default.q, None);
         assert_eq!(parsed_default.page(), 1);
         assert_eq!(parsed_default.size(), 25);
+        assert!(parsed_default.start_date.is_none());
+        assert!(parsed_default.end_date.is_none());
+    }
+
+    #[test]
+    fn parses_thread_search_date_filters() {
+        let parsed: ThreadSearchParams =
+            Form::parse("startDate=2025-01-01&endDate=2025-02-15").unwrap();
+
+        let start = parsed.start_date_utc().unwrap();
+        let end = parsed.end_date_utc().unwrap();
+
+        assert_eq!(
+            start.date_naive(),
+            chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap()
+        );
+        assert_eq!(start.hour(), 0);
+        assert_eq!(
+            end.date_naive(),
+            chrono::NaiveDate::from_ymd_opt(2025, 2, 15).unwrap()
+        );
+        assert_eq!(end.hour(), 23);
+        assert_eq!(end.minute(), 59);
     }
 }

@@ -14,11 +14,15 @@ use crate::routes::{
     helpers::resolve_mailing_list_id,
     params::{ThreadListParams, ThreadSearchParams},
 };
+use chrono::{DateTime, Utc};
 use rocket::{get, serde::json::Json};
 use rocket_db_pools::sqlx::Row;
 use rocket_db_pools::{Connection, sqlx};
 use rocket_okapi::openapi;
 use std::collections::HashMap;
+
+const THREAD_RECENCY_WEIGHT: f64 = 0.35;
+const THREAD_RECENCY_HALF_LIFE_SECONDS: f64 = 31.0 * 24.0 * 3600.0;
 
 /// List threads in a mailing list with pagination and sorting.
 #[openapi(tag = "Threads")]
@@ -146,11 +150,29 @@ pub async fn search_threads(
         }
     };
 
+    let start_bound = params.start_date_utc();
+    let end_bound = params.end_date_utc();
+    if let (Some(start), Some(end)) = (start_bound.as_ref(), end_bound.as_ref()) {
+        if start > end {
+            return Err(ApiError::BadRequest(
+                "startDate must be on or before endDate".to_string(),
+            ));
+        }
+    }
+
     let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
     let offset = (page - 1) * size;
-    let (hits, total) = lexical_search(&mut **db, mailing_list_id, &query, size, offset)
-        .await
-        .map_err(ApiError::from)?;
+    let (hits, total) = lexical_search(
+        &mut **db,
+        mailing_list_id,
+        &query,
+        size,
+        offset,
+        start_bound,
+        end_bound,
+    )
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(Json(ThreadSearchResponse {
         query,
@@ -167,58 +189,76 @@ async fn lexical_search(
     query: &str,
     limit: i64,
     offset: i64,
+    start_date: Option<DateTime<Utc>>,
+    end_date: Option<DateTime<Utc>>,
 ) -> Result<(Vec<ThreadSearchHit>, i64), sqlx::Error> {
     let rows = sqlx::query(
         r#"
         WITH query AS (
-            SELECT websearch_to_tsquery('english', $2) AS tsq
+            SELECT websearch_to_tsquery('english', $2) AS tsq,
+                   $8::double precision AS half_life_seconds
         ),
-        ranked AS (
+        filtered_threads AS (
+            SELECT t.*
+            FROM threads t
+            WHERE t.mailing_list_id = $1
+              AND ($5::timestamptz IS NULL OR t.last_date >= $5::timestamptz)
+              AND ($6::timestamptz IS NULL OR t.start_date <= $6::timestamptz)
+        ),
+        thread_docs AS (
             SELECT
                 t.id,
                 t.mailing_list_id,
-                t.root_message_id,
-                t.subject,
-                t.start_date,
                 t.last_date,
-                CAST(t.message_count AS INTEGER) AS message_count,
-                starter.author_id AS starter_id,
-                a.canonical_name AS starter_name,
-                a.email AS starter_email,
-                GREATEST(
-                    ts_rank_cd(to_tsvector('english', COALESCE(t.subject, '')), query.tsq),
-                    COALESCE(MAX(ts_rank_cd(e.lex_ts, query.tsq)), 0)
-                )::float4 AS lexical_score
-            FROM threads t
+                setweight(to_tsvector('english', COALESCE(t.subject, '')), 'A') ||
+                setweight(to_tsvector('english', COALESCE(starter.search_body, '')), 'B') ||
+                setweight(to_tsvector('english', COALESCE(rest.tail_text, '')), 'D') AS search_vector
+            FROM filtered_threads t
+            LEFT JOIN emails starter
+                ON starter.message_id = t.root_message_id
+               AND starter.mailing_list_id = t.mailing_list_id
+            LEFT JOIN LATERAL (
+                SELECT string_agg(COALESCE(e.search_body, ''), ' ' ORDER BY e.date) AS tail_text
+                FROM thread_memberships tm
+                JOIN emails e ON e.id = tm.email_id
+                WHERE tm.thread_id = t.id
+                  AND tm.mailing_list_id = t.mailing_list_id
+                  AND (starter.id IS NULL OR e.id <> starter.id)
+            ) rest ON TRUE
+        ),
+        ranked AS (
+            SELECT
+                td.id,
+                td.mailing_list_id,
+                td.last_date,
+                ts_rank_cd(td.search_vector, query.tsq) AS text_score,
+                exp(-GREATEST(0, EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'utc') - td.last_date))) /
+                    query.half_life_seconds) AS recency_factor
+            FROM thread_docs td
             CROSS JOIN query
-            JOIN emails starter
-                ON t.root_message_id = starter.message_id
-               AND t.mailing_list_id = starter.mailing_list_id
-            JOIN authors a ON starter.author_id = a.id
-            LEFT JOIN thread_memberships tm
-                ON t.id = tm.thread_id
-               AND tm.mailing_list_id = $1
-            LEFT JOIN emails e
-                ON tm.email_id = e.id
-               AND e.mailing_list_id = $1
-            WHERE t.mailing_list_id = $1
-            GROUP BY
-                t.id,
-                t.mailing_list_id,
-                t.root_message_id,
-                t.subject,
-                t.start_date,
-                t.last_date,
-                t.message_count,
-                starter.author_id,
-                a.canonical_name,
-                a.email,
-                query.tsq
+            WHERE td.search_vector @@ query.tsq
         )
-        SELECT *
+        SELECT
+            t.id,
+            t.mailing_list_id,
+            t.root_message_id,
+            t.subject,
+            t.start_date,
+            t.last_date,
+            CAST(t.message_count AS INTEGER) AS message_count,
+            starter.author_id AS starter_id,
+            a.canonical_name AS starter_name,
+            a.email AS starter_email,
+            (ranked.text_score * (1.0 + $7::double precision * ranked.recency_factor))::float4 AS blended_score
         FROM ranked
-        WHERE lexical_score > 0
-        ORDER BY lexical_score DESC, last_date DESC
+        JOIN threads t
+          ON t.id = ranked.id
+         AND t.mailing_list_id = ranked.mailing_list_id
+        JOIN emails starter
+          ON t.root_message_id = starter.message_id
+         AND t.mailing_list_id = starter.mailing_list_id
+        JOIN authors a ON starter.author_id = a.id
+        ORDER BY blended_score DESC, t.last_date DESC
         LIMIT $3 OFFSET $4
         "#,
     )
@@ -226,6 +266,10 @@ async fn lexical_search(
     .bind(query)
     .bind(limit)
     .bind(offset)
+    .bind(start_date)
+    .bind(end_date)
+    .bind(THREAD_RECENCY_WEIGHT)
+    .bind(THREAD_RECENCY_HALF_LIFE_SECONDS)
     .fetch_all(&mut *conn)
     .await?;
 
@@ -244,9 +288,9 @@ async fn lexical_search(
             starter_name: row.try_get("starter_name")?,
             starter_email: row.try_get("starter_email")?,
         };
-        let lexical_score: f32 = row.try_get("lexical_score")?;
-        max_score = max_score.max(lexical_score);
-        raw_hits.push((thread, lexical_score));
+        let blended_score: f32 = row.try_get("blended_score")?;
+        max_score = max_score.max(blended_score);
+        raw_hits.push((thread, blended_score));
     }
 
     let mut hits = Vec::with_capacity(raw_hits.len());
@@ -265,31 +309,45 @@ async fn lexical_search(
         WITH query AS (
             SELECT websearch_to_tsquery('english', $2) AS tsq
         ),
-        ranked AS (
+        filtered_threads AS (
+            SELECT t.*
+            FROM threads t
+            WHERE t.mailing_list_id = $1
+              AND ($3::timestamptz IS NULL OR t.last_date >= $3::timestamptz)
+              AND ($4::timestamptz IS NULL OR t.start_date <= $4::timestamptz)
+        ),
+        thread_docs AS (
             SELECT
                 t.id,
-                GREATEST(
-                    ts_rank_cd(to_tsvector('english', COALESCE(t.subject, '')), query.tsq),
-                    COALESCE(MAX(ts_rank_cd(e.lex_ts, query.tsq)), 0)
-                )::float4 AS lexical_score
-            FROM threads t
+                setweight(to_tsvector('english', COALESCE(t.subject, '')), 'A') ||
+                setweight(to_tsvector('english', COALESCE(starter.search_body, '')), 'B') ||
+                setweight(to_tsvector('english', COALESCE(rest.tail_text, '')), 'D') AS search_vector
+            FROM filtered_threads t
+            LEFT JOIN emails starter
+                ON starter.message_id = t.root_message_id
+               AND starter.mailing_list_id = t.mailing_list_id
+            LEFT JOIN LATERAL (
+                SELECT string_agg(COALESCE(e.search_body, ''), ' ' ORDER BY e.date) AS tail_text
+                FROM thread_memberships tm
+                JOIN emails e ON e.id = tm.email_id
+                WHERE tm.thread_id = t.id
+                  AND tm.mailing_list_id = t.mailing_list_id
+                  AND (starter.id IS NULL OR e.id <> starter.id)
+            ) rest ON TRUE
+        ),
+        ranked AS (
+            SELECT td.id
+            FROM thread_docs td
             CROSS JOIN query
-            LEFT JOIN thread_memberships tm
-                ON t.id = tm.thread_id
-               AND tm.mailing_list_id = $1
-            LEFT JOIN emails e
-                ON tm.email_id = e.id
-               AND e.mailing_list_id = $1
-            WHERE t.mailing_list_id = $1
-            GROUP BY t.id, t.subject, query.tsq
+            WHERE td.search_vector @@ query.tsq
         )
-        SELECT COUNT(*)
-        FROM ranked
-        WHERE lexical_score > 0
+        SELECT COUNT(*) FROM ranked
         "#,
     )
     .bind(mailing_list_id)
     .bind(query)
+    .bind(start_date)
+    .bind(end_date)
     .fetch_one(&mut *conn)
     .await?;
     let total: i64 = total_row.try_get(0)?;
