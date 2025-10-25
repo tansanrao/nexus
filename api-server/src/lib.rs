@@ -6,6 +6,7 @@ pub mod error;
 pub mod models;
 pub mod request_logger;
 pub mod routes;
+pub mod search;
 pub mod sync;
 pub mod threading;
 
