@@ -372,3 +372,22 @@ impl ThreadSearchParams {
         self.size.clamp(1, MAX_PAGE_SIZE)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rocket::form::Form;
+
+    #[test]
+    fn parses_thread_search_query() {
+        let parsed: ThreadSearchParams = Form::parse("q=test&page=2&size=10").unwrap();
+        assert_eq!(parsed.q.as_deref(), Some("test"));
+        assert_eq!(parsed.page(), 2);
+        assert_eq!(parsed.size(), 10);
+
+        let parsed_default: ThreadSearchParams = Form::parse("").unwrap();
+        assert_eq!(parsed_default.q, None);
+        assert_eq!(parsed_default.page(), 1);
+        assert_eq!(parsed_default.size(), 25);
+    }
+}
