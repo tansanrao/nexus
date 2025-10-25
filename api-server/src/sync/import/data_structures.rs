@@ -21,6 +21,7 @@ pub struct EmailsData {
     pub dates: Vec<DateTime<Utc>>,
     pub in_reply_tos: Vec<Option<String>>,
     pub bodies: Vec<String>,
+    pub search_bodies: Vec<String>,
     pub series_ids: Vec<Option<String>>,
     pub series_numbers: Vec<Option<i32>>,
     pub series_totals: Vec<Option<i32>>,

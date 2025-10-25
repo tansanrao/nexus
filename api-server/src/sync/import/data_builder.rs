@@ -3,6 +3,7 @@
 //! Transforms parsed emails into columnar data structures optimized for
 //! PostgreSQL UNNEST bulk insert operations.
 
+use crate::search::sanitize::strip_patch_payload;
 use crate::sync::import::data_structures::{
     ChunkCacheData, EmailsData, RecipientsData, ReferencesData,
 };
@@ -109,6 +110,13 @@ pub async fn build_email_batch_data(
             data.dates.push(email.date);
             data.in_reply_tos.push(email.in_reply_to.clone());
             data.bodies.push(email.body.clone());
+            let sanitized = strip_patch_payload(
+                &email.body,
+                email.patch_metadata.as_ref(),
+                email.is_patch_only,
+            )
+            .into_owned();
+            data.search_bodies.push(sanitized);
 
             if let Some((series_id, series_num, series_total)) = series_info {
                 data.series_ids.push(Some(series_id));

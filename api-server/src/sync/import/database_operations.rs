@@ -80,7 +80,7 @@ pub async fn insert_emails_batch(
     let result = sqlx::query(
         r#"INSERT INTO emails (
             mailing_list_id, message_id, git_commit_hash, author_id,
-            subject, normalized_subject, date, in_reply_to, body,
+            subject, normalized_subject, date, in_reply_to, body, search_body,
             series_id, series_number, series_total, epoch,
             patch_type, is_patch_only, patch_metadata, lex_ts, body_ts
            )
@@ -94,17 +94,18 @@ pub async fn insert_emails_batch(
                mail_date,
                in_reply_to,
                body,
-               series_id,
-               series_number,
-               series_total,
-               epoch,
-               patch_type,
-               is_patch_only,
-               patch_metadata,
-               to_tsvector('english',
-                   COALESCE(subject, '') || ' ' || COALESCE(body, '')
-               ),
-               to_tsvector('english', COALESCE(body, ''))
+                search_body,
+                series_id,
+                series_number,
+                series_total,
+                epoch,
+                patch_type,
+                is_patch_only,
+                patch_metadata,
+                to_tsvector('english',
+                   COALESCE(subject, '') || ' ' || COALESCE(search_body, '')
+                ),
+               to_tsvector('english', COALESCE(search_body, ''))
            FROM UNNEST(
                $1::int[],
                $2::text[],
@@ -116,12 +117,13 @@ pub async fn insert_emails_batch(
                $8::text[],
                $9::text[],
                $10::text[],
-               $11::int[],
+               $11::text[],
                $12::int[],
                $13::int[],
-               $14::patch_type[],
-               $15::bool[],
-               $16::jsonb[]
+               $14::int[],
+               $15::patch_type[],
+               $16::bool[],
+               $17::jsonb[]
            ) AS t (
                list_id,
                message_id,
@@ -132,6 +134,7 @@ pub async fn insert_emails_batch(
                mail_date,
                in_reply_to,
                body,
+               search_body,
                series_id,
                series_number,
                series_total,
@@ -151,6 +154,7 @@ pub async fn insert_emails_batch(
     .bind(&data.dates)
     .bind(&data.in_reply_tos)
     .bind(&data.bodies)
+    .bind(&data.search_bodies)
     .bind(&data.series_ids)
     .bind(&data.series_numbers)
     .bind(&data.series_totals)
