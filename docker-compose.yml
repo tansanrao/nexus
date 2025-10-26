@@ -25,27 +25,25 @@ services:
     restart: unless-stopped
     shm_size: '16GB'
 
-  # Text Embeddings Inference service
-  embeddings:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
-    container_name: nexus-embeddings
+  # Meilisearch for hybrid thread/author search
+  meilisearch:
+    image: getmeili/meilisearch:v1.23.0
+    container_name: nexus-meilisearch
     environment:
-      MODEL_ID: ${EMBEDDINGS_MODEL_ID:-nomic-ai/nomic-embed-text-v1.5}
-      NUM_SHARD: ${EMBEDDINGS_NUM_SHARD:-1}
-      HF_TOKEN: ${HF_TOKEN:-}
-      MAX_CONCURRENT_REQUESTS: ${EMBEDDINGS_MAX_CONCURRENT_REQUESTS:-8}
-      MAX_BATCH_SIZE: ${EMBEDDINGS_MAX_BATCH_SIZE:-2}
-      PORT: 8080
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-dev-secret}
+      MEILI_ENV: development
+      MEILI_HTTP_ADDR: "0.0.0.0:7700"
+      MEILI_EXPERIMENTAL_FEATURES: ${MEILI_EXPERIMENTAL_FEATURES:-vector-store}
     ports:
-      - "${EMBEDDINGS_PORT:-8080}:8080"
+      - "${MEILISEARCH_PORT:-7700}:7700"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
     volumes:
-      - hf-cache:/data
+      - meili-data:/meili_data
     networks:
       - nexus-network
     restart: unless-stopped
@@ -67,9 +65,13 @@ services:
       THREADING_CACHE_BASE_PATH: ${THREADING_CACHE_BASE_PATH:-/app/cache}
       # Logging
       RUST_LOG: ${RUST_LOG:-info}
-      # Embeddings
-      EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8080}
-      EMBEDDINGS_MODEL_ID: ${EMBEDDINGS_MODEL_ID:-nomic-ai/nomic-embed-text-v1.5}
+      # Embeddings (external TEI instance)
+      EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://100.65.8.15:8080}
+      EMBEDDINGS_MODEL_ID: ${EMBEDDINGS_MODEL_ID:-Qwen/Qwen3-Embedding-0.6B}
+      # Meilisearch
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://meilisearch:7700}
+      MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-dev-secret}
+      SEARCH_EMBEDDING_DIM: ${SEARCH_EMBEDDING_DIM:-1024}
       SEARCH_DEFAULT_MODE: ${SEARCH_DEFAULT_MODE:-hybrid}
     ports:
       - "${API_PORT:-8000}:8000"
@@ -79,7 +81,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      embeddings:
+      meilisearch:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/mailing-lists"]
@@ -134,5 +136,9 @@ volumes:
       type: none
       o: bind
       device: ${HOST_CACHE_DATA_PATH:-./data/cache}
-  hf-cache:
+  meili-data:
     driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOST_MEILI_DATA_PATH:-./data/meili}
