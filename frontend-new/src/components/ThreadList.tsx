@@ -33,6 +33,8 @@ interface ThreadListProps {
   maxPage: number;
   onSearch: (query: string) => void;
   searchQuery: string;
+  semanticRatio: number;
+  onSemanticRatioChange: (ratio: number) => void;
 }
 
 export function ThreadList({
@@ -46,6 +48,8 @@ export function ThreadList({
   maxPage,
   onSearch,
   searchQuery,
+  semanticRatio,
+  onSemanticRatioChange,
 }: ThreadListProps) {
   const { timezone } = useTimezone();
   const [localQuery, setLocalQuery] = useState(searchQuery);
@@ -94,7 +98,7 @@ export function ThreadList({
   }, []);
 
   const renderSearchBar = () => (
-    <div className="px-3 py-2 border-b border-surface-border/60 flex-shrink-0">
+    <div className="px-3 py-2 border-b border-surface-border/60 flex-shrink-0 space-y-2">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -110,6 +114,26 @@ export function ThreadList({
             /
           </kbd>
         </div>
+      </div>
+
+      <div className="flex items-center gap-3 px-1">
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Semantic boost
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={Math.round(semanticRatio * 100)}
+          onChange={(e) => onSemanticRatioChange(Number(e.target.value) / 100)}
+          disabled={!searchQuery.trim()}
+          className="flex-1 h-2"
+          title="Adjust hybrid search balance"
+        />
+        <span className="text-xs text-muted-foreground w-12 text-right">
+          {Math.round(semanticRatio * 100)}%
+        </span>
       </div>
     </div>
   );
@@ -200,7 +224,7 @@ export function ThreadList({
                 </div>
                 {typeof lexical_score === 'number' && (
                   <div className="mt-2 text-[11px] text-muted-foreground">
-                    Lexical relevance {formatScore(lexical_score)}
+                    Relevance {formatScore(lexical_score)}
                   </div>
                 )}
               </div>

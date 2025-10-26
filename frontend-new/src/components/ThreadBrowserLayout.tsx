@@ -18,6 +18,8 @@ interface ThreadBrowserLayoutProps {
   onSearch: (query: string) => void;
   searchQuery: string;
   leftPanelHeader?: ReactNode;
+  semanticRatio: number;
+  onSemanticRatioChange: (ratio: number) => void;
   threadsCollapsed: boolean;
   activeRightView?: 'thread' | 'diff';
 }
@@ -34,6 +36,8 @@ export function ThreadBrowserLayout({
   onSearch,
   searchQuery,
   leftPanelHeader,
+  semanticRatio,
+  onSemanticRatioChange,
   threadsCollapsed,
   activeRightView = 'thread',
 }: ThreadBrowserLayoutProps) {
@@ -78,6 +82,8 @@ export function ThreadBrowserLayout({
               maxPage={maxPage}
               onSearch={onSearch}
               searchQuery={searchQuery}
+              semanticRatio={semanticRatio}
+              onSemanticRatioChange={onSemanticRatioChange}
             />
           </div>
         </div>

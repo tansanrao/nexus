@@ -28,6 +28,8 @@ export function ThreadBrowser() {
     handleThreadSelect,
     handlePageChange,
     handleFiltersChange,
+    semanticRatio,
+    handleSemanticRatioChange,
   } = useThreadBrowser();
 
   // If showing author view, use different layout
@@ -79,6 +81,8 @@ export function ThreadBrowser() {
         maxPage={maxPage}
         onSearch={handleSearch}
         searchQuery={searchQuery}
+        semanticRatio={semanticRatio}
+        onSemanticRatioChange={handleSemanticRatioChange}
         threadsCollapsed={threadsCollapsed}
         activeRightView={rightPanelView}
       />

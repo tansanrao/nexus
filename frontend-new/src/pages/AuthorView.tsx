@@ -49,12 +49,14 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
       pageSize,
       searchTerm,
       mailingList,
+      semanticRatio: _semanticRatio,
     }: {
       mailingList: string;
       page: number;
       pageSize: number;
       filters: ThreadFilters;
       searchTerm: string;
+      semanticRatio: number;
     }): Promise<ThreadFetchResult> => {
       // Filters provided by the thread browser hook are not currently used for author scoped views.
       const activeMailingList = selectedMailingList ?? mailingList;
@@ -114,6 +116,8 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
     handleSearch,
     handleThreadSelect,
     handlePageChange,
+    semanticRatio,
+    handleSemanticRatioChange,
   } = useThreadBrowser({
     fetchThreads: fetchAuthorThreads,
     reloadDeps: [authorId, activeTab],
@@ -262,6 +266,8 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
         maxPage={maxPage}
         onSearch={handleSearch}
         searchQuery={searchQuery}
+        semanticRatio={semanticRatio}
+        onSemanticRatioChange={handleSemanticRatioChange}
         leftPanelHeader={authorHeader}
         threadsCollapsed={threadsCollapsed}
         activeRightView={rightPanelView}

@@ -11,6 +11,7 @@ interface FetchThreadsParams {
   pageSize: number;
   filters: ThreadFilters;
   searchTerm: string;
+  semanticRatio: number;
 }
 
 export interface ThreadFetchResult {
@@ -41,6 +42,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     sortBy: 'lastDate',
     order: 'desc',
   });
+  const [semanticRatio, setSemanticRatio] = useState(0.35);
   const pageSize = options.pageSize ?? 50;
   const reloadDeps = options.reloadDeps ?? [];
   const customFetchThreads = options.fetchThreads;
@@ -113,6 +115,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
               pageSize,
               filters: activeFilters,
               searchTerm,
+              semanticRatio,
             });
           }
 
@@ -122,6 +125,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
               searchTerm,
               targetPage,
               pageSize,
+              semanticRatio,
             );
             const totalPages = response.total > 0 ? Math.ceil(response.total / response.size) : 0;
             return {
@@ -195,6 +199,7 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
       searchQuery,
       selectedMailingList,
       threadItems,
+      semanticRatio,
     ]
   );
 
@@ -225,6 +230,18 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     loadThreads(1, newFilters);
   };
 
+  const handleSemanticRatioChange = useCallback(
+    (ratio: number) => {
+      const clamped = Math.max(0, Math.min(1, ratio));
+      setSemanticRatio(clamped);
+      if (searchQuery.trim()) {
+        setCurrentPage(1);
+        loadThreads(1, undefined, searchQuery.trim());
+      }
+    },
+    [loadThreads, searchQuery]
+  );
+
   return {
     threads: threadItems,
     loading,
@@ -236,10 +253,12 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
     maxPage,
     filters,
     pageSize,
+    semanticRatio,
     handleSearch,
     handleThreadSelect,
     handlePageChange,
     handleFiltersChange,
+    handleSemanticRatioChange,
   };
 }
 

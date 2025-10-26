@@ -207,7 +207,8 @@ export class ApiClient {
     slug: string,
     query: string,
     page: number = 1,
-    size: number = 25
+    size: number = 25,
+    semanticRatio?: number
   ): Promise<ThreadSearchResponse> {
     const params = new URLSearchParams({
       page: page.toString(),
@@ -216,6 +217,10 @@ export class ApiClient {
 
     if (query.trim()) {
       params.set('q', query.trim());
+    }
+    if (typeof semanticRatio === 'number') {
+      const clamped = Math.max(0, Math.min(1, semanticRatio));
+      params.set('semanticRatio', clamped.toFixed(2));
     }
 
     return this.request<ThreadSearchResponse>(
