@@ -9,7 +9,7 @@ This document describes the system architecture, data model, runtime behavior, a
 > * **DB refactor:** single `PgPool` (SQLx) for all operations; reversible/testable migrations; repeatable migration validation; stricter migration discipline.
 > * **API docs:** OpenAPI generation refactor; **RapiDoc** only; Swagger UI removed. ([rapidocweb.com][1])
 > * **Testing:** unit tests (pure logic), and **integration tests** via Docker Compose with privileged Postgres admin user and automatic DB create/seed/drop; migration up/down tests.
-> * **Search 2.0:** hybrid **lexical + semantic** search with **pgvector** HNSW + Postgres FTS; optional **cross‑encoder re‑ranker**; all OSS models. ([GitHub][2])
+> * **Search 2.0:** hybrid **lexical + semantic** search backed by **Meilisearch** with user-provided Qwen3 embeddings and adjustable semantic weighting (no Postgres FTS); optional **cross‑encoder re‑ranker**; all OSS models. ([GitHub][2])
 > * **Auth:** standards-based **OpenID Connect** (OIDC) plus **local username/password** accounts with JWT access/refresh tokens; default IdP **Keycloak** alongside managed local credential store. ([Keycloak][3])
 > * **Profiles & notifications:** per‑user preferences; follow threads; SSE/WebSocket live notifications; Postgres‑backed pub/sub.
 > * **Observability:** structured JSON logging (`tracing`), Prometheus metrics, health checks (liveness/readiness), optional OTEL. ([Crates.io][4])
@@ -43,11 +43,14 @@ This document describes the system architecture, data model, runtime behavior, a
 grokmirror (daemon/cron)  →  local git mirrors (public-inbox v2)
                                   │
                                   ▼
-            Nexus API (Rocket, Rust)  ←→  PostgreSQL 18 (+ pgvector, pg_trgm)
-                   │                               ▲
-                   │                               │
-                   ▼                               │
-      Embeddings Service (TEI, nomic-embed-text) ──┘
+            Nexus API (Rocket, Rust)  ←→  PostgreSQL 18
+                   │
+      ┌────────────┴────────────┐
+      ▼                         ▼
+Embeddings Service        Meilisearch CE
+(TEI, Qwen3-Embedding)    (hybrid search)
+      │                         ▲
+      └──────────────►──────────┘
                    │
                    ▼
             React/Vite UI (nginx)
@@ -62,9 +65,10 @@ Notifications (SSE/WebSocket):
 ```
 
 * **Mirror:** grokmirror mirrors lore.kernel.org repos (epochs) to disk.
-* **API:** Rust + Rocket service: REST API, sync orchestration, parsing, threading, search, auth, notifications. Semantic inference is currently disabled, but the API continues to populate schema fields for future use.
-* **DB:** PostgreSQL 18 with LIST partitioning by `mailing_list_id`; global `authors`; **vector embeddings with `pgvector` HNSW**; FTS with `tsvector` + `GIN`; trigram similarity with `pg_trgm`. ([GitHub][2])
-* **Embeddings service:** Text Embeddings Inference container serving `nomic-ai/nomic-embed-text-v1.5` on HTTP; shared across API workers.
+* **API:** Rust + Rocket service: REST API, sync orchestration, parsing, threading, search, auth, notifications. The API owns indexing pipelines, calls the embeddings service, and manages Meilisearch tasks/queries on behalf of the UI.
+* **DB:** PostgreSQL 18 with LIST partitioning by `mailing_list_id`; global `authors`; maintains canonical threads/emails/authors but no longer carries search indexes. ([GitHub][2])
+* **Search service:** Meilisearch Community Edition `v1.23.0` (private network, experimental vector store enabled via `/experimental-features`) maintains `threads` and `authors` indexes with user-provided Qwen3 embeddings and hybrid lexical/semantic scoring (exposed via adjustable `semanticRatio`).
+* **Embeddings service:** Text Embeddings Inference serving `Qwen/Qwen3-Embedding-0.6B` over HTTP; used for both indexing and query-time embeddings.
 * **UI:** React/Vite, served by nginx; `/api` proxied to API; **OIDC client**; **RapiDoc** for docs. ([authts.github.io][5])
 * **Auth:** OIDC clients exchange tokens with provider; local users authenticate through Rocket endpoints issuing short-lived JWTs and refresh cookies.
 * **Cache:** Unified per‑list cache (DashMap + bincode) for fast JWZ threading (unchanged).
@@ -80,7 +84,7 @@ Notifications (SSE/WebSocket):
   * Routes: `src/routes/*` (grouped by domain: `admin`, `threads`, `emails`, `authors`, `search`, `users`, `notifications`, `health`, `metrics`)
   * Sync & import: `src/sync/*`
   * Threading: `src/threading/*`
-* **Search:** Lexical-only queries served from `routes/threads.rs`; vector fields remain in the schema but are not populated during ingestion.
+* **Search:** `src/search/` hosts Meilisearch client/service helpers, thread/author indexers, and sanitizers reused by routes, the sync dispatcher, and admin jobs.
   * **Auth:** `src/auth/*` (OIDC verifier, JWKS caching, local credential service, JWT issuer, refresh token store)
   * **Docs:** `src/docs/openapi.rs` (OpenAPI builder)
   * **Migrations:** `migrations/*.up.sql`, `*.down.sql` (**reversible**)
@@ -133,10 +137,8 @@ Notifications (SSE/WebSocket):
 
 * Same seed/reset/status endpoints.
 * Additional search maintenance APIs (all return queued job metadata so operators can track progress):
-  * **POST /admin/search/index/refresh** – recompute lexical `tsvector` columns and optionally run `REINDEX` for supporting GIN/vector indexes; accepts optional `mailingListSlug`.
-  * **POST /admin/search/index/reset** – drop and recreate HNSW/GIN indexes for either a specific list or the entire corpus; enqueues `index_maintenance` jobs because these operations can be long running.
-  * **POST /admin/search/embeddings/reset** – null out `emails.embedding` (and derived `thread_embeddings`) for the requested scope and enqueue fresh embedding jobs to rebuild from scratch.
-  * **POST /admin/search/embeddings/rebuild** – schedule an embedding refresh without dropping existing vectors, useful when backfilling missed emails or switching models.
+* **POST /admin/search/index/refresh** – enqueue a Meilisearch refresh for `threads` (optionally scoped to one mailing list) and rebuild the `authors` index.
+* **POST /admin/search/index/reset** – drop both Meilisearch indexes and trigger a full reindex (threads + authors); runs as an `index_maintenance` job because it can be lengthy.
 
 ---
 
@@ -144,8 +146,7 @@ Notifications (SSE/WebSocket):
 
 > **Extensions required (test & prod):**
 >
-> * `CREATE EXTENSION IF NOT EXISTS vchord CASCADE;` (installs VectorChord and pulls in pgvector dependency) ([VectorChord][41])
-> * `CREATE EXTENSION IF NOT EXISTS pg_trgm;` (trigram ops) ([PostgreSQL][9])
+> * `CREATE EXTENSION IF NOT EXISTS pg_trgm;` (legacy trigram ops for fuzzy comparisons). ([PostgreSQL][9])
 
 **Global tables**
 
@@ -158,9 +159,9 @@ Notifications (SSE/WebSocket):
 
 **Partitioned by `mailing_list_id` (LIST)**
 
-* `emails(id, mailing_list_id, message_id UNIQUE, git_commit_hash UNIQUE, author_id, subject, normalized_subject, date, in_reply_to, body, series_id, series_number, series_total, epoch, created_at, threaded_at, patch_type, is_patch_only, patch_metadata JSONB, **embedding VECTOR(768)**, **lex_ts tsvector**, **body_ts tsvector**)`
+* `emails(id, mailing_list_id, message_id UNIQUE, git_commit_hash UNIQUE, author_id, subject, normalized_subject, date, in_reply_to, body, series_id, series_number, series_total, epoch, created_at, threaded_at, patch_type, is_patch_only, patch_metadata JSONB, **embedding VECTOR(768)** (legacy), **lex_ts tsvector** (legacy), **body_ts tsvector** (legacy))`
 * `threads(id, mailing_list_id, root_message_id UNIQUE, subject, start_date, last_date, message_count, membership_hash BYTEA)`
-* `thread_embeddings(id, mailing_list_id, thread_id, embedding VECTOR(768), email_count INTEGER, aggregated_at TIMESTAMPTZ)`
+* `thread_embeddings(id, mailing_list_id, thread_id, embedding VECTOR(768), email_count INTEGER, aggregated_at TIMESTAMPTZ)` *(legacy aggregate table retained for backwards compatibility)*
 * `email_recipients(id, mailing_list_id, email_id, author_id, recipient_type {to,cc})`
 * `email_references(mailing_list_id, email_id, referenced_message_id, position)`
 * `thread_memberships(mailing_list_id, thread_id, email_id, depth)`
@@ -177,9 +178,9 @@ Notifications (SSE/WebSocket):
 
 **Indexes (selected)**
 
-* FTS: `CREATE INDEX emails_lex_ts_idx ON emails USING GIN(lex_ts);` and `... body_ts_idx ON emails USING GIN(body_ts);` (standard setup). ([PostgreSQL][10])
-* Trigram (for fuzzy subject/author): `CREATE INDEX emails_subject_trgm ON emails USING GIN (subject gin_trgm_ops);` ([PostgreSQL][9])
-* Vector (semantic): `CREATE INDEX emails_embedding_hnsw ON emails USING vchordrq (embedding vector_cosine_ops);` (or `vector_l2_ops` depending on model). VectorChord’s RAC index builds on `pgvector` operators and offers better speed/recall trade-offs than IVFFlat for many workloads. ([GitHub][2])
+* **Legacy FTS:** `CREATE INDEX emails_lex_ts_idx ON emails USING GIN(lex_ts);` and `... body_ts_idx ON emails USING GIN(body_ts);` (retained for backward compatibility; not used by the Meilisearch pipeline). ([PostgreSQL][10])
+* **Legacy trigram:** `CREATE INDEX emails_subject_trgm ON emails USING GIN (subject gin_trgm_ops);` (still available for ad-hoc fuzzy lookups). ([PostgreSQL][9])
+* **Legacy vectors:** `emails.embedding`/`thread_embeddings` remain in the schema but are not populated during the Meilisearch rollout; we plan to drop them once migration is complete.
 * Incremental threading: partial index on `emails(threaded_at)` retained.
 * Auth: `user_refresh_tokens(token_id)` unique index plus `CREATE INDEX user_refresh_tokens_user_idx ON user_refresh_tokens(user_id, expires_at DESC);` for revocation sweeps.
 
@@ -192,28 +193,47 @@ Notifications (SSE/WebSocket):
 * All jobs carry a `payload` JSONB blob so admin APIs can describe scope (`mailingListSlug`, `startId`, `endId`, `forceReindex`). Workers validate the payload schema before execution.
 * Admin status endpoints (`/admin/sync/status` et al.) expose the same structure so the frontend can render a unified queue, regardless of job type, and show per-job progress (`processed_count`, `total_count`) when workers emit heartbeats.
 
-> **Note:** Keep embedding dimension in sync with chosen model (default 768).
+> **Note:** Keep the Meilisearch embedder dimensions aligned with the configured model (`threads-qwen3` currently uses 1024).
 
 ---
 
 ## 6. Search (v0.2)
 
-### 6.1 Models (FOSS only)
+### 6.1 Overview
 
-* **Embeddings (future):** The schema retains 768‑dimension vectors compatible with **nomic-ai/nomic-embed-text-v1.5** so we can re-enable semantic search later. Presently, inference is disabled and these columns remain `NULL`.
-* **Reranking:** deferred; search currently returns lexical rankings only.
+* Meilisearch holds two private indexes: `threads` (one document per thread) and `authors` (aggregated people data).
+* The API is the sole client. It shapes documents, persists them to Meilisearch, and proxies all queries so the UI never talks to Meili directly.
+* Embeddings are generated through the Text Embeddings Inference sidecar running `Qwen/Qwen3-Embedding-0.6B`. Indexing stores vectors via Meili’s `userProvided` embedder (`threads-qwen3`, 1024 dims); query-time searches embed `q` the same way.
+* Hybrid mode is always on. Endpoints expose a `semanticRatio` (default `0.35`) that callers can tune; the frontend now renders a “Semantic boost” slider alongside the search box.
 
-### 6.2 Indexing
+### 6.2 Indexing pipeline
 
-* On import/update:
+* The sync dispatcher calls `search::indexer::reindex_threads` after each successful mailing-list import. The job:
+  * Sanitizes emails (quote/patch stripping) and constructs `discussion_text` per thread (root + top replies capped at ~24 k chars).
+  * Gathers participants, patch flags, series metadata, timestamps, and generates a Qwen3 embedding for `normalized_subject + discussion_text`.
+  * Removes stale documents for that mailing list and upserts the refreshed docs to Meilisearch in batches.
+  * Ensures vector support is enabled via `PATCH /experimental-features` before applying index settings/embedders (idempotent).
+* `reindex_authors` rebuilds the `authors` index (currently full refresh each time) with:
+  * Canonical author metadata + aliases.
+  * Per-mailing-list activity stats (`mailing_list_stats[...]`) so `/authors` can shape responses without hitting Postgres again.
+* Admin endpoints enqueue the same helpers:
+  * `POST /admin/search/index/refresh` ⇒ selective thread reindex (optional `mailingListSlug`) + full author refresh.
+  * `POST /admin/search/index/reset` ⇒ drop both indexes, recreate settings, and invoke full thread+author rebuild.
 
-  * Build `lex_ts` (e.g., `to_tsvector('english', coalesce(subject,'') || ' ' || coalesce(body,''))`).
-  * Maintain trigram indexes for fuzzy matching.
-  * (Optional) embeddings remain for future backfills but are not populated during the current lexical-only rollout.
+### 6.3 Query behaviour
 
-### 6.3 Query Plan
+* `/api/v1/<slug>/threads/search`
+  * Requires `q`; accepts `page`, `size`, optional `startDate`/`endDate`, and `semanticRatio` (0-1 clamp).
+  * The API embeds the query, forwards filters to Meili (`mailing_list = '<slug>'`, epoch bounds), and normalizes `rankingScore` into `lexical_score` (0–1) for UI display.
+* `/api/v1/<slug>/authors`
+  * Optional `q`, `sortBy`, `order`. The API queries Meili and maps `mailing_list_stats[slug]` into the response shape expected by existing components.
+* Both endpoints continue to support pagination metadata (`page`, `size`, `total`). UI defaults to 25 results for search and 50 for list views.
 
-* **Mode:** Lexical FTS with trigram fallback.
+### 6.4 Operations
+
+* Cluster configuration lives in `docker-compose.yml` (`meilisearch` service, mounted volume, API key env vars).
+* `SearchService` centralises HTTP calls, settings management (searchable/filterable attributes, embedder declaration), and task polling.
+* Queue jobs wrap long-running operations so Terraform/dashboards can inspect progress via the existing `/admin/sync/status` endpoints.
 * **Ranking:** `ts_rank_cd` over `lex_ts` combined with trigram scoring, with recent activity as a tie-breaker.
 * **Representative SQL fragment:** `WHERE lex_ts @@ plainto_tsquery('english', $q) ORDER BY ts_rank_cd(...) DESC`.
 
@@ -346,11 +366,11 @@ Notifications (SSE/WebSocket):
 
 ## 11. Deployment
 
-* **Docker Compose (dev/prod)**: `postgres:18` (with `pgvector`), `api-server`, `frontend`, **Keycloak**, optional **Prometheus** + **Grafana**.
+* **Docker Compose (dev/prod)**: `postgres:18`, `api-server`, `meilisearch`, `embeddings` (TEI), `frontend`, **Keycloak**, optional **Prometheus** + **Grafana**.
 * **Docker Compose (tests)**: `docker-compose.test.yml` provides:
 
-  * `postgres-test` with admin user; `pgvector` and `pg_trgm` enabled.
-  * API tests run against ephemeral DB (see §12.2).
+  * `postgres-test` with admin user; optional `pg_trgm` (no vector extensions required).
+  * API tests run against ephemeral DB (see §12.2); Meilisearch is currently mocked/optional.
 * **Env**
 
   * `DATABASE_URL` for runtime; `SQLX_OFFLINE` in CI for compile‑time query checks.
@@ -367,7 +387,7 @@ Notifications (SSE/WebSocket):
 
 ### 12.2 Integration Tests (database & end‑to‑end)
 
-* **Tooling:** Docker Compose orchestrates Postgres with an admin user and required extensions.
+* **Tooling:** Docker Compose orchestrates Postgres (admin user), with optional Meilisearch/TEI containers when end-to-end search tests are executed.
 * **Harness flow**:
 
   1. **Create ephemeral DB** (random name) via admin; run **reversible SQLx migrations** (`sqlx migrate run`).
@@ -381,8 +401,8 @@ Notifications (SSE/WebSocket):
 * **OpenAPI tests:** snapshot the generated spec; ensure `securitySchemes` and route tags/securities are correct.
 * **Search tests:**
 
-  * Validate ANN queries return expected neighbors.
-  * Hybrid fusion deterministic checks (seeded) across lexical-only, semantic-only, and hybrid modes.
+  * Assert thread/author documents emitted by the indexer contain expected fields (participants, discussion text trimming, stats).
+  * Exercise Meilisearch hybrid scoring via the API (`semanticRatio` sweeps, normalization) using seeded fixtures or a mocked task client.
 * **Notifications tests:** ensure `NOTIFY` → listener → SSE endpoint emits events (with backfill).
 
 ---
@@ -484,7 +504,7 @@ Notifications (SSE/WebSocket):
    * Frontend: OIDC client integration; auth guards; login/logout flows.
 4. **Search 2.0**
 
-   * Add pgvector extension, embedding job, HNSW index; FTS + trigram; hybrid fusion; optional re‑ranker.
+   * Integrate Meilisearch + TEI (Qwen3) for hybrid search; build thread/author indexers, Meili settings, and admin refresh/reset jobs.
 5. **Notifications**
 
    * DB triggers + writer to `notifications`; NOTIFY + background LISTEN; SSE endpoint + client.
@@ -506,7 +526,7 @@ Notifications (SSE/WebSocket):
   * Migrations: `sqlx-cli` with `-r` reversible scripts. ([Docs.rs][21])
   * Observability: `tracing`, `metrics` + `metrics-exporter-prometheus`, optional `opentelemetry`. ([Crates.io][4])
   * Auth: **`openidconnect`** crate. ([Docs.rs][15])
-  * Search: `pgvector` (DB extension), Postgres FTS, `pg_trgm`. ([GitHub][2])
+  * Search: `reqwest`-backed Meilisearch client + TEI Qwen3 embeddings. ([GitHub][2])
   * ML (optional): `ort` (ONNX Runtime) for embedding/rerank models.
 * **Frontend**
 
@@ -627,9 +647,8 @@ fn notifications_stream(user: AuthUser, hub: &State<Hub>) -> EventStream![] {
 * SQLx reversible migrations (`-r`), CLI docs. ([Docs.rs][21])
 * SQLx `PgPool` docs; Rocket DB pools. ([Docs.rs][7])
 * Postgres FTS & GIN, `pg_trgm`. ([PostgreSQL][10])
-* `pgvector` HNSW indexing (HNSW vs IVFFlat). ([GitHub][2])
-* VectorChord Postgres extension overview. ([VectorChord][41])
-* Hybrid search with Postgres FTS + vectors. ([Jonathan Katz][14])
+* Meilisearch hybrid search (`semanticRatio`, vector mixing). ([Meilisearch Docs][32])
+* Meilisearch user-provided embeddings (`_vector` payloads). ([Meilisearch Docs][33])
 * SSE & Rocket’s APIs; WebSockets via `rocket_ws`. ([MDN Web Docs][17])
 * OIDC libs & providers: `openidconnect` crate; `oidc-client-ts`; Keycloak/Dex/Authelia. ([Docs.rs][15])
 * Observability: Prometheus (`metrics` exporter); OpenTelemetry. ([Crates.io][4])
@@ -639,4 +658,6 @@ fn notifications_stream(user: AuthUser, hub: &State<Hub>) -> EventStream![] {
 * Refresh token rotation. ([Auth0][29])
 * Secure storage of refresh tokens in cookies. ([Descope][30])
 * Double-submit cookie CSRF protection. ([Okta][31])
+[32]: https://www.meilisearch.com/docs/learn/advanced/hybrid_search
+[33]: https://www.meilisearch.com/docs/learn/advanced/vector_databases/user_provided
 [VectorChord]: https://vectorchord.ai/docs/vchord-postgres
