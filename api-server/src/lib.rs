@@ -12,6 +12,7 @@ pub mod threading;
 
 use crate::db::NexusDb;
 use crate::request_logger::RequestLogger;
+use crate::search::SearchService;
 use crate::sync::dispatcher::SyncDispatcher;
 use crate::sync::queue::JobQueue;
 use env_logger::Env;
@@ -49,6 +50,31 @@ pub fn rocket() -> Rocket<Build> {
     std::fs::create_dir_all(&cache_path).expect("Failed to create cache directory");
     log::info!("Cache directory initialized at: {}", cache_path);
 
+    let meili_url =
+        std::env::var("MEILISEARCH_URL").unwrap_or_else(|_| "http://localhost:7700".to_string());
+    let meili_key = std::env::var("MEILISEARCH_MASTER_KEY")
+        .or_else(|_| std::env::var("MEILI_MASTER_KEY"))
+        .ok();
+    let embeddings_url =
+        std::env::var("EMBEDDINGS_URL").unwrap_or_else(|_| "http://100.65.8.15:8080".to_string());
+    let default_semantic_ratio = std::env::var("SEARCH_DEFAULT_SEMANTIC_RATIO")
+        .ok()
+        .and_then(|value| value.parse::<f32>().ok())
+        .unwrap_or(0.35);
+
+    let thread_embedding_dim = std::env::var("SEARCH_EMBEDDING_DIM")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1024);
+
+    let search_service = SearchService::new(
+        meili_url,
+        meili_key,
+        embeddings_url,
+        default_semantic_ratio,
+        thread_embedding_dim,
+    );
+
     // Configure CORS
     let cors = CorsOptions::default()
         .allowed_origins(AllowedOrigins::all())
@@ -72,6 +98,7 @@ pub fn rocket() -> Rocket<Build> {
         .attach(RequestLogger)
         .attach(NexusDb::init())
         .attach(cors)
+        .manage(search_service)
         // Run database migrations on startup
         .attach(AdHoc::try_on_ignite(
             "Run Migrations",
@@ -117,15 +144,21 @@ pub fn rocket() -> Rocket<Build> {
         // Spawn sync dispatcher in background
         .attach(AdHoc::on_liftoff("Spawn Sync Dispatcher", |rocket| {
             Box::pin(async move {
-                if let Some(pool) = rocket.state::<rocket_db_pools::sqlx::PgPool>() {
+                let pool_state = rocket.state::<rocket_db_pools::sqlx::PgPool>();
+                let search_state = rocket.state::<SearchService>();
+
+                if let (Some(pool), Some(search)) = (pool_state, search_state) {
                     let dispatcher_pool = pool.clone();
+                    let dispatcher_search = search.clone();
                     tokio::spawn(async move {
                         log::info!("starting sync dispatcher");
-                        let dispatcher = SyncDispatcher::new(dispatcher_pool);
+                        let dispatcher = SyncDispatcher::new(dispatcher_pool, dispatcher_search);
                         dispatcher.run().await
                     });
                 } else {
-                    log::error!("failed to spawn sync dispatcher: database pool not found");
+                    log::error!(
+                        "failed to spawn sync dispatcher: missing database pool or search service"
+                    );
                 }
             })
         }))

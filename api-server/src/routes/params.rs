@@ -368,6 +368,10 @@ pub struct ThreadSearchParams {
     #[field(name = "endDate")]
     #[serde(default)]
     pub end_date: Option<DateParam>,
+    /// Optional semantic/lexical mixing ratio for hybrid Meilisearch queries.
+    #[field(name = "semanticRatio")]
+    #[serde(default)]
+    pub semantic_ratio: Option<f32>,
 }
 
 impl Default for ThreadSearchParams {
@@ -378,6 +382,7 @@ impl Default for ThreadSearchParams {
             size: default_search_page_size(),
             start_date: None,
             end_date: None,
+            semantic_ratio: None,
         }
     }
 }
@@ -420,6 +425,13 @@ impl ThreadSearchParams {
                 .map(|naive| Utc.from_utc_datetime(&naive))
         })
     }
+
+    /// Optional semantic ratio clamped between 0.0 and 1.0.
+    pub fn semantic_ratio(&self) -> Option<f32> {
+        self.semantic_ratio
+            .filter(|value| value.is_finite())
+            .map(|value| value.clamp(0.0, 1.0))
+    }
 }
 
 impl JsonSchema for ThreadSearchParams {
@@ -441,6 +453,8 @@ impl JsonSchema for ThreadSearchParams {
             start_date: Option<String>,
             #[serde(default)]
             end_date: Option<String>,
+            #[serde(default)]
+            semantic_ratio: Option<f32>,
         }
 
         ThreadSearchParamsDoc::json_schema(generator)
@@ -461,6 +475,7 @@ mod tests {
         assert_eq!(parsed.size(), 10);
         assert!(parsed.start_date.is_none());
         assert!(parsed.end_date.is_none());
+        assert!(parsed.semantic_ratio.is_none());
 
         let parsed_default: ThreadSearchParams = Form::parse("").unwrap();
         assert_eq!(parsed_default.q, None);
@@ -489,5 +504,14 @@ mod tests {
         );
         assert_eq!(end.hour(), 23);
         assert_eq!(end.minute(), 59);
+    }
+
+    #[test]
+    fn clamps_semantic_ratio() {
+        let parsed: ThreadSearchParams = Form::parse("semanticRatio=1.5").unwrap();
+        assert_eq!(parsed.semantic_ratio(), Some(1.0));
+
+        let parsed_zero: ThreadSearchParams = Form::parse("semanticRatio=-0.5").unwrap();
+        assert_eq!(parsed_zero.semantic_ratio(), Some(0.0));
     }
 }

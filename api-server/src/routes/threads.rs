@@ -14,15 +14,12 @@ use crate::routes::{
     helpers::resolve_mailing_list_id,
     params::{ThreadListParams, ThreadSearchParams},
 };
-use chrono::{DateTime, Utc};
-use rocket::{get, serde::json::Json};
-use rocket_db_pools::sqlx::Row;
+use rocket::{State, get, serde::json::Json};
 use rocket_db_pools::{Connection, sqlx};
 use rocket_okapi::openapi;
 use std::collections::HashMap;
 
-const THREAD_RECENCY_WEIGHT: f64 = 0.35;
-const THREAD_RECENCY_HALF_LIFE_SECONDS: f64 = 31.0 * 24.0 * 3600.0;
+use crate::search::{SearchService, ThreadDocument};
 
 /// List threads in a mailing list with pagination and sorting.
 #[openapi(tag = "Threads")]
@@ -133,6 +130,7 @@ pub async fn search_threads(
     slug: String,
     mut db: Connection<NexusDb>,
     params: Option<ThreadSearchParams>,
+    search_service: &State<SearchService>,
 ) -> Result<Json<ThreadSearchResponse>, ApiError> {
     let params = params.unwrap_or_default();
     let page = params.page();
@@ -161,198 +159,51 @@ pub async fn search_threads(
     }
 
     let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
-    let offset = (page - 1) * size;
-    let (hits, total) = lexical_search(
-        &mut **db,
-        mailing_list_id,
-        &query,
-        size,
-        offset,
-        start_bound,
-        end_bound,
-    )
-    .await
-    .map_err(ApiError::from)?;
+    let semantic_ratio = params
+        .semantic_ratio()
+        .unwrap_or(search_service.default_semantic_ratio());
+
+    let results = search_service
+        .search_threads(
+            &slug,
+            mailing_list_id,
+            &query,
+            page,
+            size,
+            start_bound,
+            end_bound,
+            semantic_ratio,
+        )
+        .await?;
+
+    let max_score = results
+        .hits
+        .iter()
+        .filter_map(|hit| hit.ranking_score)
+        .fold(0.0_f32, f32::max);
+
+    let mut hits = Vec::with_capacity(results.hits.len());
+    for hit in results.hits {
+        let thread = thread_from_document(hit.document)?;
+        let mut api_hit = ThreadSearchHit::from_thread(thread);
+        if let Some(score) = hit.ranking_score {
+            let normalized = if max_score > 0.0 {
+                (score / max_score).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            api_hit.lexical_score = Some(normalized);
+        }
+        hits.push(api_hit);
+    }
 
     Ok(Json(ThreadSearchResponse {
         query,
         page,
         size,
-        total,
+        total: results.total,
         results: hits,
     }))
-}
-
-async fn lexical_search(
-    conn: &mut sqlx::PgConnection,
-    mailing_list_id: i32,
-    query: &str,
-    limit: i64,
-    offset: i64,
-    start_date: Option<DateTime<Utc>>,
-    end_date: Option<DateTime<Utc>>,
-) -> Result<(Vec<ThreadSearchHit>, i64), sqlx::Error> {
-    let rows = sqlx::query(
-        r#"
-        WITH query AS (
-            SELECT websearch_to_tsquery('english', $2) AS tsq,
-                   $8::double precision AS half_life_seconds
-        ),
-        filtered_threads AS (
-            SELECT t.*
-            FROM threads t
-            WHERE t.mailing_list_id = $1
-              AND ($5::timestamptz IS NULL OR t.last_date >= $5::timestamptz)
-              AND ($6::timestamptz IS NULL OR t.start_date <= $6::timestamptz)
-        ),
-        thread_docs AS (
-            SELECT
-                t.id,
-                t.mailing_list_id,
-                t.last_date,
-                setweight(to_tsvector('english', COALESCE(t.subject, '')), 'A') ||
-                setweight(to_tsvector('english', COALESCE(starter.search_body, '')), 'B') ||
-                setweight(to_tsvector('english', COALESCE(rest.tail_text, '')), 'D') AS search_vector
-            FROM filtered_threads t
-            LEFT JOIN emails starter
-                ON starter.message_id = t.root_message_id
-               AND starter.mailing_list_id = t.mailing_list_id
-            LEFT JOIN LATERAL (
-                SELECT string_agg(COALESCE(e.search_body, ''), ' ' ORDER BY e.date) AS tail_text
-                FROM thread_memberships tm
-                JOIN emails e ON e.id = tm.email_id
-                WHERE tm.thread_id = t.id
-                  AND tm.mailing_list_id = t.mailing_list_id
-                  AND (starter.id IS NULL OR e.id <> starter.id)
-            ) rest ON TRUE
-        ),
-        ranked AS (
-            SELECT
-                td.id,
-                td.mailing_list_id,
-                td.last_date,
-                ts_rank_cd(td.search_vector, query.tsq) AS text_score,
-                exp(-GREATEST(0, EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'utc') - td.last_date))) /
-                    query.half_life_seconds) AS recency_factor
-            FROM thread_docs td
-            CROSS JOIN query
-            WHERE td.search_vector @@ query.tsq
-        )
-        SELECT
-            t.id,
-            t.mailing_list_id,
-            t.root_message_id,
-            t.subject,
-            t.start_date,
-            t.last_date,
-            CAST(t.message_count AS INTEGER) AS message_count,
-            starter.author_id AS starter_id,
-            a.canonical_name AS starter_name,
-            a.email AS starter_email,
-            (ranked.text_score * (1.0 + $7::double precision * ranked.recency_factor))::float4 AS blended_score
-        FROM ranked
-        JOIN threads t
-          ON t.id = ranked.id
-         AND t.mailing_list_id = ranked.mailing_list_id
-        JOIN emails starter
-          ON t.root_message_id = starter.message_id
-         AND t.mailing_list_id = starter.mailing_list_id
-        JOIN authors a ON starter.author_id = a.id
-        ORDER BY blended_score DESC, t.last_date DESC
-        LIMIT $3 OFFSET $4
-        "#,
-    )
-    .bind(mailing_list_id)
-    .bind(query)
-    .bind(limit)
-    .bind(offset)
-    .bind(start_date)
-    .bind(end_date)
-    .bind(THREAD_RECENCY_WEIGHT)
-    .bind(THREAD_RECENCY_HALF_LIFE_SECONDS)
-    .fetch_all(&mut *conn)
-    .await?;
-
-    let mut max_score = 0.0_f32;
-    let mut raw_hits = Vec::with_capacity(rows.len());
-    for row in rows {
-        let thread = ThreadWithStarter {
-            id: row.try_get("id")?,
-            mailing_list_id: row.try_get("mailing_list_id")?,
-            root_message_id: row.try_get("root_message_id")?,
-            subject: row.try_get("subject")?,
-            start_date: row.try_get("start_date")?,
-            last_date: row.try_get("last_date")?,
-            message_count: row.try_get("message_count")?,
-            starter_id: row.try_get("starter_id")?,
-            starter_name: row.try_get("starter_name")?,
-            starter_email: row.try_get("starter_email")?,
-        };
-        let blended_score: f32 = row.try_get("blended_score")?;
-        max_score = max_score.max(blended_score);
-        raw_hits.push((thread, blended_score));
-    }
-
-    let mut hits = Vec::with_capacity(raw_hits.len());
-    for (thread, score) in raw_hits {
-        let mut hit = ThreadSearchHit::from_thread(thread);
-        if max_score > 0.0 {
-            hit.lexical_score = Some((score / max_score).clamp(0.0, 1.0));
-        } else {
-            hit.lexical_score = Some(0.0);
-        }
-        hits.push(hit);
-    }
-
-    let total_row = sqlx::query(
-        r#"
-        WITH query AS (
-            SELECT websearch_to_tsquery('english', $2) AS tsq
-        ),
-        filtered_threads AS (
-            SELECT t.*
-            FROM threads t
-            WHERE t.mailing_list_id = $1
-              AND ($3::timestamptz IS NULL OR t.last_date >= $3::timestamptz)
-              AND ($4::timestamptz IS NULL OR t.start_date <= $4::timestamptz)
-        ),
-        thread_docs AS (
-            SELECT
-                t.id,
-                setweight(to_tsvector('english', COALESCE(t.subject, '')), 'A') ||
-                setweight(to_tsvector('english', COALESCE(starter.search_body, '')), 'B') ||
-                setweight(to_tsvector('english', COALESCE(rest.tail_text, '')), 'D') AS search_vector
-            FROM filtered_threads t
-            LEFT JOIN emails starter
-                ON starter.message_id = t.root_message_id
-               AND starter.mailing_list_id = t.mailing_list_id
-            LEFT JOIN LATERAL (
-                SELECT string_agg(COALESCE(e.search_body, ''), ' ' ORDER BY e.date) AS tail_text
-                FROM thread_memberships tm
-                JOIN emails e ON e.id = tm.email_id
-                WHERE tm.thread_id = t.id
-                  AND tm.mailing_list_id = t.mailing_list_id
-                  AND (starter.id IS NULL OR e.id <> starter.id)
-            ) rest ON TRUE
-        ),
-        ranked AS (
-            SELECT td.id
-            FROM thread_docs td
-            CROSS JOIN query
-            WHERE td.search_vector @@ query.tsq
-        )
-        SELECT COUNT(*) FROM ranked
-        "#,
-    )
-    .bind(mailing_list_id)
-    .bind(query)
-    .bind(start_date)
-    .bind(end_date)
-    .fetch_one(&mut *conn)
-    .await?;
-    let total: i64 = total_row.try_get(0)?;
-
-    Ok((hits, total))
 }
 
 /// Sort emails into a depth-first order for deterministic thread rendering.
@@ -403,4 +254,33 @@ fn sort_emails_by_thread_order(emails: Vec<EmailHierarchy>) -> Vec<EmailHierarch
     }
 
     result
+}
+
+fn thread_from_document(doc: ThreadDocument) -> Result<ThreadWithStarter, ApiError> {
+    let start_date = doc.start_date().ok_or_else(|| {
+        ApiError::InternalError(format!(
+            "Thread {} missing start timestamp in search document",
+            doc.thread_id
+        ))
+    })?;
+
+    let last_date = doc.last_date().ok_or_else(|| {
+        ApiError::InternalError(format!(
+            "Thread {} missing last timestamp in search document",
+            doc.thread_id
+        ))
+    })?;
+
+    Ok(ThreadWithStarter {
+        id: doc.thread_id,
+        mailing_list_id: doc.mailing_list_id,
+        root_message_id: doc.root_message_id,
+        subject: doc.subject,
+        start_date,
+        last_date,
+        message_count: Some(doc.message_count),
+        starter_id: doc.starter_id,
+        starter_name: doc.starter_name,
+        starter_email: doc.starter_email,
+    })
 }

@@ -1,3 +1,4 @@
+use crate::search::SearchError;
 use chrono::Utc;
 use rocket::http::Status;
 use rocket::response::{self, Responder};
@@ -111,6 +112,12 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
+impl From<SearchError> for ApiError {
+    fn from(err: SearchError) -> Self {
+        log::error!("search error: {}", err);
+        ApiError::InternalError("Search service error".to_string())
+    }
+}
 impl OpenApiResponderInner for ApiError {
     fn responses(_generator: &mut OpenApiGenerator) -> Result<Responses, OpenApiError> {
         use rocket_okapi::okapi::openapi3::*;

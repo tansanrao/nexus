@@ -13,10 +13,10 @@ use crate::routes::{
     helpers::resolve_mailing_list_id,
     params::{AuthorSearchParams, PaginationParams},
 };
-use rocket::{get, serde::json::Json};
+use crate::search::{AuthorDocument, SearchService};
+use rocket::{State, get, serde::json::Json};
 use rocket_db_pools::{Connection, sqlx};
 use rocket_okapi::openapi;
-use std::collections::HashMap;
 
 /// Search authors in a mailing list with filtering and sorting.
 ///
@@ -28,182 +28,73 @@ pub async fn search_authors(
     slug: String,
     mut db: Connection<NexusDb>,
     params: Option<AuthorSearchParams>,
+    search_service: &State<SearchService>,
 ) -> Result<Json<PaginatedResponse<AuthorWithStats>>, ApiError> {
     let params = params.unwrap_or_default();
-    let mailing_list_id = resolve_mailing_list_id(&slug, &mut db).await?;
+    resolve_mailing_list_id(&slug, &mut db).await?;
 
     let page = params.page();
     let size = params.size();
-    let offset = (page - 1) * size;
     let sort_column = params.sort_column();
     let sort_order = params.sort_order();
     let search_term = params.normalized_query();
 
-    // Base query that gets authors active in this mailing list
-    let base_query = r#"
-        SELECT
-            a.id, a.email, a.canonical_name, a.first_seen, a.last_seen,
-            COALESCE(act.email_count, 0) as email_count,
-            COALESCE(act.thread_count, 0) as thread_count,
-            act.first_email_date,
-            act.last_email_date
-        FROM authors a
-        INNER JOIN author_mailing_list_activity act ON a.id = act.author_id
-        WHERE act.mailing_list_id = $1
-    "#;
-
-    #[derive(Debug, sqlx::FromRow)]
-    struct AuthorRow {
-        id: i32,
-        email: String,
-        canonical_name: Option<String>,
-        first_seen: Option<chrono::DateTime<chrono::Utc>>,
-        last_seen: Option<chrono::DateTime<chrono::Utc>>,
-        email_count: i64,
-        thread_count: i64,
-        first_email_date: Option<chrono::DateTime<chrono::Utc>>,
-        last_email_date: Option<chrono::DateTime<chrono::Utc>>,
-    }
-
-    let total_elements = if let Some(ref term) = search_term {
-        let search_pattern = format!("%{term}%");
-        let count_query = r#"
-            SELECT COUNT(*)
-            FROM authors a
-            INNER JOIN author_mailing_list_activity act ON a.id = act.author_id
-            WHERE act.mailing_list_id = $1
-              AND (LOWER(a.email) LIKE $2 OR LOWER(a.canonical_name) LIKE $2)
-        "#;
-
-        let total: (i64,) = sqlx::query_as(count_query)
-            .bind(mailing_list_id)
-            .bind(&search_pattern)
-            .fetch_one(&mut **db)
-            .await?;
-        total.0
-    } else {
-        let count_query = r#"
-            SELECT COUNT(*)
-            FROM authors a
-            INNER JOIN author_mailing_list_activity act ON a.id = act.author_id
-            WHERE act.mailing_list_id = $1
-        "#;
-
-        let total: (i64,) = sqlx::query_as(count_query)
-            .bind(mailing_list_id)
-            .fetch_one(&mut **db)
-            .await?;
-        total.0
-    };
-
-    let author_rows: Vec<AuthorRow> = if let Some(term) = search_term {
-        let search_pattern = format!("%{term}%");
-        let query = format!(
-            r#"
-            {}
-            AND (LOWER(a.email) LIKE $2 OR LOWER(a.canonical_name) LIKE $2)
-            ORDER BY {} {}
-            LIMIT $3 OFFSET $4
-            "#,
-            base_query, sort_column, sort_order
-        );
-
-        sqlx::query_as::<_, AuthorRow>(&query)
-            .bind(mailing_list_id)
-            .bind(&search_pattern)
-            .bind(size)
-            .bind(offset)
-            .fetch_all(&mut **db)
-            .await?
-    } else {
-        let query = format!(
-            r#"
-            {}
-            ORDER BY {} {}
-            LIMIT $2 OFFSET $3
-            "#,
-            base_query, sort_column, sort_order
-        );
-
-        sqlx::query_as::<_, AuthorRow>(&query)
-            .bind(mailing_list_id)
-            .bind(size)
-            .bind(offset)
-            .fetch_all(&mut **db)
-            .await?
-    };
-
-    // Batch fetch mailing lists and name variations for all authors to avoid N+1 queries
-    let author_ids: Vec<i32> = author_rows.iter().map(|r| r.id).collect();
-
-    let mailing_lists_data: Vec<(i32, String)> = if !author_ids.is_empty() {
-        sqlx::query_as(
-            r#"SELECT act.author_id, ml.slug
-               FROM author_mailing_list_activity act
-               JOIN mailing_lists ml ON act.mailing_list_id = ml.id
-               WHERE act.author_id = ANY($1)"#,
+    let results = search_service
+        .search_authors(
+            &slug,
+            search_term.as_deref(),
+            page,
+            size,
+            Some(sort_column),
+            Some(sort_order),
         )
-        .bind(&author_ids)
-        .fetch_all(&mut **db)
-        .await?
-    } else {
-        Vec::new()
-    };
+        .await?;
 
-    let name_variations_data: Vec<(i32, String)> = if !author_ids.is_empty() {
-        sqlx::query_as(
-            "SELECT author_id, name FROM author_name_aliases
-             WHERE author_id = ANY($1) ORDER BY author_id, usage_count DESC",
-        )
-        .bind(&author_ids)
-        .fetch_all(&mut **db)
-        .await?
-    } else {
-        Vec::new()
-    };
-
-    let mut mailing_lists_map: HashMap<i32, Vec<String>> = HashMap::new();
-    for (author_id, slug) in mailing_lists_data {
-        mailing_lists_map
-            .entry(author_id)
-            .or_insert_with(Vec::new)
-            .push(slug);
-    }
-
-    let mut name_variations_map: HashMap<i32, Vec<String>> = HashMap::new();
-    for (author_id, name) in name_variations_data {
-        name_variations_map
-            .entry(author_id)
-            .or_insert_with(Vec::new)
-            .push(name);
-    }
-
-    let authors: Vec<AuthorWithStats> = author_rows
+    let authors: Vec<AuthorWithStats> = results
+        .hits
         .into_iter()
-        .map(|row| AuthorWithStats {
-            id: row.id,
-            email: row.email,
-            canonical_name: row.canonical_name,
-            first_seen: row.first_seen,
-            last_seen: row.last_seen,
-            email_count: row.email_count,
-            thread_count: row.thread_count,
-            first_email_date: row.first_email_date,
-            last_email_date: row.last_email_date,
-            mailing_lists: mailing_lists_map.get(&row.id).cloned().unwrap_or_default(),
-            name_variations: name_variations_map
-                .get(&row.id)
-                .cloned()
-                .unwrap_or_default(),
-        })
+        .map(|hit| author_from_document(hit.document, &slug))
         .collect();
 
     Ok(Json(PaginatedResponse::new(
         authors,
         page,
         size,
-        total_elements,
+        results.total,
     )))
+}
+
+fn author_from_document(doc: AuthorDocument, slug: &str) -> AuthorWithStats {
+    let first_seen = doc.first_seen();
+    let last_seen = doc.last_seen();
+    let list_stats = doc
+        .mailing_list_stats
+        .iter()
+        .find(|entry| entry.slug == slug);
+
+    let first_email_date = list_stats
+        .and_then(|stats| stats.first_email_date())
+        .or_else(|| doc.first_email_date());
+    let last_email_date = list_stats
+        .and_then(|stats| stats.last_email_date())
+        .or_else(|| doc.last_email_date());
+
+    let email_count = list_stats.map(|stats| stats.email_count).unwrap_or(0);
+    let thread_count = list_stats.map(|stats| stats.thread_count).unwrap_or(0);
+
+    AuthorWithStats {
+        id: doc.author_id,
+        email: doc.email,
+        canonical_name: doc.canonical_name,
+        first_seen,
+        last_seen,
+        email_count,
+        thread_count,
+        first_email_date,
+        last_email_date,
+        mailing_lists: doc.mailing_lists,
+        name_variations: doc.aliases,
+    }
 }
 
 /// Retrieve a specific author with mailing list context.
