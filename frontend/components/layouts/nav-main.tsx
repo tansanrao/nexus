@@ -39,7 +39,7 @@ export function NavMain({
     if (!itemUrl) {
       return false
     }
-    return pathname === itemUrl || pathname.startsWith(`${itemUrl}/`)
+    return pathname === itemUrl || (pathname.startsWith(`${itemUrl}/`) && itemUrl !== "/app")
   }
 
   return (

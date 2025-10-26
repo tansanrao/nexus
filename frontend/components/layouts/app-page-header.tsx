@@ -18,6 +18,7 @@ type BreadcrumbEntry = {
   label: string
   href?: string
   hideOnMobile?: boolean
+  render?: React.ReactNode
 }
 
 export function AppPageHeader({
@@ -44,7 +45,9 @@ export function AppPageHeader({
               return (
                 <React.Fragment key={`${item.label}-${index}`}>
                   <BreadcrumbItem className={visibilityClass}>
-                    {isLast || !item.href ? (
+                    {item.render ? (
+                      <div className="min-w-[160px]">{item.render}</div>
+                    ) : isLast || !item.href ? (
                       <BreadcrumbPage>{item.label}</BreadcrumbPage>
                     ) : (
                       <BreadcrumbLink asChild>
