@@ -48,6 +48,7 @@
 //! - **Change Detection**: SHA256 membership hashing skips unchanged threads
 //! - **Checkpoint Recovery**: Resume from last successful epoch
 
+use crate::search::{SearchService, reindex_authors, reindex_threads};
 use crate::sync::bulk_import::BulkImporter;
 use crate::sync::database::checkpoint;
 use crate::sync::import::coordinator::EMAIL_IMPORT_BATCH_SIZE;
@@ -78,6 +79,7 @@ use std::time::Duration;
 pub struct SyncDispatcher {
     pool: PgPool,
     queue: JobQueue,
+    search: SearchService,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,7 +89,8 @@ struct IndexJobPayload {
     #[serde(rename = "mailingListSlug")]
     mailing_list_slug: Option<String>,
     #[serde(default)]
-    reindex: bool,
+    #[serde(rename = "reindex")]
+    _reindex: bool,
 }
 
 impl Default for IndexJobPayload {
@@ -95,7 +98,7 @@ impl Default for IndexJobPayload {
         Self {
             action: IndexJobAction::Refresh,
             mailing_list_slug: None,
-            reindex: false,
+            _reindex: false,
         }
     }
 }
@@ -108,9 +111,13 @@ enum IndexJobAction {
 }
 
 impl SyncDispatcher {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: PgPool, search: SearchService) -> Self {
         let queue = JobQueue::new(pool.clone());
-        Self { pool, queue }
+        Self {
+            pool,
+            queue,
+            search,
+        }
     }
 
     /// Run dispatcher loop forever
@@ -244,7 +251,10 @@ impl SyncDispatcher {
         // Phase 5: Update author statistics
         self.update_author_statistics(job_id, list_id).await?;
 
-        // Phase 6: Save checkpoints
+        // Phase 6: Update Meilisearch indexes
+        self.update_search_indexes(job_id, list_id).await?;
+
+        // Phase 7: Save checkpoints
         self.save_sync_checkpoints(job_id, list_id, &epoch_checkpoints)
             .await?;
 
@@ -904,6 +914,40 @@ impl SyncDispatcher {
         Ok(())
     }
 
+    async fn update_search_indexes(&self, job_id: i32, list_id: i32) -> Result<(), String> {
+        log::info!(
+            "job {}: phase=thread_reindex start (mailing_list_id={})",
+            job_id,
+            list_id
+        );
+        let threads_processed = reindex_threads(
+            &self.pool,
+            &self.search,
+            Some(list_id),
+            Some((&self.queue, job_id)),
+        )
+        .await
+        .map_err(|e| format!("Failed to reindex thread documents: {}", e))?;
+        log::info!(
+            "job {}: phase=thread_reindex complete (processed {} threads)",
+            job_id,
+            threads_processed
+        );
+
+        log::info!("job {}: phase=author_reindex start", job_id);
+        let authors_processed =
+            reindex_authors(&self.pool, &self.search, Some((&self.queue, job_id)))
+                .await
+                .map_err(|e| format!("Failed to reindex author documents: {}", e))?;
+        log::info!(
+            "job {}: phase=author_reindex complete (processed {} authors)",
+            job_id,
+            authors_processed
+        );
+
+        Ok(())
+    }
+
     async fn process_index_job(&self, job: Job) -> Result<(), String> {
         let job_id = job.id;
 
@@ -948,47 +992,78 @@ impl SyncDispatcher {
 
         match payload.action {
             IndexJobAction::Refresh => {
-                let updated =
-                    crate::sync::database::backfill_fts_columns(&self.pool, mailing_list_id)
-                        .await
-                        .map_err(|e| format!("Failed to refresh lexical columns: {}", e))?;
-
+                let threads_scope = mailing_list_id
+                    .map(|id| format!("mailing_list_id={}", id))
+                    .unwrap_or_else(|| "mailing_list_id=ALL".to_string());
                 log::info!(
-                    "job {}: refreshed lexical vectors for {} rows",
+                    "job {}: phase=thread_reindex start ({})",
                     job_id,
-                    updated
+                    threads_scope
+                );
+                let threads_processed = reindex_threads(
+                    &self.pool,
+                    &self.search,
+                    mailing_list_id,
+                    Some((&self.queue, job_id)),
+                )
+                .await
+                .map_err(|e| format!("Failed to refresh thread documents: {}", e))?;
+                log::info!(
+                    "job {}: phase=thread_reindex complete (processed {} threads)",
+                    job_id,
+                    threads_processed
                 );
 
-                if payload.reindex {
-                    crate::sync::database::refresh_search_indexes(&self.pool)
+                log::info!("job {}: phase=author_reindex start", job_id);
+                let authors_processed =
+                    reindex_authors(&self.pool, &self.search, Some((&self.queue, job_id)))
                         .await
-                        .map_err(|e| format!("Failed to reindex search structures: {}", e))?;
-                }
+                        .map_err(|e| format!("Failed to refresh author documents: {}", e))?;
+                log::info!(
+                    "job {}: phase=author_reindex complete (processed {} authors)",
+                    job_id,
+                    authors_processed
+                );
             }
             IndexJobAction::Reset => {
                 if mailing_list_id.is_some() {
-                    let message = "Index reset is only supported for the entire corpus".to_string();
-                    if let Err(queue_err) = self.queue.fail_job(job_id, message.clone()).await {
-                        log::error!(
-                            "job {}: failed to mark job as failed after invalid scope: {}",
-                            job_id,
-                            queue_err
-                        );
-                    }
-                    return Err(message);
+                    return Err("Index reset cannot target a specific mailing list".to_string());
                 }
 
-                crate::sync::database::rebuild_search_indexes(&self.pool)
+                log::info!("job {}: resetting Meilisearch indexes", job_id);
+                self.search
+                    .reset_indexes()
                     .await
-                    .map_err(|e| format!("Failed to rebuild search indexes: {}", e))?;
+                    .map_err(|e| format!("Failed to reset Meilisearch indexes: {}", e))?;
 
-                if payload.reindex {
-                    crate::sync::database::refresh_search_indexes(&self.pool)
+                log::info!(
+                    "job {}: phase=thread_reindex start (mailing_list_id=ALL)",
+                    job_id
+                );
+                let threads_processed =
+                    reindex_threads(&self.pool, &self.search, None, Some((&self.queue, job_id)))
                         .await
-                        .map_err(|e| format!("Failed to reindex search structures: {}", e))?;
-                }
+                        .map_err(|e| format!("Failed to rebuild thread documents: {}", e))?;
+                log::info!(
+                    "job {}: phase=thread_reindex complete (processed {} threads)",
+                    job_id,
+                    threads_processed
+                );
+
+                log::info!("job {}: phase=author_reindex start", job_id);
+                let authors_processed =
+                    reindex_authors(&self.pool, &self.search, Some((&self.queue, job_id)))
+                        .await
+                        .map_err(|e| format!("Failed to rebuild author documents: {}", e))?;
+                log::info!(
+                    "job {}: phase=author_reindex complete (processed {} authors)",
+                    job_id,
+                    authors_processed
+                );
             }
         }
+
+        log::info!("job {}: index maintenance job complete", job_id);
 
         if let Err(err) = self.queue.complete_job(job_id).await {
             let message = format!("Failed to mark index maintenance job complete: {}", err);
