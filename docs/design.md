@@ -1,6 +1,6 @@
 # Nexus Design Document — **v0.2**
 
-**Last updated:** October 22, 2025
+**Last updated:** October 26, 2025
 
 This document describes the system architecture, data model, runtime behavior, and operational notes for **Nexus** — a knowledge base and browser for Linux kernel mailing lists.
 
@@ -53,7 +53,7 @@ Embeddings Service        Meilisearch CE
       └──────────────►──────────┘
                    │
                    ▼
-            React/Vite UI (nginx)
+            Next.js 16 UI (Tailwind v4 + shadcn/ui)
                    │
                    ├── OIDC Provider (Keycloak by default)
                    ├── Local Auth endpoints (/api/v1/auth/*, JWT issuer)
@@ -69,7 +69,7 @@ Notifications (SSE/WebSocket):
 * **DB:** PostgreSQL 18 with LIST partitioning by `mailing_list_id`; global `authors`; maintains canonical threads/emails/authors but no longer carries search indexes. ([GitHub][2])
 * **Search service:** Meilisearch Community Edition `v1.23.0` (private network, experimental vector store enabled via `/experimental-features`) maintains `threads` and `authors` indexes with user-provided Qwen3 embeddings and hybrid lexical/semantic scoring (exposed via adjustable `semanticRatio`).
 * **Embeddings service:** Text Embeddings Inference serving `Qwen/Qwen3-Embedding-0.6B` over HTTP; used for both indexing and query-time embeddings.
-* **UI:** React/Vite, served by nginx; `/api` proxied to API; **OIDC client**; **RapiDoc** for docs. ([authts.github.io][5])
+* **UI:** Next.js 16 + Tailwind CSS v4 + shadcn/ui, served by the Next.js Node runtime (Dockerized via `frontend/`); optional ingress can still front it with nginx or another proxy. `/api` requests call the Rocket backend directly; **OIDC client**; **RapiDoc** for docs; all API traffic originates in the browser via the generated client and TanStack React Query. ([authts.github.io][5])
 * **Auth:** OIDC clients exchange tokens with provider; local users authenticate through Rocket endpoints issuing short-lived JWTs and refresh cookies.
 * **Cache:** Unified per‑list cache (DashMap + bincode) for fast JWZ threading (unchanged).
 * **Notifications:** Default **SSE** (simple, HTTP‑native) with Rocket’s `EventStream`; optional **WebSocket** via `rocket_ws` for interactive features. ([api.rocket.rs][6])
@@ -89,9 +89,10 @@ Notifications (SSE/WebSocket):
   * **Docs:** `src/docs/openapi.rs` (OpenAPI builder)
   * **Migrations:** `migrations/*.up.sql`, `*.down.sql` (**reversible**)
   * Tests/docs: `tests/*`, `docs/*`
-* Frontend (primary): `frontend-new/`
+* Frontend (active): `frontend/` (Next.js 16 + Tailwind CSS v4 + shadcn/ui; typed API client + React Query hooks live under `src/lib/api/`)
 
-  * **OIDC client setup**, RapiDoc page (`/docs/index.html`)
+  * **OIDC client setup**, RapiDoc page (`/docs/index.html`), React Query provider (`src/providers/QueryProvider.tsx`), Tailwind v4 config (`tailwind.config.ts`)
+* Frontend (legacy, archived): `_archive/frontend-old/` (former Vite + React app; retained for reference only)
 * Infra:
 
   * `docker-compose.yml` (dev/prod), **`docker-compose.test.yml` (integration tests)**
@@ -375,6 +376,7 @@ Notifications (SSE/WebSocket):
 
   * `DATABASE_URL` for runtime; `SQLX_OFFLINE` in CI for compile‑time query checks.
   * `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URL`, `OIDC_ALLOWED_ALGS`.
+  * `BACKEND_API_URL` for the frontend (relative like `/api` or absolute such as `http://localhost:8000/api`; the client appends `/v1` at runtime). Expose this to the browser via `NEXT_PUBLIC_BACKEND_API_URL` in Next.js builds.
   * `RAPIDOC_PATH` (static HTML), `OPENAPI_JSON_PATH` (`/api/v1/openapi.json`).
 
 ---
@@ -424,16 +426,22 @@ Notifications (SSE/WebSocket):
 * **Generation:** Continue with `rocket_okapi`, but consolidate schema annotations and tags into `src/docs/openapi.rs`. Add global `BearerAuth` security and per‑route applies.
 * **Serving:** Serve JSON at `/api/v1/openapi.json`.
 * **UI:** **RapiDoc** web component (single static HTML file) mounted at `/api/docs` (API) and optionally proxied in frontend at `/docs`. Remove Swagger UI entirely. ([rapidocweb.com][1])
+* **Snapshot tooling:** `scripts/fetch-openapi.ts` pulls the latest spec into `docs/openapi-latest.json` (current snapshot: `docs/openapi-20251026.json`); client codegen consumes that snapshot so schema bumps are versioned in git.
 
 ---
 
-## 15. Frontend (React/Vite) Updates
+## 15. Frontend (Next.js 16) Updates
 
+* **Stack:** Next.js 16 (App Router), Tailwind CSS v4, shadcn/ui component library, TanStack React Query (client-only data fetching).
 * **OIDC** via `oidc-client-ts`: PKCE login, auto refresh, logout; handle multiple realms/clients via env. ([authts.github.io][5])
 * **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), score explanations, clear fallback messaging when semantic mode unavailable.
 * **Notifications:** EventSource client for `/notifications/stream`; fall back to WebSocket if needed.
 * **Admin settings:** database/search panel surfaces queue-backed maintenance actions for lexical indexes and renders unified job status chips. Embedding controls are hidden until the feature returns.
 * **Docs:** `/docs` route embedding RapiDoc.
+* **Dashboard layout:** `app/app/layout.tsx` composes `AppLayoutShell` with the collapsible `AppSidebar` (icon rail when collapsed) and a sticky header that renders the shadcn breadcrumb trail. Pages populate breadcrumbs and optional header actions via the `AppPageHeader` helper, which writes into the shared layout context; breadcrumb items are typed config objects (link/page/dropdown/ellipsis) so features like dropdown menus and overflow ellipsis are declarative, and the dropdown variant now uses the shadcn dropdown menu. The remaining viewport is a fixed-size `main` region that fills the space under the header, and each dashboard page renders inside a full-height/full-width container with `overflow-auto` to provide horizontal and vertical scrolling when content exceeds the viewport.
+* **Thread browser:** `/app/explore/threads/[slug]/[page]/[[...threadId]]` renders the two-column ThreadBrowser. The left rail is a paginated (50 rows per page) list of threads scoped to the active mailing list, and pagination state is kept in the URL (`:slug/:page`). Selecting a row appends `/:thread_id` to show the thread detail; clearing the selection drops the optional segment. The right pane mirrors the legacy React behaviour: a collapsible email tree with author quick filters, hide-deep-collapse toggles, and quote-aware body rendering alongside per-message git diff viewers (file summaries, raw toggle, copy-to-clipboard, optional commit hash). A combined git diff view aggregates all patches, surfaces the contributing emails, and honours the same formatting utilities tied to the global theme. Both panes live inside the fixed dashboard content area and scroll independently inside the full-height container. A dev-mode toggle in the sidebar footer allows engineers to cap the explorer to 10 pages (50 rows each) and trim thread detail renders to the first five emails; the toggle state defaults to on when running the Next.js dev server, is shared via `DevModeProvider`, and enforced inside the React Query selectors so API fixtures remain representative.
+* **API client:** openapi-typescript generates `src/lib/api/schema.ts`; shared `ky` instance + TanStack Query hooks (`useThreads`, `useMailingLists`, etc.) live under `src/lib/api/`, and every route consumes data via those hooks (pure client-side fetching).
+* **Legacy app:** the former Vite + React project now lives in `_archive/frontend-old/` and should not receive new features.
 
 ---
 
@@ -485,7 +493,7 @@ Notifications (SSE/WebSocket):
 * **Backend:** `cargo fmt/clippy`; SQLx compile‑time queries (enable `offline` in CI).
 * **Migrations:** always reversible; schema changes reviewed with “down” diff.
 * **Testing:** `cargo nextest` encouraged (faster); ensure docker test profile tears down DB.
-* **Frontend:** typed API client; componentized search and notification widgets.
+* **Frontend:** Next.js 16 + Tailwind v4 + shadcn/ui; typed API client (openapi-typescript + `ky` + TanStack Query) with client-only data fetching; componentized search and notification widgets.
 
 ---
 
@@ -530,6 +538,10 @@ Notifications (SSE/WebSocket):
   * ML (optional): `ort` (ONNX Runtime) for embedding/rerank models.
 * **Frontend**
 
+* **Next.js 16** (App Router, React 19) for routing and bundling. ([Next.js])
+* **Tailwind CSS v4** (MIT) for utility-first styling. ([TailwindCSS])
+* **shadcn/ui** component collection (MIT) layered on Tailwind. ([shadcn/ui])
+* **`@tanstack/react-query`** (v5) for client data fetching & caching; **`ky`** for HTTP transport. ([TanStackQuery])
   * **`oidc-client-ts`** (MIT) for OIDC. ([authts.github.io][5])
   * **RapiDoc** for API docs. ([rapidocweb.com][1])
 * **Identity Providers**
@@ -562,10 +574,11 @@ Notifications (SSE/WebSocket):
 * **Auth:** `api-server/src/auth/*`
 * **OpenAPI:** `api-server/src/docs/openapi.rs`
 * **Migrations:** `api-server/migrations/*.up.sql`, `*.down.sql`
-* Frontend API client: `frontend-new/src/lib/api.ts`
-* **OIDC client setup:** `frontend-new/src/lib/auth/oidc.ts`
-* **RapiDoc page:** `frontend-new/public/docs/index.html`
-* nginx config: `frontend-new/nginx.conf`
+* Frontend API client: `frontend/src/lib/api/`
+* **React Query provider:** `frontend/src/providers/QueryProvider.tsx`
+* **App shell/layout:** `frontend/app/layout.tsx`
+* **Docs route:** `frontend/app/docs/page.tsx` (serves RapiDoc)
+* Legacy frontend (archived): `_archive/frontend-old/`
 
 ---
 
@@ -650,6 +663,7 @@ fn notifications_stream(user: AuthUser, hub: &State<Hub>) -> EventStream![] {
 * Meilisearch hybrid search (`semanticRatio`, vector mixing). ([Meilisearch Docs][32])
 * Meilisearch user-provided embeddings (`_vector` payloads). ([Meilisearch Docs][33])
 * SSE & Rocket’s APIs; WebSockets via `rocket_ws`. ([MDN Web Docs][17])
+* Frontend stack references: Next.js 16, Tailwind CSS v4, shadcn/ui, TanStack Query. ([Next.js]) ([TailwindCSS]) ([shadcn/ui]) ([TanStackQuery])
 * OIDC libs & providers: `openidconnect` crate; `oidc-client-ts`; Keycloak/Dex/Authelia. ([Docs.rs][15])
 * Observability: Prometheus (`metrics` exporter); OpenTelemetry. ([Crates.io][4])
 * LISTEN/NOTIFY basics & considerations. ([PostgreSQL][8])
@@ -660,4 +674,8 @@ fn notifications_stream(user: AuthUser, hub: &State<Hub>) -> EventStream![] {
 * Double-submit cookie CSRF protection. ([Okta][31])
 [32]: https://www.meilisearch.com/docs/learn/advanced/hybrid_search
 [33]: https://www.meilisearch.com/docs/learn/advanced/vector_databases/user_provided
+[Next.js]: https://nextjs.org/
+[TailwindCSS]: https://tailwindcss.com/
+[shadcn/ui]: https://ui.shadcn.com/
+[TanStackQuery]: https://tanstack.com/query/latest
 [VectorChord]: https://vectorchord.ai/docs/vchord-postgres
