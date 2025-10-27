@@ -6,6 +6,7 @@
 //! an OpenAPI document automatically.
 
 pub mod admin;
+pub mod auth;
 pub mod authors;
 pub mod emails;
 pub mod health;

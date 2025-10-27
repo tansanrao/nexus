@@ -323,7 +323,31 @@ Notifications (SSE/WebSocket):
 * When an OIDC login matches an existing local email, the accounts link by updating `auth_provider` to `hybrid` and recording the OIDC subject while retaining the local credential row.
 * Role mapping: `admin` is set from provider claims or internal flags; rescinding admin privileges increments `token_version` to enforce least privilege immediately.
 
-### 8.7 Platform Hardening
+### 8.7 Auth API Surface
+
+* **POST /api/v1/auth/login** — accepts `{ email, password, device_fingerprint? }`; on success returns a JSON body with the signed access token, user summary (`id`, `email`, `role`, `display_name`), expiry timestamps, and sets the refresh token + CSRF cookie pair. Locked or disabled accounts return 423; invalid credentials return 401 with a generic error to avoid user enumeration.
+* **POST /api/v1/auth/refresh** — requires the refresh cookie + `X-CSRF-Token` header. Performs one-time refresh rotation: hashes the provided token, verifies against the latest stored record, revokes older siblings, issues a new refresh token (new UUID family), and returns a fresh access token.
+* **POST /api/v1/auth/logout** — accepts optional `{ all_devices: bool }`. Deletes the matching refresh token row (or all rows for the user when `all_devices` is true), clears cookies, and increments `token_version` if doing a global logout to void outstanding access tokens.
+* **POST /api/v1/auth/session** — exchanges a valid access token for a short-lived, HttpOnly session cookie dedicated to SSE/WebSocket upgrades. Session cookies inherit CSRF protection and expire after 30 minutes of inactivity.
+* **GET /api/v1/auth/keys** (admin only) — returns current JWT signing key metadata (kid, algorithm, not the private key) so operators can verify rotations. Instrumented with audit logging.
+All endpoints live under the `Auth` OpenAPI tag and default to the global `BearerAuth` security scheme, with `login` and `refresh` explicitly marked as anonymous.
+
+### 8.8 Token Service Components
+
+* **Module layout (`src/auth/`)** — split into `config.rs` (env + key loading), `passwords.rs` (Argon2id hashing/verification), `jwt.rs` (access-token mint & verify using `jsonwebtoken`), `refresh_store.rs` (SQLx repository for `user_refresh_tokens`), `guards.rs` (Rocket request guards for `AuthUser` + role enforcement), and `routes.rs` (Rocket handlers + response types). `mod.rs` re-exports the public surface.
+* **Key management** — load an RSA private key (PKCS#8 PEM) from `NEXUS_JWT_PRIVATE_KEY_PATH` at startup; derive the public key for JWKS exposure and token verification. Support hot-reload by watching the path and rotating keys gracefully (dual public keys allowed via `kid`).
+* **Refresh token hashing** — use `sha2::Sha512` + per-token random salt (stored alongside) before persisting, keeping the column format `salt$hash`. Verification re-computes the salted hash and uses constant-time comparison.
+* **Device fingerprinting** — optional string recorded per refresh token; clients may supply a hashed user agent tuple to help admins revoke specific devices.
+* **Background janitor** — nightly task (`tokio::task::spawn`) purges expired or revoked refresh tokens and locked accounts beyond retention, leveraging `user_refresh_tokens_user_idx`.
+
+### 8.9 RBAC Guards & Enforcement
+
+* **Roles** — `user` (default read/search capabilities) and `admin` (manage search indexes, user management, background jobs). Future roles must extend the enum and OpenAPI examples.
+* **Claims contract** — access tokens carry `role`, `permissions` (array derived from role), and `token_version`. `sub` maps to `users.id`. Any mismatch between token and database `token_version` forces a 401.
+* **Rocket guards** — `AuthUser` validates the bearer token and hydrates a struct with `id`, `email`, `role`, and `scopes`. `RequireAdmin` wraps `AuthUser` to guard admin routes. Guards log RBAC failures at `warn` level with request metadata.
+* **Route integration** — migrate existing admin-only endpoints (search maintenance, job control) to require `RequireAdmin`; general routes accept `Option<AuthUser>` where personalization is optional. SSE/WebSocket hubs validate `AuthUser` before opening a stream and attach `user_id` to tracing spans.
+
+### 8.10 Platform Hardening
 
 * CORS restrictions remain limited to approved frontend origins in production.
 * Audit trails log successful and failed login attempts (without storing raw secrets) and surface them in admin dashboards; suspicious activity can trigger forced password resets.

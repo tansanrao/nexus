@@ -1,5 +1,6 @@
 //! Administrative endpoints for sync scheduling and system status.
 
+use crate::auth::RequireAdmin;
 use crate::error::ApiError;
 use crate::sync::pg_config::PgConfig;
 use crate::sync::queue::{JobQueue, JobStatus, JobStatusInfo, JobType};
@@ -137,7 +138,10 @@ impl Default for IndexMaintenanceRequest {
 /// Enqueue sync jobs for every enabled mailing list.
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/start")]
-pub async fn start_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse>, ApiError> {
+pub async fn start_sync(
+    _admin: RequireAdmin,
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<MessageResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
     let job_ids = queue
         .enqueue_all_enabled()
@@ -153,6 +157,7 @@ pub async fn start_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageRespon
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/queue", data = "<request>")]
 pub async fn queue_sync(
+    _admin: RequireAdmin,
     request: Json<SyncRequest>,
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<SyncStartResponse>, ApiError> {
@@ -195,6 +200,7 @@ pub async fn queue_sync(
 #[openapi(tag = "Admin")]
 #[get("/admin/sync/status")]
 pub async fn get_sync_status(
+    _admin: RequireAdmin,
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<SyncStatusResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
@@ -249,7 +255,10 @@ pub async fn get_sync_status(
 /// Cancel all sync jobs, including the active job if one is running.
 #[openapi(tag = "Admin")]
 #[post("/admin/sync/cancel")]
-pub async fn cancel_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse>, ApiError> {
+pub async fn cancel_sync(
+    _admin: RequireAdmin,
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<MessageResponse>, ApiError> {
     let queue = JobQueue::new(pool.inner().clone());
     let cancelled_count = queue
         .cancel_all_jobs()
@@ -268,6 +277,7 @@ pub async fn cancel_sync(pool: &State<sqlx::PgPool>) -> Result<Json<MessageRespo
 #[openapi(tag = "Admin")]
 #[post("/admin/search/index/refresh", data = "<request>")]
 pub async fn refresh_search_index(
+    _admin: RequireAdmin,
     request: Json<SearchRefreshRequest>,
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<JobEnqueueResponse>, ApiError> {
@@ -309,6 +319,7 @@ pub async fn refresh_search_index(
 #[openapi(tag = "Admin")]
 #[post("/admin/search/index/reset", data = "<request>")]
 pub async fn reset_search_indexes(
+    _admin: RequireAdmin,
     request: Json<IndexMaintenanceRequest>,
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<JobEnqueueResponse>, ApiError> {
@@ -359,7 +370,10 @@ async fn resolve_mailing_list_id_by_slug(pool: &sqlx::PgPool, slug: &str) -> Res
 /// Drop and recreate the database schema.
 #[openapi(tag = "Admin")]
 #[post("/admin/database/reset")]
-pub async fn reset_db(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse>, ApiError> {
+pub async fn reset_db(
+    _admin: RequireAdmin,
+    pool: &State<sqlx::PgPool>,
+) -> Result<Json<MessageResponse>, ApiError> {
     reset_database(pool.inner())
         .await
         .map_err(|e| ApiError::InternalError(format!("Database reset failed: {e}")))?;
@@ -373,6 +387,7 @@ pub async fn reset_db(pool: &State<sqlx::PgPool>) -> Result<Json<MessageResponse
 #[openapi(tag = "Admin")]
 #[get("/admin/database/status")]
 pub async fn get_database_status(
+    _admin: RequireAdmin,
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<DatabaseStatusResponse>, ApiError> {
     let (
@@ -440,6 +455,7 @@ pub async fn get_database_status(
 #[openapi(tag = "Admin")]
 #[get("/admin/database/config")]
 pub async fn get_database_config(
+    _admin: RequireAdmin,
     pool: &State<sqlx::PgPool>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let config = PgConfig::check_config(pool.inner())

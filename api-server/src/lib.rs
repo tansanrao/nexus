@@ -3,6 +3,7 @@ extern crate rocket;
 
 pub mod db;
 pub mod error;
+pub mod auth;
 pub mod models;
 pub mod request_logger;
 pub mod routes;
@@ -10,6 +11,7 @@ pub mod search;
 pub mod sync;
 pub mod threading;
 
+use crate::auth::{AuthConfig, AuthState, JwtService, PasswordService, RefreshTokenStore};
 use crate::db::NexusDb;
 use crate::request_logger::RequestLogger;
 use crate::search::SearchService;
@@ -141,6 +143,66 @@ pub fn rocket() -> Rocket<Build> {
                 }
             },
         ))
+        .attach(AdHoc::try_on_ignite("Init Auth State", |rocket| async move {
+            let pool = match rocket.state::<rocket_db_pools::sqlx::PgPool>() {
+                Some(pool) => pool.clone(),
+                None => {
+                    log::error!("database pool not available for auth state");
+                    return Err(rocket);
+                }
+            };
+
+            let config = match AuthConfig::from_env() {
+                Ok(config) => config,
+                Err(err) => {
+                    log::error!("failed to load auth config: {}", err);
+                    return Err(rocket);
+                }
+            };
+
+            let password_service = match PasswordService::new() {
+                Ok(service) => service,
+                Err(err) => {
+                    log::error!("failed to initialize password service: {}", err);
+                    return Err(rocket);
+                }
+            };
+
+            let jwt_service = match JwtService::from_config(&config) {
+                Ok(service) => service,
+                Err(err) => {
+                    log::error!("failed to initialize JWT service: {}", err);
+                    return Err(rocket);
+                }
+            };
+
+            let refresh_store = RefreshTokenStore::new(pool.clone());
+            let auth_state = AuthState::new(config, password_service, jwt_service, refresh_store);
+
+            Ok(rocket.manage(auth_state))
+        }))
+        .attach(AdHoc::on_liftoff("Auth Refresh Janitor", |rocket| {
+            Box::pin(async move {
+                if let Some(state) = rocket.state::<AuthState>() {
+                    let auth_state = state.clone();
+                    tokio::spawn(async move {
+                        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+                        loop {
+                            ticker.tick().await;
+                            if let Err(err) = auth_state
+                                .refresh_store
+                                .purge_expired(chrono::Utc::now())
+                                .await
+                            {
+                                log::warn!("failed to purge expired refresh tokens: {}", err);
+                            }
+                        }
+                    });
+                } else {
+                    log::warn!("auth state unavailable; refresh token janitor not started");
+                }
+            })
+        }))
         // Spawn sync dispatcher in background
         .attach(AdHoc::on_liftoff("Spawn Sync Dispatcher", |rocket| {
             Box::pin(async move {
@@ -167,6 +229,13 @@ pub fn rocket() -> Rocket<Build> {
             openapi_get_routes![
                 // Health routes
                 routes::health::health_check,
+                // Auth routes
+                routes::auth::signup_blocked,
+                routes::auth::login,
+                routes::auth::refresh,
+                routes::auth::logout,
+                routes::auth::session_cookie,
+                routes::auth::signing_keys,
                 // Mailing list routes
                 routes::mailing_lists::list_mailing_lists,
                 routes::mailing_lists::get_mailing_list,
