@@ -1,9 +1,9 @@
 #[macro_use]
 extern crate rocket;
 
+pub mod auth;
 pub mod db;
 pub mod error;
-pub mod auth;
 pub mod models;
 pub mod request_logger;
 pub mod routes;
@@ -143,50 +143,55 @@ pub fn rocket() -> Rocket<Build> {
                 }
             },
         ))
-        .attach(AdHoc::try_on_ignite("Init Auth State", |rocket| async move {
-            let pool = match rocket.state::<rocket_db_pools::sqlx::PgPool>() {
-                Some(pool) => pool.clone(),
-                None => {
-                    log::error!("database pool not available for auth state");
-                    return Err(rocket);
-                }
-            };
+        .attach(AdHoc::try_on_ignite(
+            "Init Auth State",
+            |rocket| async move {
+                let pool = match rocket.state::<rocket_db_pools::sqlx::PgPool>() {
+                    Some(pool) => pool.clone(),
+                    None => {
+                        log::error!("database pool not available for auth state");
+                        return Err(rocket);
+                    }
+                };
 
-            let config = match AuthConfig::from_env() {
-                Ok(config) => config,
-                Err(err) => {
-                    log::error!("failed to load auth config: {}", err);
-                    return Err(rocket);
-                }
-            };
+                let config = match AuthConfig::from_env() {
+                    Ok(config) => config,
+                    Err(err) => {
+                        log::error!("failed to load auth config: {}", err);
+                        return Err(rocket);
+                    }
+                };
 
-            let password_service = match PasswordService::new() {
-                Ok(service) => service,
-                Err(err) => {
-                    log::error!("failed to initialize password service: {}", err);
-                    return Err(rocket);
-                }
-            };
+                let password_service = match PasswordService::new() {
+                    Ok(service) => service,
+                    Err(err) => {
+                        log::error!("failed to initialize password service: {}", err);
+                        return Err(rocket);
+                    }
+                };
 
-            let jwt_service = match JwtService::from_config(&config) {
-                Ok(service) => service,
-                Err(err) => {
-                    log::error!("failed to initialize JWT service: {}", err);
-                    return Err(rocket);
-                }
-            };
+                let jwt_service = match JwtService::from_config(&config) {
+                    Ok(service) => service,
+                    Err(err) => {
+                        log::error!("failed to initialize JWT service: {}", err);
+                        return Err(rocket);
+                    }
+                };
 
-            let refresh_store = RefreshTokenStore::new(pool.clone());
-            let auth_state = AuthState::new(config, password_service, jwt_service, refresh_store);
+                let refresh_store = RefreshTokenStore::new(pool.clone());
+                let auth_state =
+                    AuthState::new(config, password_service, jwt_service, refresh_store);
 
-            Ok(rocket.manage(auth_state))
-        }))
+                Ok(rocket.manage(auth_state))
+            },
+        ))
         .attach(AdHoc::on_liftoff("Auth Refresh Janitor", |rocket| {
             Box::pin(async move {
                 if let Some(state) = rocket.state::<AuthState>() {
                     let auth_state = state.clone();
                     tokio::spawn(async move {
-                        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+                        let mut ticker =
+                            tokio::time::interval(std::time::Duration::from_secs(3600));
                         loop {
                             ticker.tick().await;
                             if let Err(err) = auth_state

@@ -33,8 +33,10 @@ pub enum AuthError {
     Sqlx(#[from] rocket_db_pools::sqlx::Error),
     #[error("jwt error: {0}")]
     Jwt(#[from] jsonwebtoken::errors::Error),
-    #[error("argon2 error: {0}")]
-    Argon2(#[from] argon2::Error),
+    #[error("argon2 parameter error: {0}")]
+    Argon2(String),
+    #[error("password hashing error: {0}")]
+    PasswordHash(String),
     #[error("base64 error: {0}")]
     Base64(#[from] base64::DecodeError),
     #[error("time error: {0}")]
@@ -49,20 +51,34 @@ impl AuthError {
             AuthError::InvalidCredentials => Status::Unauthorized,
             AuthError::AccountLocked => Status::Locked,
             AuthError::AccountDisabled => Status::Forbidden,
-            AuthError::TokenExpired | AuthError::TokenInvalid | AuthError::TokenReuseDetected { .. } => {
-                Status::Unauthorized
-            }
+            AuthError::TokenExpired
+            | AuthError::TokenInvalid
+            | AuthError::TokenReuseDetected { .. } => Status::Unauthorized,
             AuthError::Unauthorized => Status::Unauthorized,
             AuthError::Forbidden => Status::Forbidden,
             AuthError::CsrfMissing => Status::BadRequest,
             AuthError::CsrfMismatch => Status::Unauthorized,
             AuthError::Config(_) => Status::InternalServerError,
-            AuthError::Io(_) | AuthError::Sqlx(_) | AuthError::Jwt(_) | AuthError::Argon2(_) => {
-                Status::InternalServerError
-            }
+            AuthError::Io(_)
+            | AuthError::Sqlx(_)
+            | AuthError::Jwt(_)
+            | AuthError::Argon2(_)
+            | AuthError::PasswordHash(_) => Status::InternalServerError,
             AuthError::Base64(_) | AuthError::Time(_) | AuthError::Other(_) => {
                 Status::InternalServerError
             }
         }
+    }
+}
+
+impl From<argon2::Error> for AuthError {
+    fn from(err: argon2::Error) -> Self {
+        AuthError::Argon2(err.to_string())
+    }
+}
+
+impl From<argon2::password_hash::Error> for AuthError {
+    fn from(err: argon2::password_hash::Error) -> Self {
+        AuthError::PasswordHash(err.to_string())
     }
 }

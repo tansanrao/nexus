@@ -63,12 +63,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tx = pool.begin().await?;
 
-    let existing = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM users WHERE lower(email) = lower($1)",
-    )
-    .bind(&email)
-    .fetch_one(&mut *tx)
-    .await?;
+    let existing =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE lower(email) = lower($1)")
+            .bind(&email)
+            .fetch_one(&mut *tx)
+            .await?;
 
     if existing > 0 {
         writeln!(
@@ -81,9 +80,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let password_service = PasswordService::new().map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("argon2 init failed: {err}"))
     })?;
-    let password_hash = password_service.hash_password(&args.password).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("password hash failed: {err}"))
-    })?;
+    let password_hash = password_service
+        .hash_password(&args.password)
+        .map_err(|err| {
+            io::Error::new(io::ErrorKind::Other, format!("password hash failed: {err}"))
+        })?;
 
     let user_id: i32 = sqlx::query_scalar(
         "INSERT INTO users (auth_provider, email, display_name, role) VALUES ($1, $2, $3, $4) RETURNING id",
@@ -95,13 +96,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .fetch_one(&mut *tx)
     .await?;
 
-    sqlx::query(
-        "INSERT INTO local_user_credentials (user_id, password_hash) VALUES ($1, $2)",
-    )
-    .bind(user_id)
-    .bind(password_hash)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO local_user_credentials (user_id, password_hash) VALUES ($1, $2)")
+        .bind(user_id)
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
 

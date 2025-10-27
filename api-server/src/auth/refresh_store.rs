@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 
-use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD_NO_PAD;
 use chrono::{DateTime, Duration, Utc};
 use rand::RngCore;
 use rocket_db_pools::sqlx::{self, PgPool, Postgres, Row, Transaction};
@@ -142,22 +142,18 @@ impl RefreshTokenStore {
     ) -> AuthResult<Option<i32>> {
         let parsed = ParsedRefreshToken::parse(plain_token)?;
 
-        let row = sqlx::query(
-            "SELECT user_id FROM user_refresh_tokens WHERE token_id = $1",
-        )
-        .bind(parsed.token_id)
-        .fetch_optional(tx.deref_mut())
-        .await?;
+        let row = sqlx::query("SELECT user_id FROM user_refresh_tokens WHERE token_id = $1")
+            .bind(parsed.token_id)
+            .fetch_optional(tx.deref_mut())
+            .await?;
 
         if let Some(row) = row {
             let user_id: i32 = row.try_get("user_id")?;
-            sqlx::query(
-                "UPDATE user_refresh_tokens SET revoked_at = $1 WHERE token_id = $2",
-            )
-            .bind(now)
-            .bind(parsed.token_id)
-            .execute(tx.deref_mut())
-            .await?;
+            sqlx::query("UPDATE user_refresh_tokens SET revoked_at = $1 WHERE token_id = $2")
+                .bind(now)
+                .bind(parsed.token_id)
+                .execute(tx.deref_mut())
+                .await?;
 
             Ok(Some(user_id))
         } else {

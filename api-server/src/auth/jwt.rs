@@ -1,5 +1,7 @@
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use rsa::RsaPrivateKey;
+use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPublicKey, LineEnding};
 use uuid::Uuid;
 
 use crate::auth::{AuthConfig, AuthError, AuthResult};
@@ -35,7 +37,7 @@ pub struct JwtMetadata {
 
 pub struct JwtService {
     encoding_key: EncodingKey,
-    decoding_key: DecodingKey<'static>,
+    decoding_key: DecodingKey,
     validation: Validation,
     issuer: String,
     audience: String,
@@ -45,9 +47,16 @@ pub struct JwtService {
 
 impl JwtService {
     pub fn from_config(config: &AuthConfig) -> AuthResult<Self> {
-        let key_bytes = std::fs::read(&config.jwt_private_key_path)?;
-        let encoding_key = EncodingKey::from_rsa_pem(&key_bytes)?;
-        let decoding_key = DecodingKey::from_rsa_pem(&key_bytes)?;
+        let key_pem = std::fs::read_to_string(&config.jwt_private_key_path)?;
+        let encoding_key = EncodingKey::from_rsa_pem(key_pem.as_bytes())?;
+
+        let private_key = RsaPrivateKey::from_pkcs1_pem(&key_pem)
+            .map_err(|err| AuthError::Config(format!("failed to parse RSA private key: {err}")))?;
+        let public_key_pem = private_key
+            .to_public_key()
+            .to_pkcs1_pem(LineEnding::LF)
+            .map_err(|err| AuthError::Config(format!("failed to encode RSA public key: {err}")))?;
+        let decoding_key = DecodingKey::from_rsa_pem(public_key_pem.as_bytes())?;
 
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_audience(&[config.audience.clone()]);

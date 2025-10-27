@@ -1,15 +1,16 @@
 use chrono::Utc;
-use rocket::http::Status;
-use rocket::request::{FromRequest, Outcome};
 use rocket::Request;
 use rocket::State;
+use rocket::http::Status;
+use rocket::request::{FromRequest, Outcome};
 use rocket_db_pools::sqlx::{self, Row};
+use rocket_okapi::request::OpenApiFromRequest;
 
 use crate::auth::jwt::AccessTokenClaims;
 use crate::auth::responses::Role;
 use crate::auth::{AuthError, AuthResult, AuthState};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, OpenApiFromRequest)]
 pub struct AuthUser {
     pub id: i32,
     pub email: String,
@@ -31,12 +32,12 @@ impl<'r> FromRequest<'r> for AuthUser {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match extract_user(request).await {
             Ok(user) => Outcome::Success(user),
-            Err(err) => Outcome::Failure((err.status(), err)),
+            Err(err) => Outcome::Error((err.status(), err)),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, OpenApiFromRequest)]
 pub struct RequireAdmin(pub AuthUser);
 
 #[rocket::async_trait]
@@ -49,11 +50,11 @@ impl<'r> FromRequest<'r> for RequireAdmin {
                 if user.is_admin() {
                     Outcome::Success(RequireAdmin(user))
                 } else {
-                    Outcome::Failure((Status::Forbidden, AuthError::Forbidden))
+                    Outcome::Error((Status::Forbidden, AuthError::Forbidden))
                 }
             }
-            Outcome::Failure(err) => Outcome::Failure(err),
-            Outcome::Forward(_) => Outcome::Failure((Status::Unauthorized, AuthError::Unauthorized)),
+            Outcome::Error(err) => Outcome::Error(err),
+            Outcome::Forward(_) => Outcome::Error((Status::Unauthorized, AuthError::Unauthorized)),
         }
     }
 }
@@ -78,12 +79,10 @@ async fn extract_user(request: &Request<'_>) -> AuthResult<AuthUser> {
 
     let user_id: i32 = claims.sub.parse().map_err(|_| AuthError::Unauthorized)?;
 
-    let row = sqlx::query(
-        "SELECT email, role, token_version, disabled FROM users WHERE id = $1",
-    )
-    .bind(user_id)
-    .fetch_optional(pool.inner())
-    .await?;
+    let row = sqlx::query("SELECT email, role, token_version, disabled FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool.inner())
+        .await?;
 
     let row = row.ok_or(AuthError::Unauthorized)?;
     let email: String = row.try_get("email")?;
@@ -115,7 +114,7 @@ async fn extract_user(request: &Request<'_>) -> AuthResult<AuthUser> {
     })
 }
 
-fn bearer_token_from_request(request: &Request<'_>) -> AuthResult<&str> {
+fn bearer_token_from_request<'a>(request: &'a Request<'_>) -> AuthResult<&'a str> {
     let header = request
         .headers()
         .get_one("Authorization")

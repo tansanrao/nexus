@@ -1,15 +1,17 @@
 use std::ops::DerefMut;
 
+use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use rand::RngCore;
 use rocket::http::{Cookie, CookieJar, SameSite, Status};
 use rocket::request::{FromRequest, Outcome, Request};
-use rocket::serde::json::Json;
 use rocket::response::status;
+use rocket::serde::json::Json;
 use rocket::{State, get, post};
 use rocket_db_pools::sqlx::{self, Row};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use rocket_okapi::openapi;
+use rocket_okapi::request::OpenApiFromRequest;
 use time::Duration as TimeDuration;
 
 use crate::auth::guards::{AuthUser, RequireAdmin};
@@ -81,23 +83,28 @@ pub async fn login(
         None => return Err(invalid_credentials()),
     };
 
-    let user_id: i32 = row.try_get("id").map_err(|err| respond_error(AuthError::from(err)))?;
-    let db_email: String =
-        row.try_get("email").map_err(|err| respond_error(AuthError::from(err)))?;
-    let display_name: Option<String> =
-        row.try_get("display_name").map_err(|err| respond_error(AuthError::from(err)))?;
-    let role_str: String =
-        row.try_get("role").map_err(|err| respond_error(AuthError::from(err)))?;
-    let token_version: i32 =
-        row.try_get("token_version").map_err(|err| respond_error(AuthError::from(err)))?;
-    let disabled: bool =
-        row.try_get("disabled").map_err(|err| respond_error(AuthError::from(err)))?;
+    let user_id: i32 = row
+        .try_get("id")
+        .map_err(|err| respond_error(AuthError::from(err)))?;
+    let db_email: String = row
+        .try_get("email")
+        .map_err(|err| respond_error(AuthError::from(err)))?;
+    let display_name: Option<String> = row
+        .try_get("display_name")
+        .map_err(|err| respond_error(AuthError::from(err)))?;
+    let role_str: String = row
+        .try_get("role")
+        .map_err(|err| respond_error(AuthError::from(err)))?;
+    let token_version: i32 = row
+        .try_get("token_version")
+        .map_err(|err| respond_error(AuthError::from(err)))?;
+    let disabled: bool = row
+        .try_get("disabled")
+        .map_err(|err| respond_error(AuthError::from(err)))?;
     let password_hash: Option<String> = row
         .try_get("password_hash")
         .map_err(|err| respond_error(AuthError::from(err)))?;
-    let failed_attempts: i32 = row
-        .try_get("failed_attempts")
-        .unwrap_or(0);
+    let failed_attempts: i32 = row.try_get("failed_attempts").unwrap_or(0);
     let locked_until: Option<DateTime<Utc>> = row
         .try_get("locked_until")
         .map_err(|err| respond_error(AuthError::from(err)))?;
@@ -235,13 +242,11 @@ pub async fn refresh(
         Err(err) => return Err(respond_error(err)),
     };
 
-    let user_row = sqlx::query(
-        "SELECT email, role, token_version FROM users WHERE id = $1",
-    )
-    .bind(rotation.user_id)
-    .fetch_one(tx.deref_mut())
-    .await
-    .map_err(|err| respond_error(AuthError::from(err)))?;
+    let user_row = sqlx::query("SELECT email, role, token_version FROM users WHERE id = $1")
+        .bind(rotation.user_id)
+        .fetch_one(tx.deref_mut())
+        .await
+        .map_err(|err| respond_error(AuthError::from(err)))?;
 
     let email: String = user_row
         .try_get("email")
@@ -273,12 +278,7 @@ pub async fn refresh(
 
     set_refresh_cookie(cookies, state, &rotation.new_token);
     let csrf_token = generate_random_token();
-    set_csrf_cookie(
-        cookies,
-        state,
-        &csrf_token,
-        rotation.new_token.expires_at,
-    );
+    set_csrf_cookie(cookies, state, &csrf_token, rotation.new_token.expires_at);
 
     let response = RefreshResponse {
         access_token: access_token.token,
@@ -360,13 +360,20 @@ pub async fn session_cookie(
         )
         .map_err(respond_error)?;
 
-    let cookie = Cookie::build(state.config.session_cookie_name.clone(), token.token.clone())
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .secure(state.config.cookie_secure)
-        .max_age(TimeDuration::seconds(state.config.session_cookie_ttl_secs))
-        .finish();
+    let mut cookie = Cookie::build((
+        state.config.session_cookie_name.clone(),
+        token.token.clone(),
+    ))
+    .path("/")
+    .http_only(true)
+    .same_site(SameSite::Lax)
+    .secure(state.config.cookie_secure)
+    .max_age(TimeDuration::seconds(state.config.session_cookie_ttl_secs))
+    .build();
+
+    if let Some(domain) = &state.config.cookie_domain {
+        cookie.set_domain(domain.clone());
+    }
 
     cookies.add(cookie);
 
@@ -394,7 +401,7 @@ pub async fn signing_keys(
     Ok(Json(response))
 }
 
-#[derive(Debug)]
+#[derive(Debug, OpenApiFromRequest)]
 pub struct CsrfToken(pub String);
 
 #[rocket::async_trait]
@@ -406,7 +413,7 @@ impl<'r> FromRequest<'r> for CsrfToken {
             Outcome::Success(state) => state,
             _ => {
                 let err = AuthError::Config("AuthState not available".into());
-                return Outcome::Failure((err.status(), err));
+                return Outcome::Error((err.status(), err));
             }
         };
 
@@ -418,7 +425,7 @@ impl<'r> FromRequest<'r> for CsrfToken {
 
         let err = AuthError::CsrfMissing;
         let status = err.status();
-        Outcome::Failure((status, err))
+        Outcome::Error((status, err))
     }
 }
 
@@ -433,7 +440,10 @@ fn respond_error(err: AuthError) -> status::Custom<Json<AuthErrorResponse>> {
     )
 }
 
-fn respond_message(status: Status, message: impl Into<String>) -> status::Custom<Json<AuthErrorResponse>> {
+fn respond_message(
+    status: Status,
+    message: impl Into<String>,
+) -> status::Custom<Json<AuthErrorResponse>> {
     status::Custom(
         status,
         Json(AuthErrorResponse {
@@ -525,19 +535,27 @@ async fn handle_token_reuse(
     Ok(())
 }
 
-fn set_refresh_cookie(cookies: &CookieJar<'_>, state: &State<AuthState>, token: &RefreshTokenIssued) {
-    let mut builder = Cookie::build(state.config.refresh_cookie_name.clone(), token.token.clone())
-        .path("/api/v1/auth/refresh")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .secure(state.config.cookie_secure)
-        .max_age(TimeDuration::seconds(state.config.refresh_token_ttl_secs));
+fn set_refresh_cookie(
+    cookies: &CookieJar<'_>,
+    state: &State<AuthState>,
+    token: &RefreshTokenIssued,
+) {
+    let mut cookie = Cookie::build((
+        state.config.refresh_cookie_name.clone(),
+        token.token.clone(),
+    ))
+    .path("/api/v1/auth/refresh")
+    .http_only(true)
+    .same_site(SameSite::Lax)
+    .secure(state.config.cookie_secure)
+    .max_age(TimeDuration::seconds(state.config.refresh_token_ttl_secs))
+    .build();
 
     if let Some(domain) = &state.config.cookie_domain {
-        builder = builder.domain(domain.clone());
+        cookie.set_domain(domain.clone());
     }
 
-    cookies.add(builder.finish());
+    cookies.add(cookie);
 }
 
 fn set_csrf_cookie(
@@ -547,47 +565,37 @@ fn set_csrf_cookie(
     expires_at: DateTime<Utc>,
 ) {
     let max_age_secs = (expires_at - Utc::now()).num_seconds().max(0);
-    let mut builder = Cookie::build(state.config.csrf_cookie_name.clone(), token.to_string())
+    let mut cookie = Cookie::build((state.config.csrf_cookie_name.clone(), token.to_string()))
         .path("/api/v1/auth/refresh")
         .http_only(false)
         .same_site(SameSite::Lax)
         .secure(state.config.cookie_secure)
-        .max_age(TimeDuration::seconds(max_age_secs));
+        .max_age(TimeDuration::seconds(max_age_secs))
+        .build();
 
     if let Some(domain) = &state.config.cookie_domain {
-        builder = builder.domain(domain.clone());
+        cookie.set_domain(domain.clone());
     }
 
-    cookies.add(builder.finish());
+    cookies.add(cookie);
 }
 
 fn clear_auth_cookies(cookies: &CookieJar<'_>, state: &State<AuthState>) {
-    let mut refresh = Cookie::build(state.config.refresh_cookie_name.clone(), "")
-        .path("/api/v1/auth/refresh")
-        .finish();
-    refresh.make_removal();
-    if let Some(domain) = &state.config.cookie_domain {
-        refresh.set_domain(domain.clone());
-    }
-    cookies.add(refresh);
+    for (name, path) in [
+        (&state.config.refresh_cookie_name, "/api/v1/auth/refresh"),
+        (&state.config.csrf_cookie_name, "/api/v1/auth/refresh"),
+        (&state.config.session_cookie_name, "/"),
+    ] {
+        let mut cookie = Cookie::build((name.clone(), String::new()))
+            .path(path)
+            .removal()
+            .build();
 
-    let mut csrf = Cookie::build(state.config.csrf_cookie_name.clone(), "")
-        .path("/api/v1/auth/refresh")
-        .finish();
-    csrf.make_removal();
-    if let Some(domain) = &state.config.cookie_domain {
-        csrf.set_domain(domain.clone());
+        if let Some(domain) = &state.config.cookie_domain {
+            cookie.set_domain(domain.clone());
+        }
+        cookies.add(cookie);
     }
-    cookies.add(csrf);
-
-    let mut session = Cookie::build(state.config.session_cookie_name.clone(), "")
-        .path("/")
-        .finish();
-    session.make_removal();
-    if let Some(domain) = &state.config.cookie_domain {
-        session.set_domain(domain.clone());
-    }
-    cookies.add(session);
 }
 
 fn generate_random_token() -> String {

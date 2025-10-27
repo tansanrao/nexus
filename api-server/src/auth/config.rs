@@ -22,7 +22,8 @@ pub struct AuthConfig {
 
 impl AuthConfig {
     pub fn from_env() -> AuthResult<Self> {
-        let issuer = std::env::var("NEXUS_JWT_ISSUER").unwrap_or_else(|_| "http://localhost".into());
+        let issuer =
+            std::env::var("NEXUS_JWT_ISSUER").unwrap_or_else(|_| "http://localhost".into());
         let audience = std::env::var("NEXUS_JWT_AUDIENCE").unwrap_or_else(|_| "nexus-api".into());
         let access_token_ttl_secs = std::env::var("NEXUS_ACCESS_TOKEN_TTL_SECS")
             .ok()
@@ -38,12 +39,12 @@ impl AuthConfig {
             .unwrap_or(30 * 60);
         let refresh_cookie_name = std::env::var("NEXUS_REFRESH_COOKIE_NAME")
             .unwrap_or_else(|_| "nexus_refresh_token".into());
-        let csrf_cookie_name = std::env::var("NEXUS_CSRF_COOKIE_NAME")
-            .unwrap_or_else(|_| "nexus_csrf".into());
-        let csrf_header_name = std::env::var("NEXUS_CSRF_HEADER_NAME")
-            .unwrap_or_else(|_| "X-CSRF-Token".into());
-        let session_cookie_name = std::env::var("NEXUS_SESSION_COOKIE_NAME")
-            .unwrap_or_else(|_| "nexus_session".into());
+        let csrf_cookie_name =
+            std::env::var("NEXUS_CSRF_COOKIE_NAME").unwrap_or_else(|_| "nexus_csrf".into());
+        let csrf_header_name =
+            std::env::var("NEXUS_CSRF_HEADER_NAME").unwrap_or_else(|_| "X-CSRF-Token".into());
+        let session_cookie_name =
+            std::env::var("NEXUS_SESSION_COOKIE_NAME").unwrap_or_else(|_| "nexus_session".into());
         let cookie_domain = std::env::var("NEXUS_COOKIE_DOMAIN").ok();
         let cookie_secure = std::env::var("NEXUS_COOKIE_SECURE")
             .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
