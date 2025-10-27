@@ -25,5 +25,5 @@
 - [x] Run `npm run build` to ensure the frontend compiles after changes.
 
 ## Verification
-- [ ] Manual smoke test: collapse/expand emails, hide deep replies toggle, author link navigation, per-file diff interactions, combined diff empty states.
+- [x] Manual smoke test: collapse/expand emails, hide deep replies toggle, author link navigation, per-file diff interactions, combined diff empty states.
 - [x] Automated: `npm run build`.
