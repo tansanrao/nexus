@@ -1,0 +1,2492 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "api-server",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "description": "Health check endpoint returning a trivial JSON payload.",
+        "operationId": "routes_health_health_check",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists": {
+      "get": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Return every mailing list configured in the service.",
+        "operationId": "routes_mailing_lists_list_mailing_lists",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponse_for_Array_of_MailingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/{slug}": {
+      "get": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Retrieve a specific mailing list by slug.",
+        "operationId": "routes_mailing_lists_get_mailing_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/{slug}/repositories": {
+      "get": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Retrieve a mailing list along with all configured repository shards.",
+        "operationId": "routes_mailing_lists_get_mailing_list_with_repos",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailingListWithRepos"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/{slug}/toggle": {
+      "patch": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Toggle the enabled state for a mailing list.",
+        "operationId": "routes_mailing_lists_toggle_mailing_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToggleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToggleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/mailing-lists/seed": {
+      "post": {
+        "tags": [
+          "Mailing Lists"
+        ],
+        "description": "Seed mailing lists from the live grokmirror manifest.\n\nThis operation is idempotent—existing mailing lists and repositories are preserved, while new entries are inserted and missing partitions created.",
+        "operationId": "routes_mailing_lists_seed_mailing_lists",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/threads": {
+      "get": {
+        "tags": [
+          "Threads"
+        ],
+        "description": "List threads in a mailing list with pagination and sorting.",
+        "operationId": "routes_threads_list_threads",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ThreadListParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_ThreadWithStarter"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/threads/search": {
+      "get": {
+        "tags": [
+          "Threads"
+        ],
+        "description": "Search threads inside a mailing list using lexical ranking.",
+        "operationId": "routes_threads_search_threads",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ThreadSearchParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/threads/{thread_id}": {
+      "get": {
+        "tags": [
+          "Threads"
+        ],
+        "description": "Retrieve thread metadata and the threaded email hierarchy.",
+        "operationId": "routes_threads_get_thread",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/emails/{email_id}": {
+      "get": {
+        "tags": [
+          "Emails"
+        ],
+        "description": "Retrieve a single email in the context of a mailing list.",
+        "operationId": "routes_emails_get_email",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "email_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailWithAuthor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "description": "Search authors in a mailing list with filtering and sorting.\n\nSupports case-insensitive filtering by email or canonical name as well as pagination and sorting options that map directly to the OpenAPI schema.",
+        "operationId": "routes_authors_search_authors",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/AuthorSearchParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_AuthorWithStats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "description": "Retrieve a specific author with mailing list context.",
+        "operationId": "routes_authors_get_author",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorWithStats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}/emails": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "description": "List the emails sent by a specific author in a mailing list.",
+        "operationId": "routes_authors_get_author_emails",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/PaginationParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_EmailWithAuthor"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}/threads-started": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "description": "List threads started by the author within the mailing list.",
+        "operationId": "routes_authors_get_author_threads_started",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/PaginationParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_ThreadWithStarter"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/authors/{author_id}/threads-participated": {
+      "get": {
+        "tags": [
+          "Authors"
+        ],
+        "description": "List threads where the author has participated (not necessarily started).",
+        "operationId": "routes_authors_get_author_threads_participated",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/PaginationParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_for_Thread"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/{slug}/stats": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "description": "Retrieve aggregate statistics for a specific mailing list.",
+        "operationId": "routes_stats_get_stats",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/start": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Enqueue sync jobs for every enabled mailing list.",
+        "operationId": "routes_admin_start_sync",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/queue": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Enqueue sync jobs for specific mailing lists.",
+        "operationId": "routes_admin_queue_sync",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStartResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/status": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Retrieve queue status and the currently running job.",
+        "operationId": "routes_admin_get_sync_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/sync/cancel": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Cancel all sync jobs, including the active job if one is running.",
+        "operationId": "routes_admin_cancel_sync",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/database/reset": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Drop and recreate the database schema.",
+        "operationId": "routes_admin_reset_db",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/database/status": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Return aggregate statistics about the database.",
+        "operationId": "routes_admin_get_database_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/database/config": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Return PostgreSQL configuration details relevant for monitoring.",
+        "operationId": "routes_admin_get_database_config",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/search/index/refresh": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Refresh search-derived fields and optionally reindex supporting indexes.",
+        "operationId": "routes_admin_refresh_search_index",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/admin/search/index/reset": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Drop and recreate search indexes.",
+        "operationId": "routes_admin_reset_search_indexes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexMaintenanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "description": "Basic response payload describing API health.",
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "description": "Static status string reporting application readiness.",
+            "type": "string"
+          }
+        }
+      },
+      "DataResponse_for_Array_of_MailingList": {
+        "description": "Generic wrapper used by endpoints that return simple collections.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "description": "Response payload.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailingList"
+            }
+          }
+        }
+      },
+      "MailingList": {
+        "description": "Metadata for a mailing list managed by the service.",
+        "type": "object",
+        "required": [
+          "enabled",
+          "id",
+          "name",
+          "slug",
+          "sync_priority"
+        ],
+        "properties": {
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "description": "Human-friendly display name.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Unique slug used in URLs (e.g. `linux-kernel`).",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional description sourced from the grokmirror manifest.",
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "description": "Whether sync jobs are allowed to run for this mailing list.",
+            "type": "boolean"
+          },
+          "sync_priority": {
+            "description": "Priority applied when enqueuing sync jobs (lower value first).",
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "description": "When the list record was created.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_synced_at": {
+            "description": "Timestamp of the last successful sync, if any.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MailingListWithRepos": {
+        "description": "Mailing list descriptor bundled with all configured repositories.",
+        "type": "object",
+        "required": [
+          "enabled",
+          "id",
+          "name",
+          "repos",
+          "slug",
+          "sync_priority"
+        ],
+        "properties": {
+          "repos": {
+            "description": "Repository shards belonging to the mailing list.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailingListRepository"
+            }
+          },
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "description": "Human-friendly display name.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Unique slug used in URLs (e.g. `linux-kernel`).",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional description sourced from the grokmirror manifest.",
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "description": "Whether sync jobs are allowed to run for this mailing list.",
+            "type": "boolean"
+          },
+          "sync_priority": {
+            "description": "Priority applied when enqueuing sync jobs (lower value first).",
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "description": "When the list record was created.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_synced_at": {
+            "description": "Timestamp of the last successful sync, if any.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MailingListRepository": {
+        "description": "Repository shard backing a mailing list (one per public-inbox epoch).",
+        "type": "object",
+        "required": [
+          "id",
+          "mailing_list_id",
+          "repo_order",
+          "repo_url"
+        ],
+        "properties": {
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "description": "Parent mailing list identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "repo_url": {
+            "description": "Remote repository URL (https://lore.kernel.org/...).",
+            "type": "string"
+          },
+          "repo_order": {
+            "description": "Repository order/epoch. Lower numbers represent older history.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "last_indexed_commit": {
+            "description": "Last commit processed during sync, if any.",
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "description": "Timestamp of when the shard configuration was added.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ToggleResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "description": "Confirmation message.",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "The mailing list's enabled state after applying the change.",
+            "type": "boolean"
+          }
+        }
+      },
+      "ToggleRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "description": "Desired enabled state.",
+            "type": "boolean"
+          }
+        }
+      },
+      "SeedResponse": {
+        "type": "object",
+        "required": [
+          "mailingListsCreated",
+          "message",
+          "partitionsCreated",
+          "repositoriesCreated"
+        ],
+        "properties": {
+          "message": {
+            "description": "Summary message.",
+            "type": "string"
+          },
+          "mailingListsCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          },
+          "repositoriesCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          },
+          "partitionsCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        }
+      },
+      "PaginatedResponse_for_ThreadWithStarter": {
+        "description": "Wrapper for paginated datasets.",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "description": "Page content.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadWithStarter"
+            }
+          },
+          "page": {
+            "description": "Associated pagination metadata.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PageMetadata"
+              }
+            ]
+          }
+        }
+      },
+      "ThreadWithStarter": {
+        "description": "Thread metadata augmented with the starter author.",
+        "type": "object",
+        "required": [
+          "id",
+          "last_date",
+          "mailing_list_id",
+          "root_message_id",
+          "start_date",
+          "starter_email",
+          "starter_id",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "description": "Thread identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "description": "Mailing list identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "root_message_id": {
+            "description": "RFC 822 message-id of the root email.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Thread subject.",
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Thread start timestamp.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_date": {
+            "description": "Most recent activity timestamp.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_count": {
+            "description": "Total number of emails in the thread.",
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "starter_id": {
+            "description": "Author identifier for the thread starter.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "starter_name": {
+            "description": "Canonical name of the starter, if known.",
+            "type": "string",
+            "nullable": true
+          },
+          "starter_email": {
+            "description": "Email of the thread starter.",
+            "type": "string"
+          }
+        }
+      },
+      "PageMetadata": {
+        "description": "Pagination metadata accompanying list responses.",
+        "type": "object",
+        "required": [
+          "page",
+          "size",
+          "totalElements",
+          "totalPages"
+        ],
+        "properties": {
+          "page": {
+            "description": "One-based page index.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "description": "Page size.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "description": "Total number of pages.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalElements": {
+            "description": "Total number of matching records.",
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ThreadListParams": {
+        "description": "Query parameters supported by the thread list endpoint.",
+        "type": "object",
+        "properties": {
+          "page": {
+            "description": "Page of results to fetch (defaults to 1).",
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "description": "Page size (defaults to 50, maximum 100).",
+            "default": 50,
+            "type": "integer",
+            "format": "int64"
+          },
+          "sortBy": {
+            "description": "Sort column (defaults to `lastDate`).",
+            "default": "lastDate",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThreadSortField"
+              }
+            ]
+          },
+          "order": {
+            "description": "Sort direction (defaults to `desc`).",
+            "default": "desc",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SortOrder"
+              }
+            ]
+          }
+        }
+      },
+      "ThreadSortField": {
+        "description": "Sorting options for thread listings.",
+        "type": "string",
+        "enum": [
+          "startDate",
+          "lastDate",
+          "messageCount"
+        ]
+      },
+      "SortOrder": {
+        "description": "Sort direction for list endpoints.",
+        "oneOf": [
+          {
+            "description": "Sort ascending.",
+            "type": "string",
+            "enum": [
+              "asc"
+            ]
+          },
+          {
+            "description": "Sort descending.",
+            "type": "string",
+            "enum": [
+              "desc"
+            ]
+          }
+        ]
+      },
+      "ThreadSearchResponse": {
+        "description": "Response envelope for thread search queries.",
+        "type": "object",
+        "required": [
+          "page",
+          "query",
+          "results",
+          "size",
+          "total"
+        ],
+        "properties": {
+          "query": {
+            "description": "Original query string trimmed.",
+            "type": "string"
+          },
+          "page": {
+            "description": "One-based page index.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "description": "Page size used for the request.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "description": "Total number of matching threads (best effort for hybrid).",
+            "type": "integer",
+            "format": "int64"
+          },
+          "results": {
+            "description": "Ranked search hits.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadSearchHit"
+            }
+          }
+        }
+      },
+      "ThreadSearchHit": {
+        "description": "Search hit metadata for thread queries.",
+        "type": "object",
+        "required": [
+          "thread"
+        ],
+        "properties": {
+          "thread": {
+            "description": "Thread metadata and starter information.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThreadWithStarter"
+              }
+            ]
+          },
+          "lexical_score": {
+            "description": "Lexical score (0..1) when available.",
+            "type": "number",
+            "format": "float",
+            "nullable": true
+          }
+        }
+      },
+      "ThreadSearchParams": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "page": {
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "default": 25,
+            "type": "integer",
+            "format": "int64"
+          },
+          "startDate": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "endDate": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "semanticRatio": {
+            "default": null,
+            "type": "number",
+            "format": "float",
+            "nullable": true
+          }
+        }
+      },
+      "ThreadDetail": {
+        "description": "Thread details including the threaded list of emails.",
+        "type": "object",
+        "required": [
+          "emails",
+          "thread"
+        ],
+        "properties": {
+          "thread": {
+            "description": "Thread metadata.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Thread"
+              }
+            ]
+          },
+          "emails": {
+            "description": "Emails that belong to the thread ordered depth-first.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmailHierarchy"
+            }
+          }
+        }
+      },
+      "Thread": {
+        "description": "Thread metadata stored in the database.",
+        "type": "object",
+        "required": [
+          "id",
+          "last_date",
+          "mailing_list_id",
+          "root_message_id",
+          "start_date",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "description": "Mailing list identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "root_message_id": {
+            "description": "RFC 822 message-id of the root email.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Normalized thread subject.",
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Timestamp of the first email in the thread.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_date": {
+            "description": "Timestamp of the latest email in the thread.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "message_count": {
+            "description": "Total number of emails in the thread.",
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "EmailHierarchy": {
+        "description": "Email node enriched with depth information for thread rendering.",
+        "type": "object",
+        "required": [
+          "author_email",
+          "author_id",
+          "date",
+          "depth",
+          "git_commit_hash",
+          "id",
+          "is_patch_only",
+          "mailing_list_id",
+          "message_id",
+          "patch_type",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "description": "Email identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "description": "Mailing list identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "message_id": {
+            "description": "RFC 822 message-id.",
+            "type": "string"
+          },
+          "git_commit_hash": {
+            "description": "Git commit hash referencing the blob inside the mirror.",
+            "type": "string"
+          },
+          "author_id": {
+            "description": "Author identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "subject": {
+            "description": "Email subject.",
+            "type": "string"
+          },
+          "date": {
+            "description": "Email timestamp.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "in_reply_to": {
+            "description": "Optional parent message-id.",
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "description": "Message body, where available.",
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "description": "Timestamp when the row was inserted.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "author_name": {
+            "description": "Canonical author name, if known.",
+            "type": "string",
+            "nullable": true
+          },
+          "author_email": {
+            "description": "Author email address.",
+            "type": "string"
+          },
+          "depth": {
+            "description": "Depth within the thread tree (root = 0).",
+            "type": "integer",
+            "format": "int32"
+          },
+          "patch_type": {
+            "description": "Patch classification for this email.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PatchType"
+              }
+            ]
+          },
+          "is_patch_only": {
+            "description": "Whether the body is entirely commit message + diff content.",
+            "type": "boolean"
+          },
+          "patch_metadata": {
+            "description": "Inline patch metadata (diff sections, trailers, diffstat).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PatchMetadata"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "PatchType": {
+        "description": "Classification of an email's patch content.",
+        "oneOf": [
+          {
+            "description": "No git patch content detected.",
+            "type": "string",
+            "enum": [
+              "None"
+            ]
+          },
+          {
+            "description": "Inline diff detected within the email body.",
+            "type": "string",
+            "enum": [
+              "Inline"
+            ]
+          },
+          {
+            "description": "Patch provided via attachment (text/x-patch, text/x-diff, etc.).",
+            "type": "string",
+            "enum": [
+              "Attachment"
+            ]
+          }
+        ]
+      },
+      "PatchMetadata": {
+        "description": "Aggregated metadata about inline git patches inside an email.",
+        "type": "object",
+        "required": [
+          "diff_sections",
+          "trailer_count"
+        ],
+        "properties": {
+          "diff_sections": {
+            "description": "Inline diff chunks detected in the body.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatchSection"
+            }
+          },
+          "diffstat_section": {
+            "description": "Optional section covering the diffstat block (between `---` separator and the first diff).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PatchSection"
+              }
+            ],
+            "nullable": true
+          },
+          "trailer_sections": {
+            "description": "Sections covering trailers (Signed-off-by, Acked-by, etc.) and optional git footers.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatchSection"
+            }
+          },
+          "separator_line": {
+            "description": "Position of the RFC 822 style `---` separator, if present.",
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0,
+            "nullable": true
+          },
+          "trailer_count": {
+            "description": "Total number of trailer lines detected (Signed-off-by, Reviewed-by, ...).",
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        }
+      },
+      "PatchSection": {
+        "description": "Inclusive range (0-based line numbers) marking a logical patch section.",
+        "type": "object",
+        "required": [
+          "end_line",
+          "start_line"
+        ],
+        "properties": {
+          "start_line": {
+            "description": "First line (0-based index) belonging to the section.",
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          },
+          "end_line": {
+            "description": "Last line (0-based index) belonging to the section.",
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        }
+      },
+      "EmailWithAuthor": {
+        "description": "Email row enriched with author metadata for API responses.",
+        "type": "object",
+        "required": [
+          "author_email",
+          "author_id",
+          "date",
+          "git_commit_hash",
+          "id",
+          "is_patch_only",
+          "mailing_list_id",
+          "message_id",
+          "patch_type",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "description": "Mailing list identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "message_id": {
+            "description": "RFC 822 message-id.",
+            "type": "string"
+          },
+          "git_commit_hash": {
+            "description": "Git commit hash referencing the blob inside the mirror.",
+            "type": "string"
+          },
+          "author_id": {
+            "description": "Author identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "subject": {
+            "description": "Email subject line.",
+            "type": "string"
+          },
+          "date": {
+            "description": "Original message timestamp.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "in_reply_to": {
+            "description": "Optional parent message-id (for replies).",
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "description": "Message body (may be truncated or sanitized).",
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "description": "Timestamp when the row was inserted.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "author_name": {
+            "description": "Canonical author name, if known.",
+            "type": "string",
+            "nullable": true
+          },
+          "author_email": {
+            "description": "Author email address.",
+            "type": "string"
+          },
+          "patch_type": {
+            "description": "Patch classification for this email.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PatchType"
+              }
+            ]
+          },
+          "is_patch_only": {
+            "description": "Whether the body is entirely commit message + diff content.",
+            "type": "boolean"
+          },
+          "patch_metadata": {
+            "description": "Inline patch metadata (diff sections, trailers, diffstat).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PatchMetadata"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "PaginatedResponse_for_AuthorWithStats": {
+        "description": "Wrapper for paginated datasets.",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "description": "Page content.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorWithStats"
+            }
+          },
+          "page": {
+            "description": "Associated pagination metadata.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PageMetadata"
+              }
+            ]
+          }
+        }
+      },
+      "AuthorWithStats": {
+        "description": "Aggregated author statistics used in list and detail endpoints.",
+        "type": "object",
+        "required": [
+          "email",
+          "email_count",
+          "id",
+          "mailing_lists",
+          "name_variations",
+          "thread_count"
+        ],
+        "properties": {
+          "id": {
+            "description": "Author identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "email": {
+            "description": "Primary email address.",
+            "type": "string"
+          },
+          "canonical_name": {
+            "description": "Normalized/canonical author name.",
+            "type": "string",
+            "nullable": true
+          },
+          "first_seen": {
+            "description": "When the author was first seen in any mailing list.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_seen": {
+            "description": "Most recent activity timestamp.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "email_count": {
+            "description": "Number of emails authored in the target mailing list.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "thread_count": {
+            "description": "Number of threads the author participated in.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "first_email_date": {
+            "description": "Timestamp of the first email authored in the list.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_email_date": {
+            "description": "Timestamp of the latest email authored in the list.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "mailing_lists": {
+            "description": "All mailing list slugs where the author is active.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name_variations": {
+            "description": "Observed name variants sorted by usage count.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AuthorSearchParams": {
+        "description": "Query parameters accepted by the author search endpoint.",
+        "type": "object",
+        "properties": {
+          "q": {
+            "description": "Optional full-text search term matched against author name/email.",
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "page": {
+            "description": "Page of results to fetch (defaults to 1).",
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "description": "Page size (defaults to 50, maximum 100).",
+            "default": 50,
+            "type": "integer",
+            "format": "int64"
+          },
+          "sortBy": {
+            "description": "Sort column (defaults to `emailCount`).",
+            "default": "emailCount",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AuthorSortField"
+              }
+            ]
+          },
+          "order": {
+            "description": "Sort direction (defaults to `desc`).",
+            "default": "desc",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SortOrder"
+              }
+            ]
+          }
+        }
+      },
+      "AuthorSortField": {
+        "description": "Sort keys supported by the author search endpoint.",
+        "type": "string",
+        "enum": [
+          "canonicalName",
+          "email",
+          "emailCount",
+          "threadCount",
+          "firstEmailDate",
+          "lastEmailDate"
+        ]
+      },
+      "PaginatedResponse_for_EmailWithAuthor": {
+        "description": "Wrapper for paginated datasets.",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "description": "Page content.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EmailWithAuthor"
+            }
+          },
+          "page": {
+            "description": "Associated pagination metadata.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PageMetadata"
+              }
+            ]
+          }
+        }
+      },
+      "PaginationParams": {
+        "description": "Common pagination parameters applied to list endpoints.",
+        "type": "object",
+        "properties": {
+          "page": {
+            "description": "One-based page index (defaults to the first page).",
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "description": "Number of items per page (clamped between 1 and 100, default 50).",
+            "default": 50,
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PaginatedResponse_for_Thread": {
+        "description": "Wrapper for paginated datasets.",
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "properties": {
+          "data": {
+            "description": "Page content.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Thread"
+            }
+          },
+          "page": {
+            "description": "Associated pagination metadata.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PageMetadata"
+              }
+            ]
+          }
+        }
+      },
+      "Stats": {
+        "description": "Summary statistics for a mailing list.",
+        "type": "object",
+        "required": [
+          "total_authors",
+          "total_emails",
+          "total_threads"
+        ],
+        "properties": {
+          "total_emails": {
+            "description": "Total number of emails stored for the mailing list.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_threads": {
+            "description": "Total number of threads.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_authors": {
+            "description": "Number of unique authors.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "date_range_start": {
+            "description": "Oldest email timestamp.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "date_range_end": {
+            "description": "Newest email timestamp.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MessageResponse": {
+        "description": "Simple message wrapper for acknowledgement responses.",
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "description": "Response text.",
+            "type": "string"
+          }
+        }
+      },
+      "SyncStartResponse": {
+        "description": "Response returned when sync jobs are queued.",
+        "type": "object",
+        "required": [
+          "jobIds",
+          "message"
+        ],
+        "properties": {
+          "jobIds": {
+            "description": "Identifiers for the queued jobs.",
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "message": {
+            "description": "Human-readable summary message.",
+            "type": "string"
+          }
+        }
+      },
+      "SyncRequest": {
+        "description": "Request body for enqueuing sync jobs targeting specific mailing lists.",
+        "type": "object",
+        "required": [
+          "mailingListSlugs"
+        ],
+        "properties": {
+          "mailingListSlugs": {
+            "description": "Mailing list slugs to process.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SyncStatusResponse": {
+        "description": "Response describing the current sync queue.",
+        "type": "object",
+        "required": [
+          "isRunning",
+          "queuedJobs"
+        ],
+        "properties": {
+          "currentJob": {
+            "description": "Currently running job, if any.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JobStatusInfo"
+              }
+            ],
+            "nullable": true
+          },
+          "queuedJobs": {
+            "description": "Jobs waiting in the queue.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueuedJobInfo"
+            }
+          },
+          "isRunning": {
+            "description": "Indicates whether a job is actively running.",
+            "type": "boolean"
+          }
+        }
+      },
+      "JobStatusInfo": {
+        "type": "object",
+        "required": [
+          "created_at",
+          "id",
+          "jobType",
+          "priority",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailingListId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "slug": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "jobType": {
+            "$ref": "#/components/schemas/JobType"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "JobType": {
+        "type": "string",
+        "enum": [
+          "import",
+          "index_maintenance"
+        ]
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "QueuedJobInfo": {
+        "description": "Simplified representation of a queued job.",
+        "type": "object",
+        "required": [
+          "id",
+          "jobType",
+          "position",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "description": "Job identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailingListId": {
+            "description": "Mailing list identifier.",
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "mailingListSlug": {
+            "description": "Mailing list slug.",
+            "type": "string",
+            "nullable": true
+          },
+          "mailingListName": {
+            "description": "Mailing list display name.",
+            "type": "string",
+            "nullable": true
+          },
+          "jobType": {
+            "description": "Job type discriminator.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JobType"
+              }
+            ]
+          },
+          "status": {
+            "description": "Current job status.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JobStatus"
+              }
+            ]
+          },
+          "position": {
+            "description": "Position in the queue (1-based).",
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DatabaseStatusResponse": {
+        "description": "Aggregated statistics about the database state.",
+        "type": "object",
+        "required": [
+          "totalAuthors",
+          "totalEmails",
+          "totalRecipients",
+          "totalReferences",
+          "totalThreadMemberships",
+          "totalThreads"
+        ],
+        "properties": {
+          "totalAuthors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalEmails": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalThreads": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalRecipients": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalReferences": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalThreadMemberships": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dateRangeStart": {
+            "type": "string",
+            "format": "partial-date-time",
+            "nullable": true
+          },
+          "dateRangeEnd": {
+            "type": "string",
+            "format": "partial-date-time",
+            "nullable": true
+          }
+        }
+      },
+      "JobEnqueueResponse": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "jobType",
+          "message"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "jobType": {
+            "$ref": "#/components/schemas/JobType"
+          },
+          "mailingListId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchRefreshRequest": {
+        "description": "Request payload for manual search index refresh operations.",
+        "type": "object",
+        "properties": {
+          "mailingListSlug": {
+            "description": "Restrict the refresh to a specific mailing list slug; omitted for all lists.",
+            "type": "string",
+            "nullable": true
+          },
+          "reindex": {
+            "description": "When true, reindex supporting GIN/GIN-trgm/vector indexes after recomputing tsvectors.",
+            "default": false,
+            "type": "boolean"
+          }
+        }
+      },
+      "IndexMaintenanceRequest": {
+        "type": "object",
+        "properties": {
+          "mailingListSlug": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "reindex": {
+            "default": false,
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

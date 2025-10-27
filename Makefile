@@ -58,12 +58,12 @@ up:
 	@echo "Run 'make health' to check service health"
 	@echo "Run 'make init' to initialize the database"
 
-FRONTEND_API_URL ?= http://100.96.63.118:8000
+BACKEND_API_URL ?= /api
 
 up-frontend frontend-up:
-	@echo "Starting frontend dev server with API endpoint: $(FRONTEND_API_URL)"
+	@echo "Starting frontend dev server with API endpoint: $(BACKEND_API_URL)"
 	@echo "Press Ctrl+C to stop."
-	cd frontend-new && VITE_API_URL=$(FRONTEND_API_URL) npm run dev -- --host
+	cd frontend && NEXT_PUBLIC_BACKEND_API_URL=$(BACKEND_API_URL) npm run dev
 
 down:
 	docker compose down

@@ -93,20 +93,21 @@ services:
       - nexus-network
     restart: unless-stopped
 
-  # React frontend with nginx
+  # Next.js frontend
   frontend:
     build:
-      context: ./frontend-new
+      context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-/api}
+        NEXT_PUBLIC_BACKEND_API_URL: ${NEXT_PUBLIC_BACKEND_API_URL:-/api}
     container_name: nexus-frontend
     environment:
       # HTTP Basic Authentication credentials
       HTTP_BASIC_AUTH_USERNAME: ${HTTP_BASIC_AUTH_USERNAME:-admin}
       HTTP_BASIC_AUTH_PASSWORD: ${HTTP_BASIC_AUTH_PASSWORD:-changeme123}
+      NEXT_PUBLIC_BACKEND_API_URL: ${NEXT_PUBLIC_BACKEND_API_URL:-/api}
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-80}:3000"
     depends_on:
       - api-server
     networks:
