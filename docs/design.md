@@ -330,6 +330,7 @@ Notifications (SSE/WebSocket):
 * **POST /api/v1/auth/logout** — accepts optional `{ all_devices: bool }`. Deletes the matching refresh token row (or all rows for the user when `all_devices` is true), clears cookies, and increments `token_version` if doing a global logout to void outstanding access tokens.
 * **POST /api/v1/auth/session** — exchanges a valid access token for a short-lived, HttpOnly session cookie dedicated to SSE/WebSocket upgrades. Session cookies inherit CSRF protection and expire after 30 minutes of inactivity.
 * **GET /api/v1/auth/keys** (admin only) — returns current JWT signing key metadata (kid, algorithm, not the private key) so operators can verify rotations. Instrumented with audit logging.
+* **POST /api/v1/auth/signup** — temporarily disabled (returns 403); operators must provision accounts with the CLI helpers under `scripts/`.
 All endpoints live under the `Auth` OpenAPI tag and default to the global `BearerAuth` security scheme, with `login` and `refresh` explicitly marked as anonymous.
 
 ### 8.8 Token Service Components
