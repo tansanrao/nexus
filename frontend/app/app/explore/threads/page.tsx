@@ -5,14 +5,19 @@ import { Button } from "@/components/ui/button"
 
 export default function ExploreThreadsIndexPage() {
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full w-full flex-col overflow-auto">
       <AppPageHeader
         items={[
-          { label: "Explore", href: "/app/explore", hideOnMobile: true },
-          { label: "Threads" },
+          {
+            type: "link",
+            label: "Explore",
+            href: "/app/explore",
+            hideOnMobile: true,
+          },
+          { type: "page", label: "Threads" },
         ]}
       />
-      <main className="flex flex-1 flex-col gap-4 p-4 pt-0">
+      <div className="flex flex-1 min-h-0 flex-col gap-4 px-4 py-4">
         <div className="rounded-xl border border-dashed p-8 text-muted-foreground">
           <div className="mx-auto max-w-xl text-center space-y-4">
             <p>
@@ -28,7 +33,7 @@ export default function ExploreThreadsIndexPage() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }

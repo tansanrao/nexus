@@ -1,0 +1,3 @@
+export const DEV_MODE_MAX_THREAD_PAGES = 10
+export const DEV_MODE_THREADS_PER_PAGE = 50
+export const DEV_MODE_MAX_EMAILS_PER_THREAD = 5

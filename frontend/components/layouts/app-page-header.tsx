@@ -1,69 +1,38 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Separator } from "@/components/ui/separator"
-import { SidebarTrigger } from "@/components/ui/sidebar"
+  useAppLayout,
+  type AppBreadcrumbItem,
+} from "@/components/layouts/app-layout-context"
 
-type BreadcrumbEntry = {
-  label: string
-  href?: string
-  hideOnMobile?: boolean
-  render?: React.ReactNode
+type AppPageHeaderProps = {
+  items: AppBreadcrumbItem[]
+  actions?: React.ReactNode
 }
 
-export function AppPageHeader({
-  items,
-}: {
-  items: BreadcrumbEntry[]
-}) {
-  return (
-    <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
-      <div className="flex items-center gap-2 px-4">
-        <SidebarTrigger className="-ml-1" />
-        <Separator
-          orientation="vertical"
-          className="mr-2 data-[orientation=vertical]:h-4"
-        />
-        <Breadcrumb>
-          <BreadcrumbList>
-            {items.map((item, index) => {
-              const isLast = index === items.length - 1
-              const visibilityClass = item.hideOnMobile
-                ? "hidden md:block"
-                : undefined
+export function AppPageHeader({ items, actions }: AppPageHeaderProps) {
+  const { setBreadcrumbs, setActions } = useAppLayout()
 
-              return (
-                <React.Fragment key={`${item.label}-${index}`}>
-                  <BreadcrumbItem className={visibilityClass}>
-                    {item.render ? (
-                      <div className="min-w-[160px]">{item.render}</div>
-                    ) : isLast || !item.href ? (
-                      <BreadcrumbPage>{item.label}</BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink asChild>
-                        <Link href={item.href}>{item.label}</Link>
-                      </BreadcrumbLink>
-                    )}
-                  </BreadcrumbItem>
-                  {!isLast && (
-                    <BreadcrumbSeparator className={visibilityClass} />
-                  )}
-                </React.Fragment>
-              )
-            })}
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
-    </header>
-  )
+  React.useEffect(() => {
+    setBreadcrumbs(items)
+    setActions(actions ?? null)
+
+    return () => {
+      setBreadcrumbs([])
+      setActions(null)
+    }
+  }, [actions, items, setActions, setBreadcrumbs])
+
+  return null
 }
+
+export type {
+  AppBreadcrumbItem,
+  AppBreadcrumbDropdownItem,
+  AppBreadcrumbDropdownOption,
+  AppBreadcrumbEllipsisItem,
+  AppBreadcrumbLinkItem,
+  AppBreadcrumbPageItem,
+} from "@/components/layouts/app-layout-context"

@@ -16,6 +16,9 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { useDevMode } from "@src/providers/DevModeProvider"
 
 // This is sample data.
 const data = {
@@ -68,6 +71,8 @@ const data = {
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { isDevMode, isReady, setDevMode } = useDevMode()
+
   return (
     <Sidebar collapsible="icon" className="group/sidebar" {...props}>
       <SidebarHeader>
@@ -93,7 +98,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarContent>
         <NavMain items={data.navMain} />
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="gap-3">
+        <SidebarMenuItem>
+          <SidebarMenuButton asChild>
+            <>
+            <Switch
+              id="sidebar-dev-mode"
+              checked={isDevMode}
+              onCheckedChange={(checked) => setDevMode(checked)}
+              disabled={!isReady}
+              aria-label="Toggle developer mode"
+            />
+            Dev Mode
+            </>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
         <NavUser user={data.user} />
       </SidebarFooter>
       <SidebarRail />
