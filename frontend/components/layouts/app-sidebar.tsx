@@ -16,7 +16,6 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { useDevMode } from "@src/providers/DevModeProvider"
 
@@ -30,40 +29,40 @@ const data = {
   navMain: [
     {
       title: "Home",
-      url: "/app",
+      url: "/",
       icon: Home,
     },
     {
       title: "Explore",
-      url: "/app/explore",
+      url: "/explore",
       icon: Compass,
       items: [
         {
           title: "Threads",
-          url: "/app/explore/threads",
+          url: "/explore/threads",
         },
         {
           title: "Authors",
-          url: "/app/explore/authors",
+          url: "/explore/authors",
         },
       ],
     },
     {
       title: "Settings",
-      url: "/app/settings",
+      url: "/settings",
       icon: Settings,
       items: [
         {
           title: "General",
-          url: "/app/settings/general",
+          url: "/settings/general",
         },
         {
           title: "Database",
-          url: "/app/settings/database",
+          url: "/settings/database",
         },
         {
           title: "Search",
-          url: "/app/settings/search",
+          url: "/settings/search",
         },
       ],
     },
@@ -79,7 +78,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenuItem>
           <SidebarMenuButton asChild>
             <Link
-              href="/app"
+              href="/"
               aria-label="Nexus home"
             >
               <Image

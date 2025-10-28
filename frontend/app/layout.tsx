@@ -80,7 +80,7 @@ export const metadata: Metadata = {
     template: "%s | Nexus",
   },
   description:
-    "Nexus keeps product work in flow with collaborative planning, execution, and reporting.",
+    "Nexus provides an experimental console for browsing mailing lists, threads, and author activity.",
   icons: {
     icon: [
       { url: "/favicon/favicon.ico", sizes: "48x48" },
@@ -93,7 +93,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Nexus",
     description:
-      "Nexus keeps product work in flow with collaborative planning, execution, and reporting.",
+      "Nexus provides an experimental console for browsing mailing lists, threads, and author activity.",
     images: [
       {
         url: "/og-image.jpg",
@@ -106,7 +106,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Nexus",
     description:
-      "Nexus keeps product work in flow with collaborative planning, execution, and reporting.",
+      "Nexus provides an experimental console for browsing mailing lists, threads, and author activity.",
     images: ["/og-image.jpg"],
   },
   metadataBase: new URL(siteUrl),
