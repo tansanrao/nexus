@@ -12,6 +12,8 @@ This package hosts the actively developed UI for Nexus. It runs entirely in the 
 
 `NEXT_PUBLIC_BACKEND_API_URL` tells the client where the API lives. Use a relative path like `/api` when running behind Docker Compose, or an absolute origin such as `http://localhost:8000/api` during local development. The API client appends `/v1` automatically.
 
+Authentication is not enforced yet. The UI treats every visitor as signed in and skips redirecting to `/login`; hook up the backend integration before tightening route guards.
+
 When you start the dev server outside of Compose:
 
 ```bash
@@ -24,6 +26,13 @@ NEXT_PUBLIC_BACKEND_API_URL=http://localhost:8000/api npm run dev
 - `npm run build` – Generate the production bundle. This command must pass before opening a PR.
 - `npm run start` – Run the production server (expects `npm run build` to have completed).
 - `npm run lint` – Execute the shared ESLint config.
+
+## Routes
+
+- `/` – Nexus console shell (promoted from the old `/app` surface).
+- `/explore` – Mailing list and thread exploration entry point (plus nested thread/detail routes).
+- `/settings` – Stub settings panels (`/settings/general`, `/settings/database`, `/settings/search`).
+- `/login` & `/register` – Auth forms retained for future wiring; `/signup` and `/app/*` redirect here.
 
 ## Docker Image
 
