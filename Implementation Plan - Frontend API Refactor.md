@@ -45,7 +45,7 @@
   - [x] Update mailing list service to use `/lists` + `/lists/{slug}`, returning `{ data, meta }`.
   - [x] Rewrite thread list/detail calls to `/lists/{slug}/threads` and `/lists/{slug}/threads/{thread_id}` with new params (`page`, `pageSize`, `sort`).
   - [x] Adapt UI components (`ThreadListPanel`, `ThreadBrowserPage`, `ThreadDetailView`, `ThreadDiffView`) to new pagination meta and ensure patch metadata (`patch_metadata.diff_sections`) remains compatible.
-  - [ ] Revisit thread search (if backend provides a new endpoint); capture as follow-up if absent.
+  - [x] Wire the per-list thread search endpoint into the client (query params, React Query hook, search UI, and result rendering).
 - [x] **Authors**
   - [x] Replace `/ {slug} /authors` usage with `/authors` + `listSlug` query param and nested `/authors/{id}/lists/{slug}/…` calls.
   - [x] Update hooks, tables, and drill-in views to respect `meta.pagination` and rename fields (`email_count` → `emailCount`, etc., depending on codegen casing).

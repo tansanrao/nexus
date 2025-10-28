@@ -224,9 +224,11 @@ Notifications (SSE/WebSocket):
 ### 6.3 Query behaviour
 
 * `/api/v1/lists/{slug}/threads`
-  * Accepts `page`, `pageSize`, and array-based `sort` descriptors (e.g. `sort=last_date:desc` pending contract confirmation).
+  * Accepts `page`, `pageSize`, and array-based `sort` descriptors (e.g. `sort=last_date:desc`).
   * Returns `ApiResponse<ThreadWithStarter[]>` with pagination metadata in `meta.pagination`.
-* Thread search endpoint is temporarily unavailable; UI should feature-flag advanced search until `/api/v1/lists/{slug}/threads/search` (or equivalent) ships.
+* `/api/v1/lists/{slug}/threads/search`
+  * Supports lexical/semantic thread search scoped to a single mailing list; accepts `q`, pagination, optional time range, participant filters, `semanticRatio`, and `sort` descriptors.
+  * Responds with `ApiResponse<ThreadSearchPage>` containing `hits[]` (thread summaries, participants, patch flag, highlight snippets) plus ranking scores and pagination metadata.
 * `/api/v1/authors`
   * Accepts `page`, `pageSize`, array `sort`, optional `q`, and `listSlug` to scope activity. Returns `ApiResponse<AuthorWithStats[]>` with pagination metadata.
 * Both list endpoints return `meta.sort` and `meta.filters` for transparency; UI defaults to 25 results for authors and 50 for thread listings.
@@ -255,6 +257,9 @@ Notifications (SSE/WebSocket):
 * `GET /api/v1/lists/{slug}/emails/{email_id}`
 
   * Supports deep-linking to single emails (used by diff view jump links).
+* `GET /api/v1/lists/{slug}/threads/search`
+
+  * Performs per-list thread search and returns `ThreadSearchPage` with highlight snippets and pagination metadata embedded in the response envelope.
 * `GET /api/v1/authors`
 
   * Global author discovery with optional `listSlug`, `q`, and pagination.
@@ -452,7 +457,7 @@ Notifications (SSE/WebSocket):
 
 * **Stack:** Next.js 16 (App Router), Tailwind CSS v4, shadcn/ui component library, TanStack React Query; public surfaces call `/api/v1/*`, admin tooling uses `/admin/v1/*`, and both consume the unified `ApiResponse<T>` envelope with `meta.pagination`.
 * **Auth flows:** Local credential login + refresh via `/api/v1/auth/login`, `/auth/refresh`, `/auth/logout`, and `/auth/session`, feeding JWT/CSRF tokens into a shared auth provider; OIDC federation remains an optional enhancement. ([authts.github.io][5])
-* **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), score explanations, clear fallback messaging when semantic mode unavailable.
+* **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), score explanations, clear fallback messaging when semantic mode unavailable; the thread explorer sidebar now pipes its search box into `/api/v1/lists/{slug}/threads/search`, rendering highlights and ranking metadata inline with the list view.
 * **Notifications:** EventSource/WebSocket wiring remains stubbed until refreshed streaming endpoints land in the API contract.
 * **Admin settings:** Database/search maintenance panels now point at `/admin/v1/database/*`, `/admin/v1/lists/*`, and `/admin/v1/jobs`; Meilisearch-specific panels remain hidden until matching `/admin/v1/search/*` endpoints land. Embedding controls stay hidden until the feature returns.
 * **Docs:** `/docs` route embedding RapiDoc.
