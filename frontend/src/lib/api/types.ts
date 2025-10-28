@@ -1,46 +1,61 @@
-import type { components } from "./schema"
+import type { components as PublicComponents } from "./schema"
+import type { components as AdminComponents } from "./schema-admin"
 
-export type PageMetadata = components["schemas"]["PageMetadata"]
+type PublicSchemas = PublicComponents["schemas"]
+type AdminSchemas = AdminComponents["schemas"]
 
-export type DataResponse<T> = {
+export type ResponseMeta = PublicSchemas["ResponseMeta"]
+export type PaginationMeta = PublicSchemas["PaginationMeta"]
+export type SortDescriptor = PublicSchemas["SortDescriptor"]
+export type SortDirection = PublicSchemas["SortDirection"]
+
+export type ApiResponse<T> = {
   data: T
+  meta?: ResponseMeta
 }
 
-export type PaginatedResponse<T> = {
+export type NormalizedResponse<T> = {
   data: T
-  page: PageMetadata
+  meta: ResponseMeta
 }
 
-export type MailingList = components["schemas"]["MailingList"]
-export type MailingListWithRepos = components["schemas"]["MailingListWithRepos"]
-export type MailingListRepository = components["schemas"]["MailingListRepository"]
+export type NormalizedPaginatedResponse<T> = NormalizedResponse<T> & {
+  pagination: PaginationMeta
+}
 
-export type Thread = components["schemas"]["Thread"]
-export type ThreadDetail = components["schemas"]["ThreadDetail"]
-export type ThreadWithStarter = components["schemas"]["ThreadWithStarter"]
-export type ThreadSearchHit = components["schemas"]["ThreadSearchHit"]
-export type ThreadListParams = components["schemas"]["ThreadListParams"]
-export type ThreadSearchParams = components["schemas"]["ThreadSearchParams"]
+export type MailingList = PublicSchemas["MailingList"]
+export type MailingListStats = PublicSchemas["MailingListStats"]
+export type ListAggregateStats = PublicSchemas["ListAggregateStats"]
+export type ListQueryParams = PublicSchemas["ListQueryParams"]
+export type Thread = PublicSchemas["Thread"]
+export type ThreadDetail = PublicSchemas["ThreadDetail"]
+export type ThreadWithStarter = PublicSchemas["ThreadWithStarter"]
+export type ThreadListParams = PublicSchemas["ThreadListParams"]
+export type EmailHierarchy = PublicSchemas["EmailHierarchy"]
+export type EmailWithAuthor = PublicSchemas["EmailWithAuthor"]
+export type AuthorWithStats = PublicSchemas["AuthorWithStats"]
+export type AuthorListParams = PublicSchemas["AuthorListParams"]
+export type PaginationParams = PublicSchemas["PaginationParams"]
+export type LoginRequest = PublicSchemas["LoginRequest"]
+export type LoginResponse = PublicSchemas["LoginResponse"]
+export type LogoutRequest = PublicSchemas["LogoutRequest"]
+export type RefreshResponse = PublicSchemas["RefreshResponse"]
+export type SessionResponse = PublicSchemas["SessionResponse"]
+export type SigningKeyMetadata = PublicSchemas["SigningKeyMetadata"]
+export type AuthErrorResponse = PublicSchemas["AuthErrorResponse"]
+export type UserSummary = PublicSchemas["UserSummary"]
 
-export type AuthorWithStats = components["schemas"]["AuthorWithStats"]
-export type EmailWithAuthor = components["schemas"]["EmailWithAuthor"]
-export type EmailHierarchy = components["schemas"]["EmailHierarchy"]
-export type StatsOverview = components["schemas"]["Stats"]
-export type AuthorSearchParams = components["schemas"]["AuthorSearchParams"]
-
-export type PaginationParams = components["schemas"]["PaginationParams"]
-export type ToggleRequest = components["schemas"]["ToggleRequest"]
-export type ToggleResponse = components["schemas"]["ToggleResponse"]
-export type SearchRefreshRequest = components["schemas"]["SearchRefreshRequest"]
-export type IndexMaintenanceRequest = components["schemas"]["IndexMaintenanceRequest"]
-export type SyncRequest = components["schemas"]["SyncRequest"]
-export type SyncStatusResponse = components["schemas"]["SyncStatusResponse"]
-export type SyncStartResponse = components["schemas"]["SyncStartResponse"]
-export type JobStatusInfo = components["schemas"]["JobStatusInfo"]
-export type JobEnqueueResponse = components["schemas"]["JobEnqueueResponse"]
-export type HealthResponse = components["schemas"]["HealthResponse"]
-export type SeedResponse = components["schemas"]["SeedResponse"]
-export type DatabaseStatusResponse = components["schemas"]["DatabaseStatusResponse"]
-export type ThreadSearchResponse = components["schemas"]["ThreadSearchResponse"]
-export type QueuedJobInfo = components["schemas"]["QueuedJobInfo"]
-export type MessageResponse = components["schemas"]["MessageResponse"]
+export type AdminMailingList = AdminSchemas["MailingList"]
+export type AdminMailingListWithRepos = AdminSchemas["MailingListWithRepos"]
+export type AdminMailingListRepository = AdminSchemas["MailingListRepository"]
+export type ToggleRequest = AdminSchemas["ToggleRequest"]
+export type ToggleResponse = AdminSchemas["ToggleResponse"]
+export type SeedResponse = AdminSchemas["SeedResponse"]
+export type DatabaseStatusResponse = AdminSchemas["DatabaseStatusResponse"]
+export type MessageResponse = AdminSchemas["MessageResponse"]
+export type JobListParams = AdminSchemas["JobListParams"]
+export type JobRecord = AdminSchemas["JobRecord"]
+export type JobStatus = AdminSchemas["JobStatus"]
+export type JobType = AdminSchemas["JobType"]
+export type CreateJobRequest = AdminSchemas["CreateJobRequest"]
+export type UpdateJobRequest = AdminSchemas["UpdateJobRequest"]

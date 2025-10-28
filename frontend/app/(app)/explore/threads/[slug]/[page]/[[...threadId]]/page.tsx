@@ -89,9 +89,8 @@ export default function ThreadBrowserPage() {
   const listParams = useMemo<ThreadListParams>(
     () => ({
       page,
-      size: PAGE_SIZE,
-      sortBy: "lastDate",
-      order: "desc",
+      pageSize: PAGE_SIZE,
+      sort: ["last_date:desc"],
     }),
     [page]
   )
@@ -113,8 +112,10 @@ export default function ThreadBrowserPage() {
   } = useThreadDetail(slug, threadIdParam ?? undefined)
 
   const threads = threadResponse?.data ?? []
-  const totalPages = threadResponse?.page.totalPages ?? 1
-  const totalElements = threadResponse?.page.totalElements ?? 0
+  const pagination = threadResponse?.pagination
+  const totalPages = pagination?.totalPages ?? 1
+  const totalItems = pagination?.totalItems ?? threads.length
+  const currentPageFromApi = pagination?.page ?? page
   const selectedThreadIdNumber =
     threadIdParam && !Number.isNaN(Number(threadIdParam))
       ? Number(threadIdParam)
@@ -321,9 +322,9 @@ export default function ThreadBrowserPage() {
                 isFetching={threadsFetching}
                 selectedThreadId={selectedThreadIdNumber}
                 onSelect={(thread) => handleThreadSelect(thread.id)}
-                page={page}
+                page={currentPageFromApi}
                 totalPages={totalPages}
-                totalElements={totalElements}
+                totalItems={totalItems}
                 onPageChange={handlePageChange}
               />
             }

@@ -6,10 +6,10 @@ import {
   getAuthorThreadsStarted,
   searchAuthors,
 } from "../authors"
-import type { AuthorSearchParams, PaginationParams } from "../types"
+import type { AuthorListParams, PaginationParams } from "../types"
 import { queryKeys } from "../queryKeys"
 
-export function useAuthorSearch(slug: string | undefined, params?: AuthorSearchParams) {
+export function useAuthorSearch(slug: string | undefined, params?: AuthorListParams) {
   return useQuery({
     queryKey: slug ? queryKeys.authors.search(slug, params) : ["authors", "search", "empty"],
     queryFn: () => {

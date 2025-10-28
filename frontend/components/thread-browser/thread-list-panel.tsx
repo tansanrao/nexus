@@ -19,7 +19,7 @@ type ThreadListPanelProps = {
   onSelect: (thread: ThreadWithStarter) => void
   page: number
   totalPages: number
-  totalElements: number
+  totalItems: number
   onPageChange: (page: number) => void
 }
 
@@ -31,7 +31,7 @@ export function ThreadListPanel({
   onSelect,
   page,
   totalPages,
-  totalElements,
+  totalItems,
   onPageChange,
 }: ThreadListPanelProps) {
   const emptyMessage = useMemo(() => {
@@ -54,7 +54,7 @@ export function ThreadListPanel({
           <div>
             <p className="text-sm font-semibold">Threads</p>
             <p className="text-xs text-muted-foreground">
-              {totalElements.toLocaleString()} total results
+              {totalItems.toLocaleString()} total results
             </p>
           </div>
           {isFetching ? (

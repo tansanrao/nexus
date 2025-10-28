@@ -1,47 +1,72 @@
-import { getJson, postJson } from "./http"
+import { del, getJson, patchJson, postJson } from "./http"
+import { normalizePaginated, normalizeResponse } from "./adapters"
 import type {
+  ApiResponse,
+  CreateJobRequest,
   DatabaseStatusResponse,
-  IndexMaintenanceRequest,
-  JobEnqueueResponse,
+  JobListParams,
+  JobRecord,
   MessageResponse,
-  SearchRefreshRequest,
-  SyncRequest,
-  SyncStartResponse,
-  SyncStatusResponse,
+  NormalizedPaginatedResponse,
+  NormalizedResponse,
+  UpdateJobRequest,
 } from "./types"
 
-export async function startSync(): Promise<MessageResponse> {
-  return postJson<MessageResponse>("admin/sync/start")
-}
-
-export async function queueSync(body: SyncRequest): Promise<SyncStartResponse> {
-  return postJson<SyncStartResponse>("admin/sync/queue", body)
-}
-
-export async function getSyncStatus(): Promise<SyncStatusResponse> {
-  return getJson<SyncStatusResponse>("admin/sync/status")
-}
-
-export async function cancelSync(): Promise<MessageResponse> {
-  return postJson<MessageResponse>("admin/sync/cancel")
+export async function getDatabaseStatus(): Promise<NormalizedResponse<DatabaseStatusResponse>> {
+  const response = await getJson<ApiResponse<DatabaseStatusResponse>>("database/status", {
+    client: "admin",
+  })
+  return normalizeResponse(response)
 }
 
 export async function resetDatabase(): Promise<MessageResponse> {
-  return postJson<MessageResponse>("admin/database/reset")
+  const response = await postJson<ApiResponse<MessageResponse>>("database/reset", undefined, {
+    client: "admin",
+  })
+  return response.data
 }
 
-export async function getDatabaseStatus(): Promise<DatabaseStatusResponse> {
-  return getJson<DatabaseStatusResponse>("admin/database/status")
+export async function getDatabaseConfig(): Promise<NormalizedResponse<unknown>> {
+  const response = await getJson<ApiResponse<unknown>>("database/config", {
+    client: "admin",
+  })
+  return normalizeResponse(response)
 }
 
-export async function getDatabaseConfig(): Promise<Record<string, unknown>> {
-  return getJson<Record<string, unknown>>("admin/database/config")
+export async function listJobs(
+  params?: JobListParams
+): Promise<NormalizedPaginatedResponse<JobRecord[]>> {
+  const response = await getJson<ApiResponse<JobRecord[]>>("jobs", {
+    client: "admin",
+    searchParams: params ? { params } : undefined,
+  })
+  return normalizePaginated(response)
 }
 
-export async function refreshSearchIndex(body: SearchRefreshRequest): Promise<JobEnqueueResponse> {
-  return postJson<JobEnqueueResponse>("admin/search/index/refresh", body)
+export async function createJob(body: CreateJobRequest): Promise<NormalizedResponse<JobRecord>> {
+  const response = await postJson<ApiResponse<JobRecord>>("jobs", body, {
+    client: "admin",
+  })
+  return normalizeResponse(response)
 }
 
-export async function resetSearchIndexes(body: IndexMaintenanceRequest): Promise<JobEnqueueResponse> {
-  return postJson<JobEnqueueResponse>("admin/search/index/reset", body)
+export async function getJob(jobId: number): Promise<NormalizedResponse<JobRecord>> {
+  const response = await getJson<ApiResponse<JobRecord>>(`jobs/${jobId}`, {
+    client: "admin",
+  })
+  return normalizeResponse(response)
+}
+
+export async function updateJob(
+  jobId: number,
+  body: UpdateJobRequest
+): Promise<NormalizedResponse<JobRecord>> {
+  const response = await patchJson<ApiResponse<JobRecord>>(`jobs/${jobId}`, body, {
+    client: "admin",
+  })
+  return normalizeResponse(response)
+}
+
+export async function deleteJob(jobId: number): Promise<void> {
+  await del(`jobs/${jobId}`, { client: "admin" })
 }

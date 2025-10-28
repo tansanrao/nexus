@@ -1,31 +1,28 @@
 import { getJson } from "./http"
+import { normalizePaginated, normalizeResponse } from "./adapters"
 import type {
-  PaginatedResponse,
+  ApiResponse,
+  NormalizedPaginatedResponse,
+  NormalizedResponse,
   ThreadDetail,
   ThreadListParams,
-  ThreadSearchParams,
-  ThreadSearchResponse,
   ThreadWithStarter,
 } from "./types"
 
 export async function listThreads(
   slug: string,
   params?: ThreadListParams
-): Promise<PaginatedResponse<ThreadWithStarter[]>> {
-  return getJson<PaginatedResponse<ThreadWithStarter[]>>(`${slug}/threads`, {
+): Promise<NormalizedPaginatedResponse<ThreadWithStarter[]>> {
+  const response = await getJson<ApiResponse<ThreadWithStarter[]>>(`lists/${slug}/threads`, {
     searchParams: params ? { params } : undefined,
   })
+  return normalizePaginated(response)
 }
 
-export async function searchThreads(
+export async function getThread(
   slug: string,
-  params: ThreadSearchParams
-): Promise<ThreadSearchResponse> {
-  return getJson<ThreadSearchResponse>(`${slug}/threads/search`, {
-    searchParams: { params },
-  })
-}
-
-export async function getThread(slug: string, threadId: string): Promise<ThreadDetail> {
-  return getJson<ThreadDetail>(`${slug}/threads/${threadId}`)
+  threadId: string
+): Promise<NormalizedResponse<ThreadDetail>> {
+  const response = await getJson<ApiResponse<ThreadDetail>>(`lists/${slug}/threads/${threadId}`)
+  return normalizeResponse(response)
 }

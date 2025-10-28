@@ -1,9 +1,4 @@
-import type {
-  AuthorSearchParams,
-  PaginationParams,
-  ThreadListParams,
-  ThreadSearchParams,
-} from "./types"
+import type { AuthorListParams, JobListParams, PaginationParams, ThreadListParams } from "./types"
 
 const serialize = (value: unknown) => (value ? JSON.stringify(value) : undefined)
 
@@ -18,12 +13,10 @@ export const queryKeys = {
   threads: {
     list: (slug: string, params?: ThreadListParams) =>
       ["threads", slug, "list", serialize(params)] as const,
-    search: (slug: string, params: ThreadSearchParams) =>
-      ["threads", slug, "search", serialize(params)] as const,
     detail: (slug: string, threadId: string) => ["threads", slug, threadId] as const,
   },
   authors: {
-    search: (slug: string, params?: AuthorSearchParams) =>
+    search: (slug: string, params?: AuthorListParams) =>
       ["authors", slug, "search", serialize(params)] as const,
     detail: (slug: string, authorId: number) => ["authors", slug, authorId] as const,
     emails: (slug: string, authorId: number, params?: PaginationParams) =>
@@ -40,9 +33,9 @@ export const queryKeys = {
     summary: (slug: string) => ["stats", slug] as const,
   },
   admin: {
-    syncStatus: () => ["admin", "sync-status"] as const,
     databaseStatus: () => ["admin", "database-status"] as const,
     databaseConfig: () => ["admin", "database-config"] as const,
-    mailingLists: () => ["admin", "mailing-lists"] as const,
+    jobs: (params?: JobListParams) => ["admin", "jobs", serialize(params)] as const,
+    job: (jobId: number) => ["admin", "jobs", jobId] as const,
   },
 } as const

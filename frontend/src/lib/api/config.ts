@@ -1,24 +1,13 @@
 const DEFAULT_BACKEND_PATH = "/api"
+const DEFAULT_ADMIN_PATH = "/admin"
 const API_VERSION_PATH = "/v1"
 
-export const ApiEndpoints = {
-  health: "health",
-  mailingLists: "mailing-lists",
-  threads: "threads",
-  emails: "emails",
-  authors: "authors",
-  stats: "stats",
-  admin: "admin",
-} as const
+const BACKEND_ENV = process.env.NEXT_PUBLIC_BACKEND_API_URL
+const ADMIN_ENV = process.env.NEXT_PUBLIC_ADMIN_API_URL
 
-export type ApiEndpoint = (typeof ApiEndpoints)[keyof typeof ApiEndpoints]
-
-/**
- * Resolve the backend base URL, ensuring `/v1` is appended exactly once.
- */
-export function resolveBackendBase(input?: string): string {
-  const raw = (input ?? process.env.NEXT_PUBLIC_BACKEND_API_URL ?? DEFAULT_BACKEND_PATH).trim()
-  const fallback = `${DEFAULT_BACKEND_PATH}${API_VERSION_PATH}`
+function normalizeBase(input: string, defaultPath: string) {
+  const raw = input.trim()
+  const fallback = `${defaultPath}${API_VERSION_PATH}`
 
   if (raw.length === 0) {
     return fallback
@@ -39,12 +28,18 @@ export function resolveBackendBase(input?: string): string {
   return `${normalized}${API_VERSION_PATH}`
 }
 
-export function buildEndpointUrl(path: string, base?: string): string {
-  const prefix = resolveBackendBase(base)
-  const suffix = path.startsWith("/") ? path.slice(1) : path
-  return `${prefix}/${suffix}`
+export function resolveBackendBase(input?: string): string {
+  return normalizeBase(input ?? BACKEND_ENV ?? DEFAULT_BACKEND_PATH, DEFAULT_BACKEND_PATH)
+}
+
+export function resolveAdminBase(input?: string): string {
+  return normalizeBase(input ?? ADMIN_ENV ?? DEFAULT_ADMIN_PATH, DEFAULT_ADMIN_PATH)
 }
 
 export function getDefaultBackendPath() {
   return DEFAULT_BACKEND_PATH
+}
+
+export function getDefaultAdminPath() {
+  return DEFAULT_ADMIN_PATH
 }

@@ -13,5 +13,6 @@ export function useEmail(slug: string | undefined, emailId: number | undefined) 
     },
     enabled: Boolean(slug && emailId !== undefined),
     staleTime: 1000 * 30,
+    select: (response) => response.data,
   })
 }

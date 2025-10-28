@@ -5,12 +5,12 @@ import { useQuery } from "@tanstack/react-query"
 import { DEV_MODE_MAX_EMAILS_PER_THREAD, DEV_MODE_MAX_THREAD_PAGES } from "@src/lib/devMode"
 import { useDevMode } from "@src/providers/DevModeProvider"
 
-import { getThread, listThreads, searchThreads } from "../threads"
+import { getThread, listThreads } from "../threads"
 import type {
-  PaginatedResponse,
+  NormalizedPaginatedResponse,
+  NormalizedResponse,
   ThreadDetail,
   ThreadListParams,
-  ThreadSearchParams,
   ThreadWithStarter,
 } from "../types"
 import { queryKeys } from "../queryKeys"
@@ -20,7 +20,7 @@ export function useThreadsList(slug: string | undefined, params?: ThreadListPara
 
   const selectThreadList = useMemo(
     () =>
-      (response: PaginatedResponse<ThreadWithStarter[]>) =>
+      (response: NormalizedPaginatedResponse<ThreadWithStarter[]>) =>
         isDevMode ? limitThreadsResponse(response) : response,
     [isDevMode]
   )
@@ -34,7 +34,7 @@ export function useThreadsList(slug: string | undefined, params?: ThreadListPara
       return listThreads(slug, params)
     },
     enabled: Boolean(slug),
-    staleTime: 1000 * 60, // 1 minute
+    staleTime: 1000 * 60,
     select: selectThreadList,
   })
 }
@@ -43,7 +43,9 @@ export function useThreadDetail(slug: string | undefined, threadId: string | und
   const { isDevMode } = useDevMode()
 
   const selectThreadDetail = useMemo(
-    () => (response: ThreadDetail) => (isDevMode ? limitThreadDetail(response) : response),
+    () =>
+      (response: NormalizedResponse<ThreadDetail>) =>
+        isDevMode ? limitThreadDetail(response.data) : response.data,
     [isDevMode]
   )
 
@@ -61,47 +63,57 @@ export function useThreadDetail(slug: string | undefined, threadId: string | und
   })
 }
 
-export function useThreadSearch(slug: string | undefined, params: ThreadSearchParams | undefined) {
+export function useThreadSearch(
+  slug: string | undefined,
+  params: Record<string, unknown> | undefined
+) {
+  const key = slug && params
+    ? ["threads", slug, "search", JSON.stringify(params)]
+    : ["threads", "search", "unsupported"]
+
   return useQuery({
-    queryKey: slug && params ? queryKeys.threads.search(slug, params) : ["threads", "search", "empty"],
-    queryFn: () => {
-      if (!slug || !params) {
-        throw new Error("slug and params are required")
-      }
-      return searchThreads(slug, params)
+    queryKey: key,
+    queryFn: async () => {
+      throw new Error("Thread search is not available on the current API.")
     },
-    enabled: Boolean(slug && params),
-    staleTime: 1000 * 30,
+    enabled: false,
   })
 }
 
 function limitThreadsResponse(
-  response: PaginatedResponse<ThreadWithStarter[]>
-): PaginatedResponse<ThreadWithStarter[]> {
-  const { page, data } = response
-  const maxPages = Math.min(page.totalPages, DEV_MODE_MAX_THREAD_PAGES)
-  const isPageWithinLimit = page.page <= DEV_MODE_MAX_THREAD_PAGES
+  response: NormalizedPaginatedResponse<ThreadWithStarter[]>
+): NormalizedPaginatedResponse<ThreadWithStarter[]> {
+  const { pagination, data } = response
+  const maxPages = Math.min(pagination.totalPages, DEV_MODE_MAX_THREAD_PAGES)
+  const isPageWithinLimit = pagination.page <= DEV_MODE_MAX_THREAD_PAGES
   const limitedData = isPageWithinLimit ? data : []
-  const maxElements = Math.min(page.totalElements, maxPages * page.size)
+  const maxItems = Math.min(pagination.totalItems, maxPages * pagination.pageSize)
 
-  return {
-    data: limitedData,
-    page: {
-      ...page,
-      page: isPageWithinLimit ? page.page : DEV_MODE_MAX_THREAD_PAGES,
-      totalPages: maxPages,
-      totalElements: maxElements,
-    },
-  }
-}
-
-function limitThreadDetail(response: ThreadDetail): ThreadDetail {
-  if (!response.emails) {
-    return response
+  const updatedPagination = {
+    ...pagination,
+    page: isPageWithinLimit ? pagination.page : DEV_MODE_MAX_THREAD_PAGES,
+    totalPages: maxPages,
+    totalItems: maxItems,
   }
 
   return {
     ...response,
-    emails: response.emails.slice(0, DEV_MODE_MAX_EMAILS_PER_THREAD),
+    data: limitedData,
+    pagination: updatedPagination,
+    meta: {
+      ...response.meta,
+      pagination: updatedPagination,
+    },
+  }
+}
+
+function limitThreadDetail(detail: ThreadDetail): ThreadDetail {
+  if (!detail.emails) {
+    return detail
+  }
+
+  return {
+    ...detail,
+    emails: detail.emails.slice(0, DEV_MODE_MAX_EMAILS_PER_THREAD),
   }
 }

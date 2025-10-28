@@ -14,6 +14,7 @@ export function useMailingLists() {
   return useQuery({
     queryKey: queryKeys.mailingLists.all(),
     queryFn: () => listMailingLists(),
+    select: (response) => response.data,
   })
 }
 
@@ -27,6 +28,7 @@ export function useMailingList(slug: string | undefined) {
       return getMailingList(slug)
     },
     enabled: Boolean(slug),
+    select: (response) => response.data,
   })
 }
 
@@ -53,6 +55,7 @@ export function useMailingListWithRepos(slug: string | undefined) {
       return getMailingListWithRepos(slug)
     },
     enabled: Boolean(slug),
+    select: (response) => response.data,
   })
 }
 

@@ -4,6 +4,7 @@ import { Geist, Geist_Mono, Inter } from "next/font/google";
 
 import { StyleGlideProvider } from "@/components/styleglide-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider } from "@src/providers/AuthProvider";
 import { DevModeProvider } from "@src/providers/DevModeProvider";
 import { QueryProvider } from "@src/providers/QueryProvider";
 
@@ -135,10 +136,12 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <QueryProvider>
-            <DevModeProvider>
-              <StyleGlideProvider />
-              {children}
-            </DevModeProvider>
+            <AuthProvider>
+              <DevModeProvider>
+                <StyleGlideProvider />
+                {children}
+              </DevModeProvider>
+            </AuthProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>
