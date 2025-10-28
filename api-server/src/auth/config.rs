@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::auth::{AuthError, AuthResult};
 
 /// Authentication configuration loaded from environment variables.
@@ -16,7 +14,7 @@ pub struct AuthConfig {
     pub session_cookie_name: String,
     pub cookie_domain: Option<String>,
     pub cookie_secure: bool,
-    pub jwt_private_key_path: PathBuf,
+    pub jwt_secret: String,
     pub jwt_kid: Option<String>,
 }
 
@@ -49,9 +47,8 @@ impl AuthConfig {
         let cookie_secure = std::env::var("NEXUS_COOKIE_SECURE")
             .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
             .unwrap_or(true);
-        let jwt_private_key_path = std::env::var("NEXUS_JWT_PRIVATE_KEY_PATH")
-            .map(PathBuf::from)
-            .map_err(|_| AuthError::Config("NEXUS_JWT_PRIVATE_KEY_PATH is required".into()))?;
+        let jwt_secret = std::env::var("NEXUS_JWT_SECRET")
+            .map_err(|_| AuthError::Config("NEXUS_JWT_SECRET is required".into()))?;
         let jwt_kid = std::env::var("NEXUS_JWT_KID").ok();
 
         Ok(Self {
@@ -66,7 +63,7 @@ impl AuthConfig {
             session_cookie_name,
             cookie_domain,
             cookie_secure,
-            jwt_private_key_path,
+            jwt_secret,
             jwt_kid,
         })
     }

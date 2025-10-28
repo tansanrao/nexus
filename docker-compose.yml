@@ -73,6 +73,7 @@ services:
       MEILISEARCH_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-dev-secret}
       SEARCH_EMBEDDING_DIM: ${SEARCH_EMBEDDING_DIM:-1024}
       SEARCH_DEFAULT_MODE: ${SEARCH_DEFAULT_MODE:-hybrid}
+      NEXUS_JWT_SECRET: ${NEXUS_JWT_SECRET:-dev-secret}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

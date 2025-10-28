@@ -338,7 +338,7 @@ All endpoints live under the `Auth` OpenAPI tag and default to the global `Beare
 ### 8.8 Token Service Components
 
 * **Module layout (`src/auth/`)** — split into `config.rs` (env + key loading), `passwords.rs` (Argon2id hashing/verification), `jwt.rs` (access-token mint & verify using `jsonwebtoken`), `refresh_store.rs` (SQLx repository for `user_refresh_tokens`), `guards.rs` (Rocket request guards for `AuthUser` + role enforcement), and `routes.rs` (Rocket handlers + response types). `mod.rs` re-exports the public surface.
-* **Key management** — load an RSA private key (PKCS#8 PEM) from `NEXUS_JWT_PRIVATE_KEY_PATH` at startup; derive the public key for JWKS exposure and token verification. Support hot-reload by watching the path and rotating keys gracefully (dual public keys allowed via `kid`).
+* **Key management** — load a symmetric signing secret from `NEXUS_JWT_SECRET` at startup and use HS256 for access tokens. Operators rotate the secret by restarting the API with a new value; future dual-secret support can be added via `kid` metadata if needed.
 * **Refresh token hashing** — use `sha2::Sha512` + per-token random salt (stored alongside) before persisting, keeping the column format `salt$hash`. Verification re-computes the salted hash and uses constant-time comparison.
 * **Device fingerprinting** — optional string recorded per refresh token; clients may supply a hashed user agent tuple to help admins revoke specific devices.
 * **Background janitor** — nightly task (`tokio::task::spawn`) purges expired or revoked refresh tokens and locked accounts beyond retention, leveraging `user_refresh_tokens_user_idx`.
