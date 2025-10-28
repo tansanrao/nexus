@@ -284,7 +284,7 @@ pub fn rocket() -> Rocket<Build> {
         .mount(
             "/api/docs/swagger/",
             make_swagger_ui(&SwaggerUIConfig {
-                url: "../../v1/openapi.json".to_owned(),
+                url: "/api/v1/openapi.json".to_owned(),
                 ..Default::default()
             }),
         )
@@ -292,7 +292,10 @@ pub fn rocket() -> Rocket<Build> {
             "/api/docs/rapidoc/",
             make_rapidoc(&RapiDocConfig {
                 general: GeneralConfig {
-                    spec_urls: vec![UrlObject::new("Nexus API", "../../v1/openapi.json")],
+                    spec_urls: vec![
+                        UrlObject::new("Nexus API", "/api/v1/openapi.json"),
+                        UrlObject::new("Admin API", "/admin/v1/openapi.json"),
+                    ],
                     ..Default::default()
                 },
                 hide_show: HideShowConfig {
