@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use rocket_db_pools::sqlx::{self, PgPool};
+use rocket_db_pools::sqlx::{self, PgPool, Postgres, QueryBuilder};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,6 +23,32 @@ pub enum JobStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, sqlx::FromRow)]
+pub struct JobRecord {
+    pub id: i32,
+    #[serde(rename = "jobType")]
+    pub job_type: JobType,
+    pub status: JobStatus,
+    pub priority: i32,
+    pub payload: Value,
+    #[serde(rename = "mailingListId")]
+    pub mailing_list_id: Option<i32>,
+    #[serde(rename = "mailingListSlug")]
+    pub mailing_list_slug: Option<String>,
+    #[serde(rename = "mailingListName")]
+    pub mailing_list_name: Option<String>,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
+    #[serde(rename = "startedAt")]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(rename = "completedAt")]
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(rename = "lastHeartbeat")]
+    pub last_heartbeat: Option<DateTime<Utc>>,
+    #[serde(rename = "errorMessage")]
+    pub error_message: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Job {
     pub id: i32,
@@ -38,6 +64,106 @@ pub struct JobQueue {
 impl JobQueue {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    pub async fn list_jobs(
+        &self,
+        statuses: &[JobStatus],
+        types: &[JobType],
+        page: i64,
+        page_size: i64,
+    ) -> Result<(Vec<JobRecord>, i64), sqlx::Error> {
+        let page = page.max(1);
+        let size = page_size.clamp(1, 100);
+        let offset = (page - 1) * size;
+
+        let mut count_builder = QueryBuilder::new("SELECT COUNT(*) FROM jobs j");
+        count_builder.push(" LEFT JOIN mailing_lists ml ON ml.id = j.mailing_list_id");
+        apply_job_filters(&mut count_builder, statuses, types);
+
+        let total = count_builder
+            .build_query_scalar::<i64>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        let mut data_builder = QueryBuilder::new(
+            "SELECT \
+                j.id, j.job_type, j.status, j.priority, j.payload, \
+                j.mailing_list_id, ml.slug AS mailing_list_slug, ml.name AS mailing_list_name, \
+                j.created_at, j.started_at, j.completed_at, j.last_heartbeat, j.error_message \
+            FROM jobs j \
+            LEFT JOIN mailing_lists ml ON ml.id = j.mailing_list_id",
+        );
+        apply_job_filters(&mut data_builder, statuses, types);
+        data_builder.push(" ORDER BY j.created_at DESC, j.id DESC");
+        data_builder.push(" LIMIT ");
+        data_builder.push_bind(size);
+        data_builder.push(" OFFSET ");
+        data_builder.push_bind(offset);
+
+        let records = data_builder
+            .build_query_as::<JobRecord>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok((records, total))
+    }
+
+    pub async fn get_job(&self, job_id: i32) -> Result<Option<JobRecord>, sqlx::Error> {
+        let record = sqlx::query_as::<_, JobRecord>(
+            r#"
+            SELECT j.id, j.job_type, j.status, j.priority, j.payload,
+                   j.mailing_list_id, ml.slug AS mailing_list_slug, ml.name AS mailing_list_name,
+                   j.created_at, j.started_at, j.completed_at, j.last_heartbeat, j.error_message
+            FROM jobs j
+            LEFT JOIN mailing_lists ml ON ml.id = j.mailing_list_id
+            WHERE j.id = $1
+            "#,
+        )
+        .bind(job_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(record)
+    }
+
+    pub async fn cancel_job(&self, job_id: i32) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            UPDATE jobs
+            SET status = 'cancelled', completed_at = NOW(), error_message = 'Cancelled by user'
+            WHERE id = $1 AND status IN ('queued', 'running')
+            "#,
+        )
+        .bind(job_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn update_priority(&self, job_id: i32, priority: i32) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("UPDATE jobs SET priority = $1 WHERE id = $2")
+            .bind(priority)
+            .bind(job_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn delete_job(&self, job_id: i32) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM jobs
+            WHERE id = $1 AND status IN ('succeeded', 'failed', 'cancelled')
+            "#,
+        )
+        .bind(job_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     /// Enqueue jobs for all enabled mailing lists
@@ -220,6 +346,39 @@ impl JobQueue {
         .await?;
 
         Ok(jobs)
+    }
+}
+
+fn apply_job_filters<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    statuses: &'a [JobStatus],
+    types: &'a [JobType],
+) {
+    let mut has_where = false;
+
+    if !statuses.is_empty() {
+        builder.push(" WHERE ");
+        has_where = true;
+        builder.push("j.status IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for status in statuses {
+                separated.push_bind(status);
+            }
+        }
+        builder.push(")");
+    }
+
+    if !types.is_empty() {
+        builder.push(if has_where { " AND " } else { " WHERE " });
+        builder.push("j.job_type IN (");
+        {
+            let mut separated = builder.separated(", ");
+            for job_type in types {
+                separated.push_bind(job_type);
+            }
+        }
+        builder.push(")");
     }
 }
 

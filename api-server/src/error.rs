@@ -19,81 +19,74 @@ pub enum ApiError {
     InternalError(String),
 }
 
-/// Individual error detail following REST best practices
-#[derive(Serialize, JsonSchema)]
-struct ErrorDetail {
+/// RFC 7807-style problem details payload.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ProblemDetails {
     #[serde(rename = "type")]
-    error_type: String,
-    message: String,
+    pub problem_type: String,
+    pub title: String,
+    pub status: u16,
+    pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    field: Option<String>,
-}
-
-/// Standard error response format following REST best practices
-#[derive(Serialize, JsonSchema)]
-struct ErrorResponse {
-    status: String,
-    code: u16,
-    timestamp: String,
-    errors: Vec<ErrorDetail>,
+    pub instance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
 }
 
 impl<'r> Responder<'r, 'static> for ApiError {
     fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
-        let (status, error_type, message) = match self {
+        let (status, title, detail, problem_type) = match self {
             ApiError::DatabaseError(e) => {
                 log::error!("database error: {}", e);
-                // Sanitize database errors - don't expose internal details
                 (
                     Status::InternalServerError,
-                    "DATABASE_ERROR",
+                    "Internal Server Error",
                     "An internal database error occurred".to_string(),
+                    "https://docs.nexus/errors/internal",
                 )
             }
             ApiError::NotFound(msg) => {
                 log::debug!("not found: {}", msg);
-                (Status::NotFound, "NOT_FOUND", msg)
+                (
+                    Status::NotFound,
+                    "Resource Not Found",
+                    msg,
+                    "https://docs.nexus/errors/not-found",
+                )
             }
             ApiError::BadRequest(msg) => {
                 log::debug!("bad request: {}", msg);
-                (Status::BadRequest, "BAD_REQUEST", msg)
+                (
+                    Status::BadRequest,
+                    "Bad Request",
+                    msg,
+                    "https://docs.nexus/errors/bad-request",
+                )
             }
             ApiError::InternalError(msg) => {
                 log::error!("internal error: {}", msg);
-                // Sanitize internal errors - don't expose details
                 (
                     Status::InternalServerError,
-                    "INTERNAL_ERROR",
+                    "Internal Server Error",
                     "An internal server error occurred".to_string(),
+                    "https://docs.nexus/errors/internal",
                 )
             }
         };
 
-        let status_text = if status == Status::BadRequest {
-            "BAD_REQUEST"
-        } else if status == Status::NotFound {
-            "NOT_FOUND"
-        } else if status == Status::InternalServerError {
-            "INTERNAL_SERVER_ERROR"
-        } else {
-            "ERROR"
+        let body = ProblemDetails {
+            problem_type: problem_type.to_string(),
+            title: title.to_string(),
+            status: status.code,
+            detail,
+            instance: None,
+            timestamp: Some(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
         };
 
-        let error_response = ErrorResponse {
-            status: status_text.to_string(),
-            code: status.code,
-            timestamp: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            errors: vec![ErrorDetail {
-                error_type: error_type.to_string(),
-                message,
-                field: None,
-            }],
-        };
-
-        let json = serde_json::to_string(&error_response)
-            .unwrap_or_else(|_| {
-                r#"{"status":"INTERNAL_SERVER_ERROR","code":500,"timestamp":"","errors":[{"type":"SERIALIZATION_ERROR","message":"Failed to serialize error"}]}"#.to_string()
-            });
+        let json = serde_json::to_string(&body).unwrap_or_else(|_| {
+            r#"{"type":"about:blank","title":"Internal Server Error","status":500,"detail":"Failed to serialize error"}"#
+                .to_string()
+        });
 
         Response::build()
             .status(status)

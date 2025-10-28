@@ -1,8 +1,7 @@
-use api_server::models::{DataResponse, MailingList};
-use api_server::routes::mailing_lists::test_routes;
+use api_server::models::{ApiResponse, MailingList};
 use api_server::test_support::{TestDatabase, TestDatabaseError, TestRocketBuilder};
 use rocket::http::Status;
-use rocket::routes;
+use rocket::{State, get, routes};
 
 #[tokio::test]
 async fn list_mailing_lists_returns_seed_data() {
@@ -42,14 +41,14 @@ async fn list_mailing_lists_returns_seed_data() {
 
     let client = TestRocketBuilder::new()
         .manage_pg_pool(pool.clone())
-        .mount_api_routes(routes![test_routes::list_mailing_lists_test])
+        .mount_api_routes(routes![list_lists_test])
         .async_client()
         .await;
 
-    let response = client.get("/api/v1/admin/mailing-lists").dispatch().await;
+    let response = client.get("/api/v1/lists").dispatch().await;
     assert_eq!(response.status(), Status::Ok);
 
-    let payload: DataResponse<Vec<MailingList>> = response
+    let payload: ApiResponse<Vec<MailingList>> = response
         .into_json()
         .await
         .expect("payload should deserialize");
@@ -66,4 +65,21 @@ async fn list_mailing_lists_returns_seed_data() {
     drop(client);
 
     test_db.close().await.expect("failed to drop test database");
+}
+#[get("/lists")]
+async fn list_lists_test(
+    pool: &State<sqlx::PgPool>,
+) -> Result<rocket::serde::json::Json<ApiResponse<Vec<MailingList>>>, rocket::http::Status> {
+    let lists = sqlx::query_as::<_, MailingList>(
+        r#"
+        SELECT id, name, slug, description, enabled, sync_priority, created_at, last_synced_at
+        FROM mailing_lists
+        ORDER BY name ASC
+        "#,
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|_| rocket::http::Status::InternalServerError)?;
+
+    Ok(rocket::serde::json::Json(ApiResponse::new(lists)))
 }

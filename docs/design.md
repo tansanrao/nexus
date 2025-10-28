@@ -220,67 +220,69 @@ Notifications (SSE/WebSocket):
   * `POST /admin/search/index/refresh` ⇒ selective thread reindex (optional `mailingListSlug`) + full author refresh.
   * `POST /admin/search/index/reset` ⇒ drop both indexes, recreate settings, and invoke full thread+author rebuild.
 
-### 6.3 Query behaviour
+### 6.3 Query behaviour (Deferred)
 
-* `/api/v1/<slug>/threads/search`
-  * Requires `q`; accepts `page`, `size`, optional `startDate`/`endDate`, and `semanticRatio` (0-1 clamp).
-  * The API embeds the query, forwards filters to Meili (`mailing_list = '<slug>'`, epoch bounds), and normalizes `rankingScore` into `lexical_score` (0–1) for UI display.
-* `/api/v1/<slug>/authors`
-  * Optional `q`, `sortBy`, `order`. The API queries Meili and maps `mailing_list_stats[slug]` into the response shape expected by existing components.
-* Both endpoints continue to support pagination metadata (`page`, `size`, `total`). UI defaults to 25 results for search and 50 for list views.
+* Full-text and semantic search endpoints are temporarily unavailable during the `/api/v1` refactor. The Meilisearch cluster and ingestion pipelines remain in place, but HTTP routes will be reintroduced after the new REST surface stabilizes.
+* Existing search services should continue indexing so we can switch the endpoints back on without data backfill once the refactor lands.
 
 ### 6.4 Operations
 
 * Cluster configuration lives in `docker-compose.yml` (`meilisearch` service, mounted volume, API key env vars).
-* `SearchService` centralises HTTP calls, settings management (searchable/filterable attributes, embedder declaration), and task polling.
-* Queue jobs wrap long-running operations so Terraform/dashboards can inspect progress via the existing `/admin/sync/status` endpoints.
-* **Ranking:** `ts_rank_cd` over `lex_ts` combined with trigram scoring, with recent activity as a tie-breaker.
-* **Representative SQL fragment:** `WHERE lex_ts @@ plainto_tsquery('english', $q) ORDER BY ts_rank_cd(...) DESC`.
-
-### 6.4 API
-
-* `GET /api/v1/:slug/threads/search`
-
-  * Query params: `q`, `limit`, `author`, `from`, `to`, `includePatches` (filter), `sort`.
-  * Response includes `mode`, `results[]` with `thread`, `lexicalScore`, `semanticScore`, `combinedScore`, and `explanation` snippets.
-* Author search remains lexical-only but shares pagination/filters via updated params schema.
+* `SearchService` still centralises HTTP calls, settings management (searchable/filterable attributes, embedder declaration), and task polling to keep background jobs operational even while public endpoints are gated.
+* Queue jobs wrap long-running operations so Terraform/dashboards can inspect progress via the new `/admin/v1/jobs` endpoints.
+* **Ranking:** remains `ts_rank_cd` over `lex_ts` combined with trigram scoring, with recent activity as a tie-breaker. We retain this detail for when the search routes return.
 
 ---
 
-## 7. API (v1) — changes
+## 7. API Surface (Refactor)
 
-* **Docs**
+The October 2025 refactor standardises the HTTP surface into `/api/v1` for consumer traffic and `/admin/v1` for privileged operations. Legacy routes such as `/<slug>/threads` and `/admin/sync/*` are removed entirely.
 
-  * **Remove Swagger UI**; serve **RapiDoc** at `/api/docs` and `/docs` (frontend). RapiDoc loads spec from `/api/v1/openapi.json`. ([rapidocweb.com][1])
-  * OpenAPI generator refactor: central `openapi.rs` builds schemas, sets global **bearerAuth (OIDC)** security scheme, tags, and per‑route security.
-* **Auth**
+### 7.1 Consumer Routes (`/api/v1`)
 
-  * All **admin** and most data endpoints require auth; browsing public threads can remain anonymous behind nginx basic auth if desired.
-  * Local auth endpoints:
+* **Mailing Lists**
+  * `GET /api/v1/lists` — paginated catalogue with sorting.
+  * `GET /api/v1/lists/stats` — aggregate counts across all lists.
+  * `GET /api/v1/lists/{slug}` — list detail (metadata).
+  * `GET /api/v1/lists/{slug}/stats` — per-list aggregates (email/thread/author counts and date span).
+* **Threads & Emails (list-scoped)**
+  * `GET /api/v1/lists/{slug}/threads` — paginated threads with starter metadata.
+  * `GET /api/v1/lists/{slug}/threads/{threadId}` — thread detail plus email hierarchy.
+  * `GET /api/v1/lists/{slug}/emails` — paginated emails across the list.
+  * `GET /api/v1/lists/{slug}/emails/{emailId}` — single email enriched with author info.
+* **Authors**
+  * `GET /api/v1/authors` — global author catalogue with filtering.
+  * `GET /api/v1/authors/{authorId}` — author profile with mailing-list stats.
+  * `GET /api/v1/authors/{authorId}/lists/{slug}/emails`
+  * `GET /api/v1/authors/{authorId}/lists/{slug}/threads-started`
+  * `GET /api/v1/authors/{authorId}/lists/{slug}/threads-participated`
+* **Auth & Sessions** (unchanged paths)
+  * `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/session`, `GET /api/v1/auth/keys`.
+* **Health & Observability**
+  * `GET /api/v1/health/live`, `GET /api/v1/health/ready`, and `GET /metrics`.
 
-    * `POST /api/v1/auth/register` – optional self-service sign-up (config gated) that creates a disabled account pending email verification.
-    * `POST /api/v1/auth/login` – username/password login returning access token + refresh cookie.
-    * `POST /api/v1/auth/refresh` – rotates refresh token, returns new access token.
-    * `POST /api/v1/auth/logout` – revokes refresh token and clears cookie.
-    * `POST /api/v1/auth/password/reset` – accepts verification token and new password.
-  * OIDC endpoints:
+### 7.2 Admin Routes (`/admin/v1`)
 
-    * `POST /api/v1/auth/oidc/callback` – exchanges auth code for access/refresh tokens; uses same signer as local login.
-    * `POST /api/v1/auth/link` – links an authenticated OIDC user to an existing local account after password confirmation.
-* **Notifications**
+* **Jobs**
+  * `GET /admin/v1/jobs` — list jobs with filtering/pagination.
+  * `POST /admin/v1/jobs` — enqueue a job with typed payload.
+  * `GET /admin/v1/jobs/{jobId}` — fetch job snapshot.
+  * `PATCH /admin/v1/jobs/{jobId}` — cancel or reprioritise a job.
+  * `DELETE /admin/v1/jobs/{jobId}` — delete terminal job history (policy controlled).
+* **Database & Config**
+  * `POST /admin/v1/database/reset`, `GET /admin/v1/database/status`, `GET /admin/v1/database/config`.
+* **Mailing List Management**
+  * `GET /admin/v1/lists`, `GET /admin/v1/lists/{slug}`, `GET /admin/v1/lists/{slug}/repositories`, `PATCH /admin/v1/lists/{slug}/toggle`, `POST /admin/v1/lists/seed`.
+  * These endpoints reuse the envelopes and pagination described for `/api/v1`.
 
-  * `GET /api/v1/users/me/notifications` (paged)
-  * `GET /api/v1/users/me/notifications/stream` (**SSE**, `text/event-stream`), or `/ws` for WebSocket. ([api.rocket.rs][6])
-* **Users**
+### 7.3 Shared Conventions
 
-  * `GET /api/v1/users/me` (profile, preferences)
-  * `PATCH /api/v1/users/me/preferences`
-  * `POST /api/v1/users/me/follows` `{ threadId, level }`, `DELETE` accordingly
-* **Health & Metrics**
-
-  * `GET /api/v1/health/live` (process up)
-  * `GET /api/v1/health/ready` (DB connected, migrations applied, listener healthy)
-  * `GET /metrics` (Prometheus text format). ([Crates.io][4])
+* **Envelope** — successful responses always return `{ "data": ..., "meta": { ... } }`.
+* **Pagination** — query params `page` (default 1) and `pageSize` (default 25, max 100); response `meta.pagination = { page, pageSize, totalPages, totalItems }`.
+* **Sorting** — `sort=field:direction`; `meta.sort` echoes applied sort order.
+* **Errors** — RFC 7807 Problem Details with `{ "type", "title", "status", "detail", "instance" }`.
+* **Auth Guards** — `/api/v1` endpoints follow existing auth rules (anonymous access still allowed where nginx permits); `/admin/v1` requires `RequireAdmin`.
+* **OpenAPI** — `rocket_okapi` emits the new spec; RapiDoc at `/docs` loads `/api/v1/openapi.json`.
 
 ---
 

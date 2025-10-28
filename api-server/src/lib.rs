@@ -232,45 +232,53 @@ pub fn rocket() -> Rocket<Build> {
         .mount(
             "/api/v1",
             openapi_get_routes![
-                // Health routes
-                routes::health::health_check,
-                // Auth routes
+                // Health
+                routes::health::live_health,
+                routes::health::ready_health,
+                // Auth
                 routes::auth::signup_blocked,
                 routes::auth::login,
                 routes::auth::refresh,
                 routes::auth::logout,
                 routes::auth::session_cookie,
                 routes::auth::signing_keys,
-                // Mailing list routes
-                routes::mailing_lists::list_mailing_lists,
-                routes::mailing_lists::get_mailing_list,
-                routes::mailing_lists::get_mailing_list_with_repos,
-                routes::mailing_lists::toggle_mailing_list,
-                routes::mailing_lists::seed_mailing_lists,
-                // Thread routes
+                // Mailing lists & stats
+                routes::mailing_lists::list_lists,
+                routes::mailing_lists::get_list,
+                routes::stats::aggregate_stats,
+                routes::stats::list_stats,
+                // Threads & emails
                 routes::threads::list_threads,
-                routes::threads::search_threads,
                 routes::threads::get_thread,
-                // Email routes
+                routes::emails::list_emails,
                 routes::emails::get_email,
-                // Author routes
-                routes::authors::search_authors,
+                // Authors
+                routes::authors::list_authors,
                 routes::authors::get_author,
                 routes::authors::get_author_emails,
                 routes::authors::get_author_threads_started,
                 routes::authors::get_author_threads_participated,
-                // Stats routes
-                routes::stats::get_stats,
-                // Admin routes
-                routes::admin::start_sync,
-                routes::admin::queue_sync,
-                routes::admin::get_sync_status,
-                routes::admin::cancel_sync,
-                routes::admin::reset_db,
-                routes::admin::get_database_status,
-                routes::admin::get_database_config,
-                routes::admin::refresh_search_index,
-                routes::admin::reset_search_indexes,
+            ],
+        )
+        .mount(
+            "/admin/v1",
+            openapi_get_routes![
+                // Admin mailing lists
+                routes::mailing_lists::admin_list_lists,
+                routes::mailing_lists::admin_get_list,
+                routes::mailing_lists::admin_get_list_with_repos,
+                routes::mailing_lists::admin_toggle_list,
+                routes::mailing_lists::admin_seed_lists,
+                // Jobs
+                routes::admin::list_jobs,
+                routes::admin::create_job,
+                routes::admin::get_job,
+                routes::admin::patch_job,
+                routes::admin::delete_job,
+                // Database
+                routes::admin::reset_database_endpoint,
+                routes::admin::database_status,
+                routes::admin::database_config,
             ],
         )
         .mount(
@@ -622,6 +630,12 @@ pub mod test_support {
         /// Mount routes under `/api/v1`.
         pub fn mount_api_routes(mut self, routes: Vec<Route>) -> Self {
             self.mounts.push(("/api/v1".to_string(), routes));
+            self
+        }
+
+        /// Mount routes under `/admin/v1`.
+        pub fn mount_admin_routes(mut self, routes: Vec<Route>) -> Self {
+            self.mounts.push(("/admin/v1".to_string(), routes));
             self
         }
 

@@ -15,7 +15,7 @@ const fn default_page() -> i64 {
 }
 
 const fn default_page_size() -> i64 {
-    50
+    25
 }
 
 const fn default_search_page_size() -> i64 {
@@ -30,10 +30,6 @@ fn default_sort_order() -> SortOrder {
 
 fn default_author_sort_field() -> AuthorSortField {
     AuthorSortField::EmailCount
-}
-
-fn default_thread_sort_field() -> ThreadSortField {
-    ThreadSortField::LastDate
 }
 
 fn default_optional_string() -> Option<String> {
@@ -67,16 +63,16 @@ pub struct PaginationParams {
     #[serde(default = "default_page")]
     pub page: i64,
     /// Number of items per page (clamped between 1 and 100, default 50).
-    #[field(default = 50)]
-    #[serde(default = "default_page_size")]
-    pub size: i64,
+    #[field(name = "pageSize", default = 25)]
+    #[serde(default = "default_page_size", rename = "pageSize")]
+    pub page_size: i64,
 }
 
 impl Default for PaginationParams {
     fn default() -> Self {
         Self {
             page: default_page(),
-            size: default_page_size(),
+            page_size: default_page_size(),
         }
     }
 }
@@ -88,8 +84,8 @@ impl PaginationParams {
     }
 
     /// Normalized page size capped at [`MAX_PAGE_SIZE`].
-    pub fn size(&self) -> i64 {
-        self.size.clamp(1, MAX_PAGE_SIZE)
+    pub fn page_size(&self) -> i64 {
+        self.page_size.clamp(1, MAX_PAGE_SIZE)
     }
 }
 
@@ -251,97 +247,46 @@ impl AuthorSearchParams {
     }
 }
 
-/// Sorting options for thread listings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum ThreadSortField {
-    StartDate,
-    LastDate,
-    MessageCount,
-}
-
-impl Default for ThreadSortField {
-    fn default() -> Self {
-        ThreadSortField::LastDate
-    }
-}
-
-impl ThreadSortField {
-    /// SQL column corresponding to the sort key.
-    pub fn sql_column(self) -> &'static str {
-        match self {
-            ThreadSortField::StartDate => "start_date",
-            ThreadSortField::LastDate => "last_date",
-            ThreadSortField::MessageCount => "message_count",
-        }
-    }
-}
-
-impl<'r> FromFormField<'r> for ThreadSortField {
-    fn from_value(field: ValueField<'r>) -> form::Result<'r, Self> {
-        match field.value {
-            "startDate" => Ok(ThreadSortField::StartDate),
-            "lastDate" => Ok(ThreadSortField::LastDate),
-            "messageCount" => Ok(ThreadSortField::MessageCount),
-            other => {
-                Err(form::Error::validation(format!("invalid thread sort key '{other}'")).into())
-            }
-        }
-    }
-}
-
 /// Query parameters supported by the thread list endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, rocket::form::FromForm, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadListParams {
-    /// Page of results to fetch (defaults to 1).
     #[field(default = 1)]
     #[serde(default = "default_page")]
-    pub page: i64,
-    /// Page size (defaults to 50, maximum 100).
-    #[field(default = 50)]
-    #[serde(default = "default_page_size")]
-    pub size: i64,
-    /// Sort column (defaults to `lastDate`).
-    #[field(name = "sortBy", default = ThreadSortField::LastDate)]
-    #[serde(default = "default_thread_sort_field")]
-    pub sort_by: ThreadSortField,
-    /// Sort direction (defaults to `desc`).
-    #[field(default = SortOrder::Desc)]
-    #[serde(default = "default_sort_order")]
-    pub order: SortOrder,
+    page: i64,
+    #[field(name = "pageSize", default = 50)]
+    #[serde(default = "default_page_size", rename = "pageSize")]
+    page_size: i64,
+    #[field(name = "sort")]
+    #[serde(default)]
+    sort: Vec<String>,
 }
 
 impl Default for ThreadListParams {
     fn default() -> Self {
         Self {
             page: default_page(),
-            size: default_page_size(),
-            sort_by: default_thread_sort_field(),
-            order: default_sort_order(),
+            page_size: default_page_size(),
+            sort: vec!["lastActivity:desc".to_string()],
         }
     }
 }
 
 impl ThreadListParams {
-    /// Normalized page index.
     pub fn page(&self) -> i64 {
         self.page.max(1)
     }
 
-    /// Normalized page size.
-    pub fn size(&self) -> i64 {
-        self.size.clamp(1, MAX_PAGE_SIZE)
+    pub fn page_size(&self) -> i64 {
+        self.page_size.clamp(1, MAX_PAGE_SIZE)
     }
 
-    /// SQL column used for sorting.
-    pub fn sort_column(&self) -> &'static str {
-        self.sort_by.sql_column()
-    }
-
-    /// SQL keyword representing the sort order.
-    pub fn sort_order(&self) -> &'static str {
-        self.order.sql_keyword()
+    pub fn sort(&self) -> Vec<String> {
+        if self.sort.is_empty() {
+            vec!["lastActivity:desc".to_string()]
+        } else {
+            self.sort.clone()
+        }
     }
 }
 

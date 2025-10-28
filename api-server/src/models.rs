@@ -8,6 +8,7 @@ use rocket_db_pools::sqlx::postgres::{PgRow, PgTypeInfo};
 use rocket_db_pools::sqlx::{self, FromRow, Row, Type, types::Json};
 use rocket_okapi::okapi::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map as JsonMap, Value as JsonValue};
 
 /// Classification of an email's patch content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Type)]
@@ -278,19 +279,37 @@ impl<'r> FromRow<'r, PgRow> for EmailHierarchy {
     }
 }
 
-/// Summary statistics for a mailing list.
+/// Summary statistics for a single mailing list.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, JsonSchema)]
-pub struct Stats {
+pub struct MailingListStats {
     /// Total number of emails stored for the mailing list.
+    #[serde(rename = "emailCount")]
     pub total_emails: i64,
     /// Total number of threads.
+    #[serde(rename = "threadCount")]
     pub total_threads: i64,
     /// Number of unique authors.
+    #[serde(rename = "authorCount")]
     pub total_authors: i64,
     /// Oldest email timestamp.
+    #[serde(rename = "dateRangeStart")]
     pub date_range_start: Option<DateTime<Utc>>,
     /// Newest email timestamp.
+    #[serde(rename = "dateRangeEnd")]
     pub date_range_end: Option<DateTime<Utc>>,
+}
+
+/// Aggregate mailing list statistics across the deployment.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ListAggregateStats {
+    #[serde(rename = "totalLists")]
+    pub total_lists: i64,
+    #[serde(rename = "totalEmails")]
+    pub total_emails: i64,
+    #[serde(rename = "totalThreads")]
+    pub total_threads: i64,
+    #[serde(rename = "totalAuthors")]
+    pub total_authors: i64,
 }
 
 /// Thread metadata augmented with the starter author.
@@ -368,39 +387,125 @@ pub struct PageMetadata {
     pub total_elements: i64,
 }
 
-/// Wrapper for paginated datasets.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct PaginatedResponse<T> {
-    /// Page content.
-    pub data: Vec<T>,
-    /// Associated pagination metadata.
-    pub page: PageMetadata,
-}
-
-impl<T> PaginatedResponse<T> {
-    /// Create a paginated response and compute pagination totals.
-    pub fn new(data: Vec<T>, page: i64, size: i64, total_elements: i64) -> Self {
-        let total_pages = if size > 0 {
-            (total_elements + size - 1) / size
-        } else {
-            0
-        };
-
-        Self {
-            data,
-            page: PageMetadata {
-                page,
-                size,
-                total_pages,
-                total_elements,
-            },
-        }
-    }
-}
-
 /// Generic wrapper used by endpoints that return simple collections.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DataResponse<T> {
     /// Response payload.
     pub data: T,
+}
+
+/// Direction applied to a sort field.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+/// Sort metadata returned in the response envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SortDescriptor {
+    pub field: String,
+    pub direction: SortDirection,
+}
+
+/// Pagination metadata attached to list responses.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PaginationMeta {
+    pub page: i64,
+    #[serde(rename = "pageSize")]
+    pub page_size: i64,
+    #[serde(rename = "totalPages")]
+    pub total_pages: i64,
+    #[serde(rename = "totalItems")]
+    pub total_items: i64,
+}
+
+impl PaginationMeta {
+    pub fn new(page: i64, page_size: i64, total_items: i64) -> Self {
+        let total_pages = if page_size > 0 {
+            (total_items + page_size - 1) / page_size
+        } else {
+            0
+        };
+
+        Self {
+            page,
+            page_size,
+            total_pages,
+            total_items,
+        }
+    }
+}
+
+/// Standard response envelope for the public and admin APIs.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseMeta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pagination: Option<PaginationMeta>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sort: Vec<SortDescriptor>,
+    #[serde(rename = "listId", skip_serializing_if = "Option::is_none")]
+    pub list_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<JsonMap<String, JsonValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<JsonMap<String, JsonValue>>,
+}
+
+impl Default for ResponseMeta {
+    fn default() -> Self {
+        Self {
+            pagination: None,
+            sort: Vec::new(),
+            list_id: None,
+            filters: None,
+            extra: None,
+        }
+    }
+}
+
+impl ResponseMeta {
+    pub fn with_pagination(mut self, page: PaginationMeta) -> Self {
+        self.pagination = Some(page);
+        self
+    }
+
+    pub fn with_sort(mut self, sort: Vec<SortDescriptor>) -> Self {
+        self.sort = sort;
+        self
+    }
+
+    pub fn with_list_id(mut self, slug: impl Into<String>) -> Self {
+        self.list_id = Some(slug.into());
+        self
+    }
+
+    pub fn with_filters(mut self, filters: JsonMap<String, JsonValue>) -> Self {
+        self.filters = Some(filters);
+        self
+    }
+
+    pub fn with_extra(mut self, extra: JsonMap<String, JsonValue>) -> Self {
+        self.extra = Some(extra);
+        self
+    }
+}
+
+/// Root response payload returned by REST endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ApiResponse<T> {
+    pub data: T,
+    #[serde(default)]
+    pub meta: ResponseMeta,
+}
+
+impl<T> ApiResponse<T> {
+    pub fn new(data: T) -> Self {
+        Self::with_meta(data, ResponseMeta::default())
+    }
+
+    pub fn with_meta(data: T, meta: ResponseMeta) -> Self {
+        Self { data, meta }
+    }
 }
