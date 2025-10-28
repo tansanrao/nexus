@@ -1,6 +1,6 @@
 # Nexus Design Document — **v0.2**
 
-**Last updated:** October 26, 2025
+**Last updated:** October 28, 2025
 
 This document describes the system architecture, data model, runtime behavior, and operational notes for **Nexus** — a knowledge base and browser for Linux kernel mailing lists.
 
@@ -8,6 +8,7 @@ This document describes the system architecture, data model, runtime behavior, a
 >
 > * **DB refactor:** single `PgPool` (SQLx) for all operations; reversible/testable migrations; repeatable migration validation; stricter migration discipline.
 > * **API docs:** OpenAPI generation refactor; **RapiDoc** only; Swagger UI removed. ([rapidocweb.com][1])
+> * **API v1 refresh:** list/author endpoints consolidated under `/api/v1/lists` and `/api/v1/auth/*`, introducing a unified `ApiResponse` envelope with pagination metadata.
 > * **Testing:** unit tests (pure logic), and **integration tests** via Docker Compose with privileged Postgres admin user and automatic DB create/seed/drop; migration up/down tests.
 > * **Search 2.0:** hybrid **lexical + semantic** search backed by **Meilisearch** with user-provided Qwen3 embeddings and adjustable semantic weighting (no Postgres FTS); optional **cross‑encoder re‑ranker**; all OSS models. ([GitHub][2])
 > * **Auth:** standards-based **OpenID Connect** (OIDC) plus **local username/password** accounts with JWT access/refresh tokens; default IdP **Keycloak** alongside managed local credential store. ([Keycloak][3])
@@ -69,8 +70,8 @@ Notifications (SSE/WebSocket):
 * **DB:** PostgreSQL 18 with LIST partitioning by `mailing_list_id`; global `authors`; maintains canonical threads/emails/authors but no longer carries search indexes. ([GitHub][2])
 * **Search service:** Meilisearch Community Edition `v1.23.0` (private network, experimental vector store enabled via `/experimental-features`) maintains `threads` and `authors` indexes with user-provided Qwen3 embeddings and hybrid lexical/semantic scoring (exposed via adjustable `semanticRatio`).
 * **Embeddings service:** Text Embeddings Inference serving `Qwen/Qwen3-Embedding-0.6B` over HTTP; used for both indexing and query-time embeddings.
-* **UI:** Next.js 16 + Tailwind CSS v4 + shadcn/ui, served by the Next.js Node runtime (Dockerized via `frontend/`); optional ingress can still front it with nginx or another proxy. `/api` requests call the Rocket backend directly; **OIDC client**; **RapiDoc** for docs; all API traffic originates in the browser via the generated client and TanStack React Query. ([authts.github.io][5])
-* **Auth:** OIDC clients exchange tokens with provider; local users authenticate through Rocket endpoints issuing short-lived JWTs and refresh cookies.
+* **UI:** Next.js 16 + Tailwind CSS v4 + shadcn/ui, served by the Next.js Node runtime (Dockerized via `frontend/`); optional ingress can still front it with nginx or another proxy. `/api` requests call the Rocket backend directly; **auth client** talks to `/api/v1/auth/*` (login, refresh, logout, session) with optional OIDC bridging; **RapiDoc** for docs; all API traffic originates in the browser via the generated client and TanStack React Query. ([authts.github.io][5])
+* **Auth:** Local credential flow issues short-lived JWT access tokens plus refresh cookies/CSRF tokens through Rocket’s `/auth` endpoints; OIDC hand-off remains optional for deployments that federate via Keycloak.
 * **Cache:** Unified per‑list cache (DashMap + bincode) for fast JWZ threading (unchanged).
 * **Notifications:** Default **SSE** (simple, HTTP‑native) with Rocket’s `EventStream`; optional **WebSocket** via `rocket_ws` for interactive features. ([api.rocket.rs][6])
 
@@ -136,10 +137,11 @@ Notifications (SSE/WebSocket):
 
 ### 4.4 Admin/Control Plane
 
-* Same seed/reset/status endpoints.
-* Additional search maintenance APIs (all return queued job metadata so operators can track progress):
-* **POST /admin/search/index/refresh** – enqueue a Meilisearch refresh for `threads` (optionally scoped to one mailing list) and rebuild the `authors` index.
-* **POST /admin/search/index/reset** – drop both Meilisearch indexes and trigger a full reindex (threads + authors); runs as an `index_maintenance` job because it can be lengthy.
+* **Base path:** `/admin/v1/*` serves operator endpoints separate from the public API.
+* **Mailing list management:** `GET /lists`, `GET /lists/{slug}`, `GET /lists/{slug}/repositories`, `PATCH /lists/{slug}/toggle`, `POST /lists/seed`.
+* **Database utilities:** `GET /database/status`, `POST /database/reset`, `GET /database/config`.
+* **Job queue:** `GET /jobs` (paged), `GET /jobs/{job_id}` expose import/index jobs and their heartbeat metadata.
+* **Search maintenance:** `/admin/v1/search/index/refresh` and `/admin/v1/search/index/reset` are still pending in the new spec; continue using database-driven maintenance until those endpoints land.
 
 ---
 
@@ -192,7 +194,7 @@ Notifications (SSE/WebSocket):
   * `import` – full mailing list sync/import, responsible for writing raw email rows and scheduling follow-up work.
   * `index_maintenance` – handles REINDEX/DROP+CREATE sequences and other heavyweight maintenance tasks.
 * All jobs carry a `payload` JSONB blob so admin APIs can describe scope (`mailingListSlug`, `startId`, `endId`, `forceReindex`). Workers validate the payload schema before execution.
-* Admin status endpoints (`/admin/sync/status` et al.) expose the same structure so the frontend can render a unified queue, regardless of job type, and show per-job progress (`processed_count`, `total_count`) when workers emit heartbeats.
+* Admin status endpoints (`/admin/v1/jobs`, `/admin/v1/jobs/{job_id}`) expose the same structure so the frontend can render a unified queue, regardless of job type, and show per-job progress (`processed_count`, `total_count`) when workers emit heartbeats.
 
 > **Note:** Keep the Meilisearch embedder dimensions aligned with the configured model (`threads-qwen3` currently uses 1024).
 
@@ -217,34 +219,49 @@ Notifications (SSE/WebSocket):
 * `reindex_authors` rebuilds the `authors` index (currently full refresh each time) with:
   * Canonical author metadata + aliases.
   * Per-mailing-list activity stats (`mailing_list_stats[...]`) so `/authors` can shape responses without hitting Postgres again.
-* Admin endpoints enqueue the same helpers:
-  * `POST /admin/search/index/refresh` ⇒ selective thread reindex (optional `mailingListSlug`) + full author refresh.
-  * `POST /admin/search/index/reset` ⇒ drop both indexes, recreate settings, and invoke full thread+author rebuild.
+* Admin endpoints will eventually enqueue the same helpers once `/admin/v1/search/index/{refresh,reset}` becomes available; until then, operators must trigger reindexing via CLI tasks or direct queue inserts.
 
 ### 6.3 Query behaviour
 
-* `/api/v1/<slug>/threads/search`
-  * Requires `q`; accepts `page`, `size`, optional `startDate`/`endDate`, and `semanticRatio` (0-1 clamp).
-  * The API embeds the query, forwards filters to Meili (`mailing_list = '<slug>'`, epoch bounds), and normalizes `rankingScore` into `lexical_score` (0–1) for UI display.
-* `/api/v1/<slug>/authors`
-  * Optional `q`, `sortBy`, `order`. The API queries Meili and maps `mailing_list_stats[slug]` into the response shape expected by existing components.
-* Both endpoints continue to support pagination metadata (`page`, `size`, `total`). UI defaults to 25 results for search and 50 for list views.
+* `/api/v1/lists/{slug}/threads`
+  * Accepts `page`, `pageSize`, and array-based `sort` descriptors (e.g. `sort=last_date:desc` pending contract confirmation).
+  * Returns `ApiResponse<ThreadWithStarter[]>` with pagination metadata in `meta.pagination`.
+* Thread search endpoint is temporarily unavailable; UI should feature-flag advanced search until `/api/v1/lists/{slug}/threads/search` (or equivalent) ships.
+* `/api/v1/authors`
+  * Accepts `page`, `pageSize`, array `sort`, optional `q`, and `listSlug` to scope activity. Returns `ApiResponse<AuthorWithStats[]>` with pagination metadata.
+* Both list endpoints return `meta.sort` and `meta.filters` for transparency; UI defaults to 25 results for authors and 50 for thread listings.
 
 ### 6.4 Operations
 
 * Cluster configuration lives in `docker-compose.yml` (`meilisearch` service, mounted volume, API key env vars).
 * `SearchService` centralises HTTP calls, settings management (searchable/filterable attributes, embedder declaration), and task polling.
-* Queue jobs wrap long-running operations so Terraform/dashboards can inspect progress via the existing `/admin/sync/status` endpoints.
+* Queue jobs wrap long-running operations so Terraform/dashboards can inspect progress via `/admin/v1/jobs` and `/admin/v1/jobs/{job_id}`.
 * **Ranking:** `ts_rank_cd` over `lex_ts` combined with trigram scoring, with recent activity as a tie-breaker.
 * **Representative SQL fragment:** `WHERE lex_ts @@ plainto_tsquery('english', $q) ORDER BY ts_rank_cd(...) DESC`.
 
 ### 6.4 API
 
-* `GET /api/v1/:slug/threads/search`
+* `GET /api/v1/lists`
 
-  * Query params: `q`, `limit`, `author`, `from`, `to`, `includePatches` (filter), `sort`.
-  * Response includes `mode`, `results[]` with `thread`, `lexicalScore`, `semanticScore`, `combinedScore`, and `explanation` snippets.
-* Author search remains lexical-only but shares pagination/filters via updated params schema.
+  * Returns enabled mailing lists with pagination metadata in `meta.pagination`.
+  * Supports optional `page`, `pageSize`, and `sort` descriptors.
+* `GET /api/v1/lists/{slug}/threads`
+
+  * Primary entry point for the thread browser; accepts pagination + sort.
+  * Response body wraps an array of `ThreadWithStarter` records inside `ApiResponse`.
+* `GET /api/v1/lists/{slug}/threads/{thread_id}`
+
+  * Provides `ThreadDetail` including `emails[]` with patch metadata.
+* `GET /api/v1/lists/{slug}/emails/{email_id}`
+
+  * Supports deep-linking to single emails (used by diff view jump links).
+* `GET /api/v1/authors`
+
+  * Global author discovery with optional `listSlug`, `q`, and pagination.
+* `GET /api/v1/authors/{author_id}/lists/{slug}/threads-started|threads-participated|emails`
+
+  * Scoped drill-ins for author detail surfaces.
+* Search endpoints are pending; once `/api/v1/lists/{slug}/threads/search` returns, re-enable advanced search UI with semantic toggles.
 
 ---
 
@@ -427,22 +444,22 @@ Notifications (SSE/WebSocket):
 * **Generation:** Continue with `rocket_okapi`, but consolidate schema annotations and tags into `src/docs/openapi.rs`. Add global `BearerAuth` security and per‑route applies.
 * **Serving:** Serve JSON at `/api/v1/openapi.json`.
 * **UI:** **RapiDoc** web component (single static HTML file) mounted at `/api/docs` (API) and optionally proxied in frontend at `/docs`. Remove Swagger UI entirely. ([rapidocweb.com][1])
-* **Snapshot tooling:** `scripts/fetch-openapi.ts` pulls the latest spec into `docs/openapi-latest.json` (current snapshot: `docs/openapi-20251026.json`); client codegen consumes that snapshot so schema bumps are versioned in git.
+* **Snapshot tooling:** `scripts/fetch-openapi.ts` pulls the latest spec into `docs/openapi-latest.json` (current snapshot: `docs/openapi-20251028.json`); `scripts/fetch-openapi-admin.ts` mirrors `/admin/v1` into `docs/openapi-admin-20251028.json`. Client codegen consumes those snapshots so schema bumps (including the new `ApiResponse` envelope + `/auth` surface and the admin control plane) are versioned in git.
 
 ---
 
 ## 15. Frontend (Next.js 16) Updates
 
-* **Stack:** Next.js 16 (App Router), Tailwind CSS v4, shadcn/ui component library, TanStack React Query (client-only data fetching).
-* **OIDC** via `oidc-client-ts`: PKCE login, auto refresh, logout; handle multiple realms/clients via env. ([authts.github.io][5])
+* **Stack:** Next.js 16 (App Router), Tailwind CSS v4, shadcn/ui component library, TanStack React Query; public surfaces call `/api/v1/*`, admin tooling uses `/admin/v1/*`, and both consume the unified `ApiResponse<T>` envelope with `meta.pagination`.
+* **Auth flows:** Local credential login + refresh via `/api/v1/auth/login`, `/auth/refresh`, `/auth/logout`, and `/auth/session`, feeding JWT/CSRF tokens into a shared auth provider; OIDC federation remains an optional enhancement. ([authts.github.io][5])
 * **Search UI:** mode switch (lexical/semantic/hybrid), quick filters (date, list, author, patches), score explanations, clear fallback messaging when semantic mode unavailable.
-* **Notifications:** EventSource client for `/notifications/stream`; fall back to WebSocket if needed.
-* **Admin settings:** database/search panel surfaces queue-backed maintenance actions for lexical indexes and renders unified job status chips. Embedding controls are hidden until the feature returns.
+* **Notifications:** EventSource/WebSocket wiring remains stubbed until refreshed streaming endpoints land in the API contract.
+* **Admin settings:** Database/search maintenance panels now point at `/admin/v1/database/*`, `/admin/v1/lists/*`, and `/admin/v1/jobs`; Meilisearch-specific panels remain hidden until matching `/admin/v1/search/*` endpoints land. Embedding controls stay hidden until the feature returns.
 * **Docs:** `/docs` route embedding RapiDoc.
 * **Routing:** The marketing landing surface was removed. The authenticated console now lives directly at `/` with nested `/explore/*` and `/settings/*` routes. `/login` and `/register` remain available for future auth wiring, while legacy `/app*` and `/signup` paths redirect to the new locations.
 * **Dashboard layout:** `app/(app)/layout.tsx` composes `AppLayoutShell` with the collapsible `AppSidebar` (icon rail when collapsed) and a sticky header that renders the shadcn breadcrumb trail. Pages populate breadcrumbs and optional header actions via the `AppPageHeader` helper, which writes into the shared layout context; breadcrumb items are typed config objects (link/page/dropdown/ellipsis) so features like dropdown menus and overflow ellipsis are declarative, and the dropdown variant now uses the shadcn dropdown menu. The remaining viewport is a fixed-size `main` region that fills the space under the header, and each dashboard page renders inside a full-height/full-width container with `overflow-auto` to provide horizontal and vertical scrolling when content exceeds the viewport.
 * **Thread browser:** `/explore/threads/[slug]/[page]/[[...threadId]]` renders the two-column ThreadBrowser. The left rail is a paginated (50 rows per page) list of threads scoped to the active mailing list, and pagination state is kept in the URL (`:slug/:page`). Selecting a row appends `/:thread_id` to show the thread detail; clearing the selection drops the optional segment. The right pane mirrors the legacy React behaviour: a collapsible email tree with author quick filters, hide-deep-collapse toggles, and quote-aware body rendering alongside per-message git diff viewers (file summaries, raw toggle, copy-to-clipboard, optional commit hash). A combined git diff view aggregates all patches, surfaces the contributing emails, and honours the same formatting utilities tied to the global theme. Both panes live inside the fixed dashboard content area and scroll independently inside the full-height container. A dev-mode toggle in the sidebar footer allows engineers to cap the explorer to 10 pages (50 rows each) and trim thread detail renders to the first five emails; the toggle state defaults to on when running the Next.js dev server, is shared via `DevModeProvider`, and enforced inside the React Query selectors so API fixtures remain representative.
-* **API client:** openapi-typescript generates `src/lib/api/schema.ts`; shared `ky` instance + TanStack Query hooks (`useThreads`, `useMailingLists`, etc.) live under `src/lib/api/`, and every route consumes data via those hooks (pure client-side fetching).
+* **API client:** openapi-typescript generates `src/lib/api/schema.ts`; shared `ky` instance + TanStack Query hooks (`useThreads`, `useMailingLists`, etc.) live under `src/lib/api/`, with adapters that unwrap `ApiResponse` payloads and propagate pagination/sort metadata.
 * **Legacy app:** the former Vite + React project now lives in `_archive/frontend-old/` and should not receive new features.
 
 ---
@@ -485,7 +502,7 @@ Notifications (SSE/WebSocket):
   * Step 2: update API (handles new schema).
   * Step 3: update frontend.
   * Step 4: verify `/health/ready`, dashboards.
-* **Search index maintenance:** prefer admin APIs over manual SQL—`/admin/search/index/refresh` for lightweight vacuum/reindex and `/admin/search/index/reset` for destructive rebuilds (queues `index_maintenance` jobs). Run destructive operations during low traffic and monitor queue depth.
+* **Search index maintenance:** Previous `/admin/search/index/{refresh,reset}` flows are paused while the refreshed API contract omits those endpoints; once replacement APIs ship, resume using them instead of manual SQL for index maintenance.
 * **Notifications:** if high‑volume `NOTIFY` becomes a bottleneck (see §9 note), switch to **NATS JetStream** or Valkey pub/sub for fanout. ([NATS.io][24])
 
 ---
