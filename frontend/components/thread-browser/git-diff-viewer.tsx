@@ -153,37 +153,28 @@ export function GitDiffViewer({
   const [showRaw, setShowRaw] = useState(false)
   const [copiedDiff, setCopiedDiff] = useState(false)
   const [copiedHash, setCopiedHash] = useState(false)
-  const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({})
-
-  useEffect(() => {
-    const initial: Record<string, boolean> = {}
-    for (const summary of fileSummaries) {
-      initial[summary.key] = true
-    }
-    setExpandedFiles(initial)
-  }, [fileSummaries])
+  const [collapsedFileKeys, setCollapsedFileKeys] = useState<Set<string>>(
+    () => new Set()
+  )
 
   const handleToggleFile = useCallback((key: string) => {
-    setExpandedFiles((prev) => ({
-      ...prev,
-      [key]: !(prev[key] ?? true),
-    }))
+    setCollapsedFileKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
   }, [])
 
   const handleExpandAll = useCallback(() => {
-    const next: Record<string, boolean> = {}
-    for (const summary of fileSummaries) {
-      next[summary.key] = true
-    }
-    setExpandedFiles(next)
-  }, [fileSummaries])
+    setCollapsedFileKeys(() => new Set())
+  }, [])
 
   const handleCollapseAll = useCallback(() => {
-    const next: Record<string, boolean> = {}
-    for (const summary of fileSummaries) {
-      next[summary.key] = false
-    }
-    setExpandedFiles(next)
+    setCollapsedFileKeys(() => new Set(fileSummaries.map((summary) => summary.key)))
   }, [fileSummaries])
 
   const handleCopyDiff = useCallback(async () => {
@@ -318,7 +309,7 @@ export function GitDiffViewer({
                 <FileDiffSection
                   key={summary.key}
                   summary={summary}
-                  isExpanded={expandedFiles[summary.key] ?? true}
+                  isExpanded={!collapsedFileKeys.has(summary.key)}
                   onToggle={() => handleToggleFile(summary.key)}
                 />
               ))}

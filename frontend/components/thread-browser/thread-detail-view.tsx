@@ -7,7 +7,7 @@ import {
   IconList,
   IconListTree,
 } from "@tabler/icons-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -46,11 +46,10 @@ export function ThreadDetailView({
   const [hideDeepCollapsedReplies, setHideDeepCollapsedReplies] =
     useState(true)
 
-  useEffect(() => {
-    setCollapsedEmailIds(new Set())
-  }, [threadDetail?.thread.id])
-
-  const emails = threadDetail?.emails ?? []
+  const emails = useMemo(
+    () => (threadDetail ? threadDetail.emails : []),
+    [threadDetail]
+  )
   const hiddenCounts = useMemo(() => computeHiddenCounts(emails), [emails])
   const emailsWithState = useMemo(() => {
     if (!hideDeepCollapsedReplies) {

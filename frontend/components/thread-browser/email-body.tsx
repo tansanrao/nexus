@@ -1,11 +1,11 @@
 "use client"
 
 import {
-  useEffect,
   useMemo,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react"
 
 import { cn } from "@/lib/utils"
@@ -53,33 +53,60 @@ export function EmailBody({ body }: EmailBodyProps) {
 }
 
 function QuoteNodeRenderer({ node }: { node: QuoteNode }) {
-  let hasRenderedContent = false
+  const renderedSegments = useMemo(() => {
+    const result = node.segments.reduce<{
+      hasRendered: boolean
+      elements: ReactNode[]
+    }>((acc, segment, index) => {
+      if (segment.type === "text") {
+        const initialLines = segment.lines.map((line) =>
+          node.depth > 0 ? stripQuotePrefixForDepth(line, node.depth) : line
+        )
 
-  return (
-    <>
-      {node.segments.map((segment, index) => {
-        if (segment.type === "text") {
-          const displayLines = segment.lines.map((line) =>
-            node.depth > 0 ? stripQuotePrefixForDepth(line, node.depth) : line
-          )
+        const firstContentIndex = acc.hasRendered
+          ? 0
+          : initialLines.findIndex((line) => line.trim() !== "")
 
-          while (!hasRenderedContent && displayLines.length > 0 && displayLines[0].trim() === "") {
-            displayLines.shift()
-          }
-
-          if (displayLines.length === 0) {
-            return null
-          }
-
-          hasRenderedContent = true
-          return <QuoteText key={index} lines={displayLines} depth={node.depth} />
+        if (firstContentIndex === -1) {
+          return acc
         }
 
-        hasRenderedContent = true
-        return <QuoteBlock key={index} node={segment.node} />
-      })}
-    </>
-  )
+        const displayLines =
+          firstContentIndex > 0 ? initialLines.slice(firstContentIndex) : initialLines
+
+        if (!displayLines.length) {
+          return acc
+        }
+
+        return {
+          hasRendered: true,
+          elements: [
+            ...acc.elements,
+            <QuoteText
+              key={`text-${index}`}
+              lines={displayLines}
+              depth={node.depth}
+            />,
+          ],
+        }
+      }
+
+      return {
+        hasRendered: true,
+        elements: [
+          ...acc.elements,
+          <QuoteBlock
+            key={`quote-${index}-${getQuoteNodeSignature(segment.node)}`}
+            node={segment.node}
+          />,
+        ],
+      }
+    }, { hasRendered: false, elements: [] })
+
+    return result.elements
+  }, [node])
+
+  return <>{renderedSegments}</>
 }
 
 function QuoteText({ lines, depth }: { lines: string[]; depth: number }) {
@@ -95,10 +122,6 @@ function QuoteText({ lines, depth }: { lines: string[]; depth: number }) {
 function QuoteBlock({ node }: { node: QuoteNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const lineCount = useMemo(() => countQuoteLines(node), [node])
-
-  useEffect(() => {
-    setCollapsed(false)
-  }, [node])
 
   const toggleCollapsed = (
     event: ReactMouseEvent<HTMLDivElement> | ReactKeyboardEvent<HTMLDivElement>
@@ -186,6 +209,18 @@ function EmailLine({ line }: { line: FormattedLine }) {
       </div>
     </div>
   )
+}
+
+function getQuoteNodeSignature(node: QuoteNode): string {
+  const segmentSignatures = node.segments.map((segment) => {
+    if (segment.type === "text") {
+      const head = segment.lines[0] ?? ""
+      return `t:${segment.lines.length}:${head.length > 16 ? head.slice(0, 16) : head}`
+    }
+    return `q:${getQuoteNodeSignature(segment.node)}`
+  })
+
+  return `${node.depth}:${segmentSignatures.join("|")}`
 }
 
 function parseQuotedBody(body: string): QuoteNode {

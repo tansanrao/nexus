@@ -365,6 +365,8 @@ export function DataTable({
     [data]
   )
 
+  // React Compiler: TanStack Table returns mutable helpers which the app consumes immediately.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
