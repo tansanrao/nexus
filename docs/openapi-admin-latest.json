@@ -1,0 +1,1231 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "api-server",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/admin/v1"
+    }
+  ],
+  "paths": {
+    "/lists": {
+      "get": {
+        "tags": [
+          "Admin - Lists"
+        ],
+        "operationId": "routes_mailing_lists_admin_list_lists",
+        "parameters": [
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ListQueryParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_Array_of_MailingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/lists/{slug}": {
+      "get": {
+        "tags": [
+          "Admin - Lists"
+        ],
+        "operationId": "routes_mailing_lists_admin_get_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_MailingList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/lists/{slug}/repositories": {
+      "get": {
+        "tags": [
+          "Admin - Lists"
+        ],
+        "operationId": "routes_mailing_lists_admin_get_list_with_repos",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_MailingListWithRepos"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/lists/{slug}/toggle": {
+      "patch": {
+        "tags": [
+          "Admin - Lists"
+        ],
+        "operationId": "routes_mailing_lists_admin_toggle_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToggleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_ToggleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/lists/seed": {
+      "post": {
+        "tags": [
+          "Admin - Lists"
+        ],
+        "operationId": "routes_mailing_lists_admin_seed_lists",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_SeedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "get": {
+        "tags": [
+          "Admin - Jobs"
+        ],
+        "operationId": "routes_admin_list_jobs",
+        "parameters": [
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/JobListParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_Array_of_JobRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin - Jobs"
+        ],
+        "operationId": "routes_admin_create_job",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_JobRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "Admin - Jobs"
+        ],
+        "operationId": "routes_admin_get_job",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_JobRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Admin - Jobs"
+        ],
+        "operationId": "routes_admin_delete_job",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_AnyValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Admin - Jobs"
+        ],
+        "operationId": "routes_admin_patch_job",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_JobRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/database/reset": {
+      "post": {
+        "tags": [
+          "Admin - Database"
+        ],
+        "operationId": "routes_admin_reset_database_endpoint",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/database/status": {
+      "get": {
+        "tags": [
+          "Admin - Database"
+        ],
+        "operationId": "routes_admin_database_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_DatabaseStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/database/config": {
+      "get": {
+        "tags": [
+          "Admin - Database"
+        ],
+        "operationId": "routes_admin_database_config",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_AnyValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResponse_for_Array_of_MailingList": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailingList"
+            }
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "MailingList": {
+        "description": "Metadata for a mailing list managed by the service.",
+        "type": "object",
+        "required": [
+          "enabled",
+          "id",
+          "name",
+          "slug",
+          "sync_priority"
+        ],
+        "properties": {
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "description": "Human-friendly display name.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Unique slug used in URLs (e.g. `linux-kernel`).",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional description sourced from the grokmirror manifest.",
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "description": "Whether sync jobs are allowed to run for this mailing list.",
+            "type": "boolean"
+          },
+          "sync_priority": {
+            "description": "Priority applied when enqueuing sync jobs (lower value first).",
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "description": "When the list record was created.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_synced_at": {
+            "description": "Timestamp of the last successful sync, if any.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ResponseMeta": {
+        "description": "Standard response envelope for the public and admin APIs.",
+        "type": "object",
+        "properties": {
+          "pagination": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaginationMeta"
+              }
+            ],
+            "nullable": true
+          },
+          "sort": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SortDescriptor"
+            }
+          },
+          "listId": {
+            "type": "string",
+            "nullable": true
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "extra": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        }
+      },
+      "PaginationMeta": {
+        "description": "Pagination metadata attached to list responses.",
+        "type": "object",
+        "required": [
+          "page",
+          "pageSize",
+          "totalItems",
+          "totalPages"
+        ],
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalItems": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SortDescriptor": {
+        "description": "Sort metadata returned in the response envelope.",
+        "type": "object",
+        "required": [
+          "direction",
+          "field"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/SortDirection"
+          }
+        }
+      },
+      "SortDirection": {
+        "description": "Direction applied to a sort field.",
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "ListQueryParams": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "pageSize": {
+            "default": 25,
+            "type": "integer",
+            "format": "int64"
+          },
+          "sort": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApiResponse_for_MailingList": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MailingList"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "ApiResponse_for_MailingListWithRepos": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MailingListWithRepos"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "MailingListWithRepos": {
+        "description": "Mailing list descriptor bundled with all configured repositories.",
+        "type": "object",
+        "required": [
+          "enabled",
+          "id",
+          "name",
+          "repos",
+          "slug",
+          "sync_priority"
+        ],
+        "properties": {
+          "repos": {
+            "description": "Repository shards belonging to the mailing list.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailingListRepository"
+            }
+          },
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "description": "Human-friendly display name.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Unique slug used in URLs (e.g. `linux-kernel`).",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional description sourced from the grokmirror manifest.",
+            "type": "string",
+            "nullable": true
+          },
+          "enabled": {
+            "description": "Whether sync jobs are allowed to run for this mailing list.",
+            "type": "boolean"
+          },
+          "sync_priority": {
+            "description": "Priority applied when enqueuing sync jobs (lower value first).",
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "description": "When the list record was created.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_synced_at": {
+            "description": "Timestamp of the last successful sync, if any.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "MailingListRepository": {
+        "description": "Repository shard backing a mailing list (one per public-inbox epoch).",
+        "type": "object",
+        "required": [
+          "id",
+          "mailing_list_id",
+          "repo_order",
+          "repo_url"
+        ],
+        "properties": {
+          "id": {
+            "description": "Database identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailing_list_id": {
+            "description": "Parent mailing list identifier.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "repo_url": {
+            "description": "Remote repository URL (https://lore.kernel.org/...).",
+            "type": "string"
+          },
+          "repo_order": {
+            "description": "Repository order/epoch. Lower numbers represent older history.",
+            "type": "integer",
+            "format": "int32"
+          },
+          "last_indexed_commit": {
+            "description": "Last commit processed during sync, if any.",
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "description": "Timestamp of when the shard configuration was added.",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ApiResponse_for_ToggleResponse": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ToggleResponse"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "ToggleResponse": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ToggleRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiResponse_for_SeedResponse": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SeedResponse"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "SeedResponse": {
+        "type": "object",
+        "required": [
+          "mailingListsCreated",
+          "message",
+          "partitionsCreated",
+          "repositoriesCreated"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "mailingListsCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          },
+          "repositoriesCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          },
+          "partitionsCreated": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        }
+      },
+      "ApiResponse_for_Array_of_JobRecord": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobRecord"
+            }
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "JobRecord": {
+        "type": "object",
+        "required": [
+          "createdAt",
+          "id",
+          "jobType",
+          "payload",
+          "priority",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "jobType": {
+            "$ref": "#/components/schemas/JobType"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "payload": {},
+          "mailingListId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "mailingListSlug": {
+            "type": "string",
+            "nullable": true
+          },
+          "mailingListName": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastHeartbeat": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "JobType": {
+        "type": "string",
+        "enum": [
+          "import",
+          "index_maintenance"
+        ]
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "JobListParams": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "pageSize": {
+            "default": 25,
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "jobType": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApiResponse_for_JobRecord": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JobRecord"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "CreateJobRequest": {
+        "type": "object",
+        "required": [
+          "jobType"
+        ],
+        "properties": {
+          "jobType": {
+            "$ref": "#/components/schemas/JobType"
+          },
+          "payload": {
+            "default": null
+          },
+          "priority": {
+            "default": null,
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "mailingListSlug": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateJobRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "priority": {
+            "default": null,
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "ApiResponse_for_AnyValue": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {},
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "ApiResponse_for_MessageResponse": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MessageResponse"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "MessageResponse": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ApiResponse_for_DatabaseStatusResponse": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DatabaseStatusResponse"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "DatabaseStatusResponse": {
+        "type": "object",
+        "required": [
+          "totalAuthors",
+          "totalEmails",
+          "totalRecipients",
+          "totalReferences",
+          "totalThreadMemberships",
+          "totalThreads"
+        ],
+        "properties": {
+          "totalAuthors": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalEmails": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalThreads": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalRecipients": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalReferences": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalThreadMemberships": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "dateRangeStart": {
+            "type": "string",
+            "format": "partial-date-time",
+            "nullable": true
+          },
+          "dateRangeEnd": {
+            "type": "string",
+            "format": "partial-date-time",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}
