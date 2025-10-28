@@ -5,13 +5,15 @@ import { useQuery } from "@tanstack/react-query"
 import { DEV_MODE_MAX_EMAILS_PER_THREAD, DEV_MODE_MAX_THREAD_PAGES } from "@src/lib/devMode"
 import { useDevMode } from "@src/providers/DevModeProvider"
 
-import { getThread, listThreads } from "../threads"
+import { getThread, listThreads, searchThreads } from "../threads"
 import type {
   NormalizedPaginatedResponse,
   NormalizedResponse,
   ThreadDetail,
   ThreadListParams,
   ThreadWithStarter,
+  ThreadSearchParams,
+  ThreadSearchPage,
 } from "../types"
 import { queryKeys } from "../queryKeys"
 
@@ -63,20 +65,17 @@ export function useThreadDetail(slug: string | undefined, threadId: string | und
   })
 }
 
-export function useThreadSearch(
-  slug: string | undefined,
-  params: Record<string, unknown> | undefined
-) {
-  const key = slug && params
-    ? ["threads", slug, "search", JSON.stringify(params)]
-    : ["threads", "search", "unsupported"]
-
-  return useQuery({
-    queryKey: key,
-    queryFn: async () => {
-      throw new Error("Thread search is not available on the current API.")
+export function useThreadSearch(slug: string | undefined, params: ThreadSearchParams | undefined) {
+  return useQuery<NormalizedResponse<ThreadSearchPage>>({
+    queryKey: slug && params ? queryKeys.threads.search(slug, params) : ["threads", "search", "empty"],
+    queryFn: () => {
+      if (!slug || !params) {
+        throw new Error("slug and params are required")
+      }
+      return searchThreads(slug, params)
     },
-    enabled: false,
+    enabled: Boolean(slug && params),
+    staleTime: 1000 * 30,
   })
 }
 

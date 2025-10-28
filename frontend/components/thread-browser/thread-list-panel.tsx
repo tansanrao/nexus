@@ -1,6 +1,6 @@
 "use client"
 
-import { IconLoader2, IconSearch } from "@tabler/icons-react"
+import { IconLoader2, IconSearch, IconX } from "@tabler/icons-react"
 import { useMemo } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -9,22 +9,41 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { formatRelativeTime } from "@/lib/locale-format"
-import type { ThreadWithStarter } from "@src/lib/api"
+
+export type ThreadListItem = {
+  id: number
+  subject: string
+  messageCount: number
+  startDate: string
+  lastActivity: string
+  starterName?: string | null
+  starterEmail: string
+  highlight?: string | null
+  score?: number | null
+  isSearchResult?: boolean
+}
 
 type ThreadListPanelProps = {
-  threads: ThreadWithStarter[]
+  items: ThreadListItem[]
   isLoading: boolean
   isFetching?: boolean
   selectedThreadId: number | null
-  onSelect: (thread: ThreadWithStarter) => void
+  onSelect: (item: ThreadListItem) => void
   page: number
   totalPages: number
   totalItems: number
   onPageChange: (page: number) => void
+  searchValue: string
+  onSearchChange: (value: string) => void
+  onSearchSubmit: () => void
+  onSearchClear: () => void
+  isSearchActive: boolean
+  isSearchPending?: boolean
+  mode: "list" | "search"
 }
 
 export function ThreadListPanel({
-  threads,
+  items,
   isLoading,
   isFetching,
   selectedThreadId,
@@ -33,26 +52,41 @@ export function ThreadListPanel({
   totalPages,
   totalItems,
   onPageChange,
+  searchValue,
+  onSearchChange,
+  onSearchSubmit,
+  onSearchClear,
+  isSearchActive,
+  isSearchPending,
+  mode,
 }: ThreadListPanelProps) {
   const emptyMessage = useMemo(() => {
     if (isLoading) {
-      return "Loading threads…"
+      return mode === "search" ? "Searching threads…" : "Loading threads…"
     }
-    if (threads.length === 0) {
-      return "No threads found on this page."
+    if (items.length === 0) {
+      return mode === "search" ? "No threads match your query." : "No threads found on this page."
     }
     return null
-  }, [isLoading, threads.length])
+  }, [isLoading, items.length, mode])
 
   const safeTotalPages = Math.max(1, totalPages)
   const currentPage = Math.min(Math.max(1, page), safeTotalPages)
+  const headerTitle = mode === "search" ? "Search results" : "Threads"
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-col gap-2 border-b border-border bg-background px-3 py-3">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold">Threads</p>
+            <p className="text-sm font-semibold">
+              {headerTitle}
+              {mode === "search" ? (
+                <Badge className="ml-2 align-middle" variant="outline">
+                  Search
+                </Badge>
+              ) : null}
+            </p>
             <p className="text-xs text-muted-foreground">
               {totalItems.toLocaleString()} total results
             </p>
@@ -64,20 +98,33 @@ export function ThreadListPanel({
             </span>
           ) : null}
         </div>
-        <div className="relative">
-          <IconSearch className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search threads (coming soon)"
-            className="pl-8"
-            disabled
-          />
-          <Badge
-            variant="outline"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px]"
-          >
-            Stub
-          </Badge>
-        </div>
+        <form
+          className="relative flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onSearchSubmit()
+          }}
+        >
+          <div className="relative flex-1">
+            <IconSearch className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search threads"
+              className="pl-8"
+              value={searchValue}
+              onChange={(event) => onSearchChange(event.target.value)}
+              disabled={isSearchPending}
+            />
+          </div>
+          <Button type="submit" size="sm" disabled={isSearchPending}>
+            Search
+          </Button>
+          {isSearchActive ? (
+            <Button type="button" size="sm" variant="secondary" onClick={onSearchClear}>
+              <IconX className="mr-1 size-4" />
+              Clear
+            </Button>
+          ) : null}
+        </form>
       </div>
       <ScrollArea className="flex-1 min-h-0">
         <div className="flex flex-col">
@@ -96,13 +143,13 @@ export function ThreadListPanel({
               {emptyMessage}
             </div>
           ) : (
-            threads.map((thread) => {
-              const isSelected = selectedThreadId === thread.id
+            items.map((item) => {
+              const isSelected = selectedThreadId === item.id
               return (
                 <button
-                  key={thread.id}
+                  key={item.id}
                   type="button"
-                  onClick={() => onSelect(thread)}
+                  onClick={() => onSelect(item)}
                   className={cn(
                     "flex w-full flex-col items-start gap-2 border-b border-border/40 px-3 py-3 text-left transition",
                     "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -111,21 +158,30 @@ export function ThreadListPanel({
                 >
                   <div className="flex w-full items-start justify-between gap-3">
                     <p className="line-clamp-2 text-sm font-medium text-foreground">
-                      {thread.subject}
+                      {item.subject}
                     </p>
                     <span className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-                      {thread.message_count ?? 0}
+                      {item.messageCount}
                     </span>
                   </div>
                   <div className="flex w-full flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <span className="truncate">
-                      {thread.starter_name ?? thread.starter_email}
+                      {item.starterName ?? item.starterEmail}
                     </span>
                     <span className="truncate text-right">
-                      Updated{" "}
-                      {formatRelativeTime(thread.last_date ?? thread.start_date)}
+                      Updated {formatRelativeTime(item.lastActivity || item.startDate)}
                     </span>
                   </div>
+                  {item.highlight ? (
+                    <p className="line-clamp-2 text-xs text-muted-foreground/80">
+                      {item.highlight}
+                    </p>
+                  ) : null}
+                  {typeof item.score === "number" ? (
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                      Score {item.score.toFixed(3)}
+                    </span>
+                  ) : null}
                 </button>
               )
             })
@@ -137,7 +193,7 @@ export function ThreadListPanel({
           <span>
             Page {currentPage} of {safeTotalPages}
           </span>
-          <span>{threads.length} rows</span>
+          <span>{items.length} rows</span>
         </div>
         <div className="flex items-center justify-between gap-2">
           <Button

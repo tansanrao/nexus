@@ -1,4 +1,10 @@
-import type { AuthorListParams, JobListParams, PaginationParams, ThreadListParams } from "./types"
+import type {
+  AuthorListParams,
+  JobListParams,
+  PaginationParams,
+  ThreadListParams,
+  ThreadSearchParams,
+} from "./types"
 
 const serialize = (value: unknown) => (value ? JSON.stringify(value) : undefined)
 
@@ -13,6 +19,8 @@ export const queryKeys = {
   threads: {
     list: (slug: string, params?: ThreadListParams) =>
       ["threads", slug, "list", serialize(params)] as const,
+    search: (slug: string, params: ThreadSearchParams) =>
+      ["threads", slug, "search", serialize(params)] as const,
     detail: (slug: string, threadId: string) => ["threads", slug, threadId] as const,
   },
   authors: {

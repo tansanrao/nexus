@@ -1,7 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import {
+  ReadonlyURLSearchParams,
+  useParams,
+  useRouter,
+  useSearchParams,
+} from "next/navigation"
 import {
   IconAlertTriangle,
   IconGitBranch,
@@ -17,7 +22,10 @@ import {
 import { ThreadBrowserLayout } from "@/components/thread-browser/thread-browser-layout"
 import { ThreadDetailView } from "@/components/thread-browser/thread-detail-view"
 import { ThreadDiffView } from "@/components/thread-browser/thread-diff-view"
-import { ThreadListPanel } from "@/components/thread-browser/thread-list-panel"
+import {
+  ThreadListPanel,
+  type ThreadListItem,
+} from "@/components/thread-browser/thread-list-panel"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -25,10 +33,21 @@ import {
   useMailingLists,
   useThreadDetail,
   useThreadsList,
+  useThreadSearch,
 } from "@src/lib/api/hooks"
-import { DEV_MODE_MAX_THREAD_PAGES, DEV_MODE_THREADS_PER_PAGE } from "@src/lib/devMode"
+import {
+  DEV_MODE_MAX_THREAD_PAGES,
+  DEV_MODE_THREADS_PER_PAGE,
+} from "@src/lib/devMode"
 import { useDevMode } from "@src/providers/DevModeProvider"
-import { isApiError, type ThreadListParams } from "@src/lib/api"
+import {
+  isApiError,
+  type NormalizedResponse,
+  type PaginationMeta,
+  type ThreadListParams,
+  type ThreadSearchParams,
+  type ThreadSearchPage,
+} from "@src/lib/api"
 
 const PAGE_SIZE = DEV_MODE_THREADS_PER_PAGE
 
@@ -40,6 +59,7 @@ type RouteParams = {
 
 export default function ThreadBrowserPage() {
   const params = useParams<RouteParams>()
+  const searchParams = useSearchParams()
   const router = useRouter()
 
   const slug = decodeURIComponent(params.slug)
@@ -51,12 +71,25 @@ export default function ThreadBrowserPage() {
     ? rawThreadIdParam[0] ?? null
     : rawThreadIdParam ?? null
 
+  const activeSearchQuery = useMemo(() => {
+    const value = searchParams.get("q")
+    return value ? value.trim() : ""
+  }, [searchParams])
+
+  const [searchInput, setSearchInput] = useState(activeSearchQuery)
+
+    useEffect(() => {
+    setSearchInput(activeSearchQuery)
+  }, [activeSearchQuery])
+
+  const isSearching = activeSearchQuery.length > 0
+
   useEffect(() => {
     if (!Number.isFinite(rawPageNumber) || rawPageNumber < 1) {
-      const safePath = buildThreadPath(slug, page, threadIdParam)
+      const safePath = buildThreadPath(slug, page, threadIdParam, undefined, searchParams)
       router.replace(safePath)
     }
-  }, [page, rawPageNumber, router, slug, threadIdParam])
+  }, [page, rawPageNumber, router, searchParams, slug, threadIdParam])
 
   const [activeView, setActiveView] = useState<"thread" | "diff">("thread")
 
@@ -74,9 +107,11 @@ export default function ThreadBrowserPage() {
     }
 
     if (page > DEV_MODE_MAX_THREAD_PAGES) {
-      router.replace(buildThreadPath(slug, DEV_MODE_MAX_THREAD_PAGES, null))
+      router.replace(
+        buildThreadPath(slug, DEV_MODE_MAX_THREAD_PAGES, null, undefined, searchParams)
+      )
     }
-  }, [isDevMode, page, router, slug])
+  }, [isDevMode, page, router, searchParams, slug])
 
   const {
     data: mailingLists,
@@ -104,6 +139,42 @@ export default function ThreadBrowserPage() {
     refetch: refetchThreads,
   } = useThreadsList(slug, listParams)
 
+  const searchRequestParams = useMemo<ThreadSearchParams | undefined>(
+    () => {
+      if (!isSearching) {
+        return undefined
+      }
+      return {
+        q: activeSearchQuery,
+        page,
+        size: PAGE_SIZE,
+        startDate: null,
+        endDate: null,
+        semanticRatio: null,
+        hasPatches: null,
+        starterId: null,
+        participantId: [],
+        seriesId: null,
+        sort: ["last_activity:desc"],
+        mailingList: [],
+      }
+    },
+    [activeSearchQuery, isSearching, page]
+  )
+
+  const {
+    data: threadSearchResponse,
+    isLoading: searchLoading,
+    isFetching: searchFetching,
+    isError: searchError,
+    error: searchErrorValue,
+    refetch: refetchSearch,
+  } = useThreadSearch(slug, searchRequestParams)
+
+  const normalizedSearchResponse = threadSearchResponse as
+    | NormalizedResponse<ThreadSearchPage>
+    | undefined
+
   const {
     data: threadDetail,
     isLoading: threadDetailLoading,
@@ -111,15 +182,109 @@ export default function ThreadBrowserPage() {
     error: threadDetailErrorValue,
   } = useThreadDetail(slug, threadIdParam ?? undefined)
 
-  const threads = threadResponse?.data ?? []
-  const pagination = threadResponse?.pagination
-  const totalPages = pagination?.totalPages ?? 1
-  const totalItems = pagination?.totalItems ?? threads.length
-  const currentPageFromApi = pagination?.page ?? page
+  const listThreadsData = threadResponse?.data ?? []
+
+  const threadItems = useMemo<ThreadListItem[]>(() => {
+    if (isSearching) {
+      const responseData = normalizedSearchResponse?.data
+      if (!responseData) {
+        return []
+      }
+
+      return responseData.hits.map((hit) => {
+        const summary = hit.thread
+        const highlight =
+          hit.highlights?.discussionText ??
+          hit.highlights?.subjectText ??
+          hit.firstPostExcerpt ??
+          null
+
+        return {
+          id: summary.threadId,
+          subject: summary.subject,
+          messageCount: summary.messageCount,
+          startDate: summary.startDate,
+          lastActivity: summary.lastActivity,
+          starterName: summary.starterName ?? null,
+          starterEmail: summary.starterEmail,
+          highlight,
+          score: hit.score?.rankingScore ?? null,
+          isSearchResult: true,
+        }
+      })
+    }
+
+    const listData = threadResponse?.data ?? []
+    return listData.map((thread) => ({
+      id: thread.id,
+      subject: thread.subject,
+      messageCount: thread.message_count ?? 0,
+      startDate: thread.start_date,
+      lastActivity: thread.last_date ?? thread.start_date,
+      starterName: thread.starter_name ?? null,
+      starterEmail: thread.starter_email,
+    }))
+  }, [isSearching, threadSearchResponse, threadResponse])
+
+  const listPagination = threadResponse?.pagination
+
+  const searchPagination: PaginationMeta | undefined = useMemo(() => {
+    if (!isSearching) {
+      return undefined
+    }
+
+    if (normalizedSearchResponse?.meta.pagination) {
+      return normalizedSearchResponse.meta.pagination
+    }
+
+    const total = normalizedSearchResponse?.data.total ?? 0
+    const size = searchRequestParams?.size ?? PAGE_SIZE
+    const totalPages = Math.max(1, Math.ceil(total / size))
+    const currentPage = searchRequestParams?.page ?? 1
+
+    return {
+      page: currentPage,
+      pageSize: size,
+      totalPages,
+      totalItems: total,
+    }
+  }, [isSearching, searchRequestParams, threadSearchResponse])
+
+  let effectivePagination: PaginationMeta = isSearching
+    ? searchPagination ?? {
+        page,
+        pageSize: PAGE_SIZE,
+        totalPages: 1,
+        totalItems: normalizedSearchResponse?.data.total ?? 0,
+      }
+    : listPagination ?? {
+        page,
+        pageSize: PAGE_SIZE,
+        totalPages: 1,
+        totalItems: listThreadsData.length,
+      }
+
+  if (isDevMode) {
+    const limitedTotalPages = Math.min(effectivePagination.totalPages, DEV_MODE_MAX_THREAD_PAGES)
+    const limitedTotalItems = Math.min(
+      effectivePagination.totalItems,
+      limitedTotalPages * effectivePagination.pageSize
+    )
+
+    effectivePagination = {
+      ...effectivePagination,
+      page: Math.min(effectivePagination.page, DEV_MODE_MAX_THREAD_PAGES),
+      totalPages: limitedTotalPages,
+      totalItems: limitedTotalItems,
+    }
+  }
+
+  const totalPages = Math.max(1, effectivePagination.totalPages)
+  const totalItems = effectivePagination.totalItems
+  const currentPageFromApi = Math.min(effectivePagination.page, totalPages)
+
   const selectedThreadIdNumber =
-    threadIdParam && !Number.isNaN(Number(threadIdParam))
-      ? Number(threadIdParam)
-      : null
+    threadIdParam && !Number.isNaN(Number(threadIdParam)) ? Number(threadIdParam) : null
 
   const selectedMailingList = useMemo(
     () => mailingLists?.find((list) => list.slug === slug),
@@ -134,20 +299,18 @@ export default function ThreadBrowserPage() {
 
   const handleSlugChange = useCallback(
     (nextSlug: string) => {
-      router.push(buildThreadPath(nextSlug, 1, null))
+      router.push(buildThreadPath(nextSlug, 1, null, { search: activeSearchQuery || null }))
     },
-    [router]
+    [activeSearchQuery, router]
   )
 
   const breadcrumbItems = useMemo<AppBreadcrumbItem[]>(() => {
-    const dropdownItems: AppBreadcrumbDropdownOption[] = enabledMailingLists.map(
-      (list) => ({
-        id: list.slug,
-        label: list.slug,
-        isActive: list.slug === slug,
-        onSelect: () => handleSlugChange(list.slug),
-      })
-    )
+    const dropdownItems: AppBreadcrumbDropdownOption[] = enabledMailingLists.map((list) => ({
+      id: list.slug,
+      label: list.slug,
+      isActive: list.slug === slug,
+      onSelect: () => handleSlugChange(list.slug),
+    }))
 
     if (hasUnknownSlug && !dropdownItems.some((item) => item.id === slug)) {
       dropdownItems.unshift({
@@ -203,21 +366,37 @@ export default function ThreadBrowserPage() {
 
   const handlePageChange = useCallback(
     (nextPage: number) => {
-      router.push(buildThreadPath(slug, nextPage, null))
+      router.push(buildThreadPath(slug, nextPage, null, undefined, searchParams))
     },
-    [router, slug]
+    [router, searchParams, slug]
   )
 
   const handleThreadSelect = useCallback(
     (threadId: number) => {
-      router.push(buildThreadPath(slug, page, String(threadId)))
+      router.push(buildThreadPath(slug, page, String(threadId), undefined, searchParams))
     },
-    [page, router, slug]
+    [page, router, searchParams, slug]
   )
 
   const handleClearSelection = useCallback(() => {
-    router.push(buildThreadPath(slug, page, null))
-  }, [page, router, slug])
+    router.push(buildThreadPath(slug, page, null, undefined, searchParams))
+  }, [page, router, searchParams, slug])
+
+  const handleSearchInputChange = useCallback((value: string) => {
+    setSearchInput(value)
+  }, [])
+
+  const handleSearchSubmit = useCallback(() => {
+    const trimmed = searchInput.trim()
+    router.push(buildThreadPath(slug, 1, null, { search: trimmed || null }, searchParams))
+  }, [router, searchInput, searchParams, slug])
+
+  const handleSearchClear = useCallback(() => {
+    setSearchInput("")
+    if (activeSearchQuery) {
+      router.push(buildThreadPath(slug, 1, null, { search: null }, searchParams))
+    }
+  }, [activeSearchQuery, router, searchParams, slug])
 
   const toolbar = (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -228,7 +407,7 @@ export default function ThreadBrowserPage() {
         <Badge variant="outline" className="uppercase tracking-wide">
           {PAGE_SIZE} per page
         </Badge>
-        {threadsFetching ? (
+        {(isSearching ? searchFetching : threadsFetching) ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <IconLoader2 className="size-3 animate-spin" />
             Refreshing
@@ -257,6 +436,15 @@ export default function ThreadBrowserPage() {
     </div>
   )
 
+  const threadsLoadingState = isSearching
+    ? searchLoading && !threadSearchResponse
+    : threadsLoading && !threadResponse
+  const threadsFetchingState = isSearching ? searchFetching : threadsFetching
+  const threadsErrorState = isSearching ? searchError : threadsError
+  const threadsErrorValueState = isSearching ? searchErrorValue : threadsErrorValue
+  const refetchActive = isSearching ? refetchSearch : refetchThreads
+  const errorTitle = isSearching ? "Unable to search threads" : "Unable to load threads"
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <AppPageHeader items={breadcrumbItems} />
@@ -268,11 +456,7 @@ export default function ThreadBrowserPage() {
             <AlertDescription className="flex flex-col gap-2">
               <span>{formatError(mailingListsErrorValue)}</span>
               <div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => refetchMailingLists()}
-                >
+                <Button size="sm" variant="outline" onClick={() => refetchMailingLists()}>
                   Retry
                 </Button>
               </div>
@@ -285,26 +469,21 @@ export default function ThreadBrowserPage() {
             <IconAlertTriangle className="size-4" />
             <AlertTitle>Unknown mailing list</AlertTitle>
             <AlertDescription>
-              We couldn’t find{" "}
-              <span className="font-medium text-foreground">{slug}</span> in the
-              available lists. Pick another mailing list from the dropdown to
-              continue.
+              We couldn’t find {" "}
+              <span className="font-medium text-foreground">{slug}</span> in the available lists.
+              Pick another mailing list from the dropdown to continue.
             </AlertDescription>
           </Alert>
         ) : null}
 
-        {threadsError ? (
+        {threadsErrorState ? (
           <Alert variant="destructive">
             <IconAlertTriangle className="size-4" />
-            <AlertTitle>Unable to load threads</AlertTitle>
+            <AlertTitle>{errorTitle}</AlertTitle>
             <AlertDescription className="flex flex-col gap-2">
-              <span>{formatError(threadsErrorValue)}</span>
+              <span>{formatError(threadsErrorValueState)}</span>
               <div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => refetchThreads()}
-                >
+                <Button size="sm" variant="outline" onClick={() => refetchActive()}>
                   Retry
                 </Button>
               </div>
@@ -317,15 +496,22 @@ export default function ThreadBrowserPage() {
             toolbar={toolbar}
             sidebar={
               <ThreadListPanel
-                threads={threads}
-                isLoading={threadsLoading && !threadResponse}
-                isFetching={threadsFetching}
+                items={threadItems}
+                isLoading={threadsLoadingState}
+                isFetching={threadsFetchingState}
                 selectedThreadId={selectedThreadIdNumber}
-                onSelect={(thread) => handleThreadSelect(thread.id)}
+                onSelect={(item) => handleThreadSelect(item.id)}
                 page={currentPageFromApi}
                 totalPages={totalPages}
                 totalItems={totalItems}
                 onPageChange={handlePageChange}
+                searchValue={searchInput}
+                onSearchChange={handleSearchInputChange}
+                onSearchSubmit={handleSearchSubmit}
+                onSearchClear={handleSearchClear}
+                isSearchActive={isSearching}
+                isSearchPending={isSearching && searchLoading}
+                mode={isSearching ? "search" : "list"}
               />
             }
             content={
@@ -366,11 +552,31 @@ export default function ThreadBrowserPage() {
   }
 }
 
-function buildThreadPath(slug: string, page: number, threadId: string | null) {
+function buildThreadPath(
+  slug: string,
+  page: number,
+  threadId: string | null,
+  options?: { search?: string | null },
+  currentParams?: ReadonlyURLSearchParams
+) {
   const encodedSlug = encodeURIComponent(slug)
   const segments = [`/explore/threads/${encodedSlug}`, page.toString()]
   if (threadId) {
     segments.push(encodeURIComponent(threadId))
   }
-  return segments.join("/")
+
+  const query = new URLSearchParams(currentParams ? currentParams.toString() : "")
+
+  if (options && Object.prototype.hasOwnProperty.call(options, "search")) {
+    const trimmed = options.search?.trim() ?? ""
+    if (trimmed) {
+      query.set("q", trimmed)
+    } else {
+      query.delete("q")
+    }
+  }
+
+  const path = segments.join("/")
+  const queryString = query.toString()
+  return queryString ? `${path}?${queryString}` : path
 }
