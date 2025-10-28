@@ -821,6 +821,131 @@
           }
         }
       }
+    },
+    "/lists/{slug}/threads/search": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "operationId": "routes_search_search_threads_for_list",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ThreadSearchParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_ThreadSearchPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/search/threads": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "operationId": "routes_search_search_threads_global",
+        "parameters": [
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ThreadSearchParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_ThreadSearchPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/authors/search": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "operationId": "routes_search_search_authors",
+        "parameters": [
+          {
+            "name": "params",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/AuthorSearchParams",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_AuthorSearchPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2071,6 +2196,521 @@
             "format": "int64"
           }
         }
+      },
+      "ApiResponse_for_ThreadSearchPage": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ThreadSearchPage"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "ThreadSearchPage": {
+        "description": "Response payload for thread search queries.",
+        "type": "object",
+        "required": [
+          "hits",
+          "total"
+        ],
+        "properties": {
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadSearchHit"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ThreadSearchHit": {
+        "description": "Search hit metadata for thread queries.",
+        "type": "object",
+        "required": [
+          "hasPatches",
+          "participants",
+          "score",
+          "thread"
+        ],
+        "properties": {
+          "thread": {
+            "$ref": "#/components/schemas/ThreadSearchThreadSummary"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadSearchParticipant"
+            }
+          },
+          "hasPatches": {
+            "type": "boolean"
+          },
+          "seriesId": {
+            "type": "string",
+            "nullable": true
+          },
+          "seriesNumber": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "seriesTotal": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "firstPostExcerpt": {
+            "type": "string",
+            "nullable": true
+          },
+          "score": {
+            "$ref": "#/components/schemas/ThreadSearchScore"
+          },
+          "highlights": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThreadSearchHighlights"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "ThreadSearchThreadSummary": {
+        "description": "Lightweight thread summary returned by the search endpoints.",
+        "type": "object",
+        "required": [
+          "lastActivity",
+          "mailingListId",
+          "mailingListSlug",
+          "messageCount",
+          "rootMessageId",
+          "startDate",
+          "starterEmail",
+          "starterId",
+          "subject",
+          "threadId"
+        ],
+        "properties": {
+          "threadId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailingListId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mailingListSlug": {
+            "type": "string"
+          },
+          "rootMessageId": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "normalizedSubject": {
+            "type": "string",
+            "nullable": true
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastActivity": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "messageCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "starterId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "starterName": {
+            "type": "string",
+            "nullable": true
+          },
+          "starterEmail": {
+            "type": "string"
+          }
+        }
+      },
+      "ThreadSearchParticipant": {
+        "description": "Participant metadata attached to search hits.",
+        "type": "object",
+        "required": [
+          "email",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "ThreadSearchScore": {
+        "description": "Ranking information attached to search hits.",
+        "type": "object",
+        "required": [
+          "semanticRatio"
+        ],
+        "properties": {
+          "rankingScore": {
+            "type": "number",
+            "format": "float",
+            "nullable": true
+          },
+          "semanticRatio": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "ThreadSearchHighlights": {
+        "description": "Highlight snippets extracted from Meilisearch.",
+        "type": "object",
+        "properties": {
+          "subjectHtml": {
+            "type": "string",
+            "nullable": true
+          },
+          "subjectText": {
+            "type": "string",
+            "nullable": true
+          },
+          "discussionHtml": {
+            "type": "string",
+            "nullable": true
+          },
+          "discussionText": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ThreadSearchParams": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "page": {
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "default": 25,
+            "type": "integer",
+            "format": "int64"
+          },
+          "startDate": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "endDate": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "semanticRatio": {
+            "default": null,
+            "type": "number",
+            "format": "float",
+            "nullable": true
+          },
+          "hasPatches": {
+            "default": null,
+            "type": "boolean",
+            "nullable": true
+          },
+          "starterId": {
+            "default": null,
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "participantId": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "seriesId": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "sort": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mailingList": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApiResponse_for_AuthorSearchPage": {
+        "description": "Root response payload returned by REST endpoints.",
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthorSearchPage"
+          },
+          "meta": {
+            "default": {},
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResponseMeta"
+              }
+            ]
+          }
+        }
+      },
+      "AuthorSearchPage": {
+        "description": "Response payload for author search queries.",
+        "type": "object",
+        "required": [
+          "hits",
+          "total"
+        ],
+        "properties": {
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorSearchHit"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AuthorSearchHit": {
+        "description": "Search hit metadata for author queries.",
+        "type": "object",
+        "required": [
+          "authorId",
+          "email",
+          "emailCount",
+          "threadCount"
+        ],
+        "properties": {
+          "authorId": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "canonicalName": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string"
+          },
+          "aliases": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mailingLists": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "firstSeen": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastSeen": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "firstEmailDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastEmailDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "threadCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "emailCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "mailingListStats": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorSearchMailingListStats"
+            }
+          }
+        }
+      },
+      "AuthorSearchMailingListStats": {
+        "description": "Per-mailing-list activity breakdown returned with author search hits.",
+        "type": "object",
+        "required": [
+          "emailCount",
+          "slug",
+          "threadCount"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "emailCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "threadCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "firstEmailDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastEmailDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "AuthorSearchParams": {
+        "description": "Query parameters accepted by the author search endpoint.",
+        "type": "object",
+        "properties": {
+          "q": {
+            "description": "Optional full-text search term matched against author name/email.",
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "page": {
+            "description": "Page of results to fetch (defaults to 1).",
+            "default": 1,
+            "type": "integer",
+            "format": "int64"
+          },
+          "size": {
+            "description": "Page size (defaults to 50, maximum 100).",
+            "default": 25,
+            "type": "integer",
+            "format": "int64"
+          },
+          "sortBy": {
+            "description": "Sort column (defaults to `emailCount`).",
+            "default": "emailCount",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AuthorSortField"
+              }
+            ]
+          },
+          "order": {
+            "description": "Sort direction (defaults to `desc`).",
+            "default": "desc",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SortOrder"
+              }
+            ]
+          },
+          "mailingLists": {
+            "description": "Optional mailing list filters.",
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AuthorSortField": {
+        "description": "Sort keys supported by the author search endpoint.",
+        "type": "string",
+        "enum": [
+          "canonicalName",
+          "email",
+          "emailCount",
+          "threadCount",
+          "firstEmailDate",
+          "lastEmailDate"
+        ]
+      },
+      "SortOrder": {
+        "description": "Sort direction for list endpoints.",
+        "oneOf": [
+          {
+            "description": "Sort ascending.",
+            "type": "string",
+            "enum": [
+              "asc"
+            ]
+          },
+          {
+            "description": "Sort descending.",
+            "type": "string",
+            "enum": [
+              "desc"
+            ]
+          }
+        ]
       }
     }
   }

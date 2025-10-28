@@ -340,6 +340,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/lists/{slug}/threads/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["routes_search_search_threads_for_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["routes_search_search_threads_global"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/authors/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["routes_search_search_authors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -909,6 +957,203 @@ export interface components {
              */
             pageSize: number;
         };
+        /** @description Root response payload returned by REST endpoints. */
+        ApiResponse_for_ThreadSearchPage: {
+            data: components["schemas"]["ThreadSearchPage"];
+            /** @default {} */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** @description Response payload for thread search queries. */
+        ThreadSearchPage: {
+            hits: components["schemas"]["ThreadSearchHit"][];
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description Search hit metadata for thread queries. */
+        ThreadSearchHit: {
+            thread: components["schemas"]["ThreadSearchThreadSummary"];
+            participants: components["schemas"]["ThreadSearchParticipant"][];
+            hasPatches: boolean;
+            seriesId?: string | null;
+            /** Format: int32 */
+            seriesNumber?: number | null;
+            /** Format: int32 */
+            seriesTotal?: number | null;
+            firstPostExcerpt?: string | null;
+            score: components["schemas"]["ThreadSearchScore"];
+            highlights?: components["schemas"]["ThreadSearchHighlights"] | null;
+        };
+        /** @description Lightweight thread summary returned by the search endpoints. */
+        ThreadSearchThreadSummary: {
+            /** Format: int32 */
+            threadId: number;
+            /** Format: int32 */
+            mailingListId: number;
+            mailingListSlug: string;
+            rootMessageId: string;
+            subject: string;
+            normalizedSubject?: string | null;
+            /** Format: date-time */
+            startDate: string;
+            /** Format: date-time */
+            lastActivity: string;
+            /** Format: int32 */
+            messageCount: number;
+            /** Format: int32 */
+            starterId: number;
+            starterName?: string | null;
+            starterEmail: string;
+        };
+        /** @description Participant metadata attached to search hits. */
+        ThreadSearchParticipant: {
+            /** Format: int32 */
+            id: number;
+            name?: string | null;
+            email: string;
+        };
+        /** @description Ranking information attached to search hits. */
+        ThreadSearchScore: {
+            /** Format: float */
+            rankingScore?: number | null;
+            /** Format: float */
+            semanticRatio: number;
+        };
+        /** @description Highlight snippets extracted from Meilisearch. */
+        ThreadSearchHighlights: {
+            subjectHtml?: string | null;
+            subjectText?: string | null;
+            discussionHtml?: string | null;
+            discussionText?: string | null;
+        };
+        ThreadSearchParams: {
+            /** @default null */
+            q: string | null;
+            /**
+             * Format: int64
+             * @default 1
+             */
+            page: number;
+            /**
+             * Format: int64
+             * @default 25
+             */
+            size: number;
+            /** @default null */
+            startDate: string | null;
+            /** @default null */
+            endDate: string | null;
+            /**
+             * Format: float
+             * @default null
+             */
+            semanticRatio: number | null;
+            /** @default null */
+            hasPatches: boolean | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            starterId: number | null;
+            /** @default [] */
+            participantId: number[];
+            /** @default null */
+            seriesId: string | null;
+            /** @default [] */
+            sort: string[];
+            /** @default [] */
+            mailingList: string[];
+        };
+        /** @description Root response payload returned by REST endpoints. */
+        ApiResponse_for_AuthorSearchPage: {
+            data: components["schemas"]["AuthorSearchPage"];
+            /** @default {} */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** @description Response payload for author search queries. */
+        AuthorSearchPage: {
+            hits: components["schemas"]["AuthorSearchHit"][];
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description Search hit metadata for author queries. */
+        AuthorSearchHit: {
+            /** Format: int32 */
+            authorId: number;
+            canonicalName?: string | null;
+            email: string;
+            /** @default [] */
+            aliases: string[];
+            /** @default [] */
+            mailingLists: string[];
+            /** Format: date-time */
+            firstSeen?: string | null;
+            /** Format: date-time */
+            lastSeen?: string | null;
+            /** Format: date-time */
+            firstEmailDate?: string | null;
+            /** Format: date-time */
+            lastEmailDate?: string | null;
+            /** Format: int64 */
+            threadCount: number;
+            /** Format: int64 */
+            emailCount: number;
+            /** @default [] */
+            mailingListStats: components["schemas"]["AuthorSearchMailingListStats"][];
+        };
+        /** @description Per-mailing-list activity breakdown returned with author search hits. */
+        AuthorSearchMailingListStats: {
+            slug: string;
+            /** Format: int64 */
+            emailCount: number;
+            /** Format: int64 */
+            threadCount: number;
+            /** Format: date-time */
+            firstEmailDate?: string | null;
+            /** Format: date-time */
+            lastEmailDate?: string | null;
+        };
+        /** @description Query parameters accepted by the author search endpoint. */
+        AuthorSearchParams: {
+            /**
+             * @description Optional full-text search term matched against author name/email.
+             * @default null
+             */
+            q: string | null;
+            /**
+             * Format: int64
+             * @description Page of results to fetch (defaults to 1).
+             * @default 1
+             */
+            page: number;
+            /**
+             * Format: int64
+             * @description Page size (defaults to 50, maximum 100).
+             * @default 25
+             */
+            size: number;
+            /**
+             * @description Sort column (defaults to `emailCount`).
+             * @default emailCount
+             */
+            sortBy: components["schemas"]["AuthorSortField"];
+            /**
+             * @description Sort direction (defaults to `desc`).
+             * @default desc
+             */
+            order: components["schemas"]["SortOrder"];
+            /**
+             * @description Optional mailing list filters.
+             * @default []
+             */
+            mailingLists: string[];
+        };
+        /**
+         * @description Sort keys supported by the author search endpoint.
+         * @enum {string}
+         */
+        AuthorSortField: "canonicalName" | "email" | "emailCount" | "threadCount" | "firstEmailDate" | "lastEmailDate";
+        /** @description Sort direction for list endpoints. */
+        SortOrder: "asc" | "desc";
     };
     responses: never;
     parameters: never;
@@ -1665,6 +1910,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_for_Array_of_ThreadWithStarter"];
+                };
+            };
+            /** @description Bad Request - Invalid input parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found - The requested resource was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error - An unexpected error occurred */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    routes_search_search_threads_for_list: {
+        parameters: {
+            query?: {
+                params?: components["schemas"]["ThreadSearchParams"];
+            };
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_for_ThreadSearchPage"];
+                };
+            };
+            /** @description Bad Request - Invalid input parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found - The requested resource was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error - An unexpected error occurred */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    routes_search_search_threads_global: {
+        parameters: {
+            query?: {
+                params?: components["schemas"]["ThreadSearchParams"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_for_ThreadSearchPage"];
+                };
+            };
+            /** @description Bad Request - Invalid input parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found - The requested resource was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error - An unexpected error occurred */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    routes_search_search_authors: {
+        parameters: {
+            query?: {
+                params?: components["schemas"]["AuthorSearchParams"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_for_AuthorSearchPage"];
                 };
             };
             /** @description Bad Request - Invalid input parameters */

@@ -493,6 +493,82 @@
           }
         }
       }
+    },
+    "/search/indexes/threads/refresh": {
+      "post": {
+        "tags": [
+          "Admin - Search"
+        ],
+        "operationId": "routes_search_refresh_search_indexes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchIndexRefreshRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_JobRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
+    },
+    "/search/indexes/reset": {
+      "post": {
+        "tags": [
+          "Admin - Search"
+        ],
+        "operationId": "routes_search_reset_search_indexes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchIndexResetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_for_JobRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request - Invalid input parameters"
+          },
+          "404": {
+            "description": "Not Found - The requested resource was not found"
+          },
+          "500": {
+            "description": "Internal Server Error - An unexpected error occurred"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1222,6 +1298,33 @@
           "dateRangeEnd": {
             "type": "string",
             "format": "partial-date-time",
+            "nullable": true
+          }
+        }
+      },
+      "SearchIndexRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "mailingListSlug": {
+            "default": null,
+            "type": "string",
+            "nullable": true
+          },
+          "priority": {
+            "default": null,
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        }
+      },
+      "SearchIndexResetRequest": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "default": null,
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           }
         }
