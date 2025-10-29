@@ -4,6 +4,7 @@ import {
   IconArrowLeft,
   IconChevronDown,
   IconChevronRight,
+  IconChevronUp,
   IconList,
   IconListTree,
 } from "@tabler/icons-react"
@@ -11,12 +12,11 @@ import { useCallback, useMemo, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { extractDiffContent } from "@/lib/diff"
-import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/locale-format"
+import { formatDate, formatRelativeTime } from "@/lib/locale-format"
 import type { ThreadDetail } from "@src/lib/api"
 
 import { EmailBody } from "./email-body"
@@ -195,68 +195,90 @@ export function ThreadDetailView({
   const { thread } = threadDetail
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-border px-6 py-5">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
+    <div className="flex h-full min-h-0 flex-col bg-muted/5">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-border/60 bg-background/90 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="min-w-0 space-y-2">
+          <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              size="sm"
-              className="-ml-2"
+              size="icon"
+              className="-ml-1 md:hidden"
               onClick={onClearSelection}
             >
               <IconArrowLeft className="size-4" />
+              <span className="sr-only">Back to threads</span>
             </Button>
-            <h1 className="text-lg font-semibold leading-tight text-foreground">
+            <h1 className="text-lg font-semibold leading-tight text-foreground md:ml-0">
               {thread.subject}
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline" className="text-xs font-medium">
+            <span>
               {thread.message_count ?? 0}{" "}
               {(thread.message_count ?? 0) === 1 ? "message" : "messages"}
-            </Badge>
-            <Separator orientation="vertical" className="h-4" />
-            <span>Started {formatDateTime(thread.start_date)}</span>
+            </span>
+            <span>•</span>
+            <span>Started {formatDate(thread.start_date)}</span>
             {thread.last_date && thread.last_date !== thread.start_date ? (
               <>
-                <Separator orientation="vertical" className="h-4" />
-                <span>Last activity {formatDateTime(thread.last_date)}</span>
+                <span>•</span>
+                <span>Last activity {formatDate(thread.last_date)}</span>
               </>
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={expandAll}>
-            <IconChevronDown className="mr-1 size-4" />
-            Expand all
-          </Button>
-          <Button variant="outline" size="sm" onClick={collapseAll}>
-            <IconChevronRight className="mr-1 size-4 rotate-90" />
-            Collapse all
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={expandAll}
+            title="Expand all messages"
+            aria-label="Expand all messages"
+          >
+            <IconChevronDown className="size-4" />
           </Button>
           <Button
-            variant={hideDeepCollapsedReplies ? "default" : "outline"}
-            size="sm"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={collapseAll}
+            title="Collapse all messages"
+            aria-label="Collapse all messages"
+          >
+            <IconChevronUp className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7",
+              hideDeepCollapsedReplies && "bg-muted text-foreground"
+            )}
             onClick={toggleHideDeepCollapsedReplies}
             aria-pressed={hideDeepCollapsedReplies}
+            title={
+              hideDeepCollapsedReplies
+                ? "Collapsed replies hide deeper messages"
+                : "Collapsed replies show message headers"
+            }
           >
             {hideDeepCollapsedReplies ? (
-              <IconListTree className="mr-1 size-4" />
+              <IconListTree className="size-4" />
             ) : (
-              <IconList className="mr-1 size-4" />
+              <IconList className="size-4" />
             )}
-            {hideDeepCollapsedReplies ? "Hide deep replies" : "Show headers"}
           </Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
-        <div className="flex min-h-full flex-col gap-4 px-6 py-6">
+      <ScrollArea className="flex-1">
+        <div className="space-y-0 px-6 py-6">
           {emailsWithState.map(({ email, isCollapsed, isHidden }) => {
             if (isHidden) {
               return null
             }
+
             const diffContent = extractDiffContent(
               email.body,
               email.patch_metadata
@@ -266,83 +288,96 @@ export function ThreadDetailView({
               email.patch_metadata
             )
 
-            const indentation =
+            const indentPx =
               email.depth > 0 ? Math.min(email.depth, 8) * 16 : 0
+            const indentationStyle = indentPx
+              ? {
+                  marginLeft: `${indentPx}px`,
+                  maxWidth: `calc(100% - ${indentPx}px)`,
+                }
+              : undefined
 
             const hiddenReplyCount = hiddenCounts.get(email.id) ?? 0
+            const displaySubject = parsedSubject ?? email.subject ?? "No subject"
 
             return (
-              <article
-                key={email.id}
-                className={cn(
-                  "space-y-3 border-l-2 border-transparent pl-3",
-                  isCollapsed && "opacity-90"
-                )}
-                style={{ marginLeft: indentation }}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleToggle(email.id)}
-                  className="flex w-full items-start gap-3 rounded-md px-3 py-2 text-left transition hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span className="mt-1 text-muted-foreground">
-                    {isCollapsed ? (
-                      <IconChevronRight className="size-4" />
-                    ) : (
-                      <IconChevronDown className="size-4" />
-                    )}
-                  </span>
-                  <div className="flex flex-1 flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(event) =>
-                          handleAuthorActivate(event, email.author_id ?? null)
-                        }
-                        onKeyDown={(event) =>
-                          handleAuthorActivate(event, email.author_id ?? null)
-                        }
-                        className="font-medium text-foreground underline-offset-2 hover:underline"
-                      >
-                        {email.author_name ?? email.author_email}
-                      </span>
-                      <Separator orientation="vertical" className="h-4" />
-                      <span>{formatDate(email.date)}</span>
-                      <Separator orientation="vertical" className="h-4" />
-                      <span>{formatRelativeTime(email.date)}</span>
+              <div key={email.id} style={indentationStyle} className="min-w-0">
+                <div className="px-3 py-2 rounded-md transition-colors hover:bg-muted/20">
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(email.id)}
+                    className="flex w-full items-start gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    <IconChevronRight
+                      className={cn(
+                        "mt-0.5 size-4 flex-shrink-0 text-muted-foreground transition-transform",
+                        !isCollapsed && "rotate-90"
+                      )}
+                    />
+                    <div className="flex flex-1 flex-col gap-1">
+                      <div className="flex items-start justify-between gap-3 min-w-0">
+                        <div className="flex flex-1 items-center gap-2 min-w-0 text-sm text-foreground">
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(event) =>
+                              handleAuthorActivate(
+                                event,
+                                email.author_id ?? null
+                              )
+                            }
+                            onKeyDown={(event) =>
+                              handleAuthorActivate(
+                                event,
+                                email.author_id ?? null
+                              )
+                            }
+                            className="font-semibold hover:underline"
+                          >
+                            {email.author_name ?? email.author_email}
+                          </span>
+                          {displaySubject ? (
+                            <span
+                              className="flex-1 truncate text-sm text-muted-foreground"
+                              title={displaySubject}
+                            >
+                              {displaySubject}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+                          {isCollapsed && hiddenReplyCount > 0 ? (
+                            <span>[{hiddenReplyCount} more]</span>
+                          ) : null}
+                          <span>{formatRelativeTime(email.date)}</span>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {parsedSubject ?? email.subject ?? "No subject"}
-                    </p>
-                    {isCollapsed && hiddenReplyCount > 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        [{hiddenReplyCount} more]
-                      </p>
-                    ) : null}
-                  </div>
-                </button>
+                  </button>
 
-                {!isCollapsed ? (
-                  <div className="ml-7 space-y-3 border-l-2 border-muted pl-4">
-                    {cleanBody ? <EmailBody body={cleanBody} /> : null}
-                    {diffContent.trim().length > 0 ? (
-                      <GitDiffViewer
-                        diff={diffContent}
-                        defaultExpanded={false}
-                        gitCommitHash={email.git_commit_hash ?? null}
-                      />
-                    ) : null}
-                    <p className="text-xs text-muted-foreground">
-                      Message ID: {email.message_id}
-                    </p>
-                  </div>
-                ) : null}
-              </article>
+                  {!isCollapsed ? (
+                    <div className="ml-6 mt-2 space-y-2">
+                      {cleanBody ? <EmailBody body={cleanBody} /> : null}
+                      {diffContent.trim().length > 0 ? (
+                        <div className="max-w-full overflow-hidden">
+                          <GitDiffViewer
+                            diff={diffContent}
+                            defaultExpanded={false}
+                            gitCommitHash={email.git_commit_hash ?? null}
+                          />
+                        </div>
+                      ) : null}
+                      <div className="pt-2 text-xs text-muted-foreground">
+                        {email.message_id}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             )
           })}
         </div>
-      </div>
+      </ScrollArea>
     </div>
   )
 }
