@@ -24,7 +24,7 @@ export async function searchAuthors(
   }
 
   const response = await getJson<ApiResponse<AuthorWithStats[]>>("authors", {
-    searchParams: { params: payload },
+    searchParams: payload,
   })
 
   return normalizePaginated(response)
@@ -44,7 +44,7 @@ export async function getAuthorEmails(
   const response = await getJson<ApiResponse<EmailWithAuthor[]>>(
     `authors/${authorId}/lists/${encodeURIComponent(slug)}/emails`,
     {
-      searchParams: { params: pagination },
+      searchParams: pagination,
     }
   )
   return normalizePaginated(response)
@@ -59,7 +59,7 @@ export async function getAuthorThreadsStarted(
   const response = await getJson<ApiResponse<ThreadWithStarter[]>>(
     `authors/${authorId}/lists/${encodeURIComponent(slug)}/threads-started`,
     {
-      searchParams: { params: pagination },
+      searchParams: pagination,
     }
   )
   return normalizePaginated(response)
@@ -74,7 +74,7 @@ export async function getAuthorThreadsParticipated(
   const response = await getJson<ApiResponse<ThreadWithStarter[]>>(
     `authors/${authorId}/lists/${encodeURIComponent(slug)}/threads-participated`,
     {
-      searchParams: { params: pagination },
+      searchParams: pagination,
     }
   )
   return normalizePaginated(response)

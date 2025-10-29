@@ -16,7 +16,7 @@ export async function listThreads(
   params?: ThreadListParams
 ): Promise<NormalizedPaginatedResponse<ThreadWithStarter[]>> {
   const response = await getJson<ApiResponse<ThreadWithStarter[]>>(`lists/${slug}/threads`, {
-    searchParams: params ? { params } : undefined,
+    searchParams: params ?? undefined,
   })
   return normalizePaginated(response)
 }
@@ -34,7 +34,7 @@ export async function searchThreads(
   params: ThreadSearchParams
 ): Promise<NormalizedResponse<ThreadSearchPage>> {
   const response = await getJson<ApiResponse<ThreadSearchPage>>(`lists/${slug}/threads/search`, {
-    searchParams: { params },
+    searchParams: params,
   })
   return normalizeResponse(response)
 }

@@ -38,7 +38,7 @@ export async function listJobs(
 ): Promise<NormalizedPaginatedResponse<JobRecord[]>> {
   const response = await getJson<ApiResponse<JobRecord[]>>("jobs", {
     client: "admin",
-    searchParams: params ? { params } : undefined,
+    searchParams: params ?? undefined,
   })
   return normalizePaginated(response)
 }

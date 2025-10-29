@@ -17,7 +17,7 @@ export async function listMailingLists(
   params?: ListQueryParams
 ): Promise<NormalizedPaginatedResponse<MailingList[]>> {
   const response = await getJson<ApiResponse<MailingList[]>>("lists", {
-    searchParams: params ? { params } : undefined,
+    searchParams: params ?? undefined,
   })
   return normalizePaginated<MailingList[]>(response)
 }
