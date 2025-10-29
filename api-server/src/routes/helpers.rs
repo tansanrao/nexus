@@ -19,3 +19,16 @@ pub async fn resolve_mailing_list_id(
 
     Ok(record.0)
 }
+
+/// Resolve multiple mailing list slugs to their identifiers while preserving order.
+pub async fn resolve_mailing_list_ids(
+    slugs: &[String],
+    db: &mut Connection<NexusDb>,
+) -> Result<Vec<(String, i32)>, ApiError> {
+    let mut results = Vec::with_capacity(slugs.len());
+    for slug in slugs {
+        let id = resolve_mailing_list_id(slug, db).await?;
+        results.push((slug.clone(), id));
+    }
+    Ok(results)
+}

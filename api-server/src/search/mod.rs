@@ -9,4 +9,7 @@ pub use embeddings::EmbeddingsClient;
 pub use error::SearchError;
 pub use indexer::{reindex_authors, reindex_threads};
 pub use models::{AuthorDocument, AuthorMailingListStats, ThreadDocument};
-pub use service::{AuthorHit, AuthorSearchResults, SearchService, ThreadHit, ThreadSearchResults};
+pub use service::{
+    AuthorHit, AuthorSearchPayload, AuthorSearchResults, SearchService, ThreadHit,
+    ThreadMailingListFilter, ThreadSearchPayload, ThreadSearchResults,
+};

@@ -13,5 +13,6 @@ pub mod health;
 pub(crate) mod helpers;
 pub mod mailing_lists;
 pub mod params;
+pub mod search;
 pub mod stats;
 pub mod threads;

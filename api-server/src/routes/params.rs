@@ -199,6 +199,10 @@ pub struct AuthorSearchParams {
     #[field(default = SortOrder::Desc)]
     #[serde(default = "default_sort_order")]
     pub order: SortOrder,
+    /// Optional mailing list filters.
+    #[field(name = "mailingList")]
+    #[serde(default)]
+    pub mailing_lists: Vec<String>,
 }
 
 impl Default for AuthorSearchParams {
@@ -209,6 +213,7 @@ impl Default for AuthorSearchParams {
             size: default_page_size(),
             sort_by: default_author_sort_field(),
             order: default_sort_order(),
+            mailing_lists: Vec::new(),
         }
     }
 }
@@ -244,6 +249,29 @@ impl AuthorSearchParams {
                 Some(normalized)
             }
         })
+    }
+
+    /// Original trimmed search term preserving case.
+    pub fn raw_query(&self) -> Option<String> {
+        self.q
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+    }
+
+    /// Normalized mailing list filters (trimmed, deduplicated).
+    pub fn mailing_lists(&self) -> Vec<String> {
+        let mut lists: Vec<String> = self
+            .mailing_lists
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .collect();
+        lists.sort();
+        lists.dedup();
+        lists
     }
 }
 
@@ -317,6 +345,30 @@ pub struct ThreadSearchParams {
     #[field(name = "semanticRatio")]
     #[serde(default)]
     pub semantic_ratio: Option<f32>,
+    /// Optional filter limiting results to threads containing patches.
+    #[field(name = "hasPatches")]
+    #[serde(default)]
+    pub has_patches: Option<bool>,
+    /// Optional filter limiting results to threads started by the given author id.
+    #[field(name = "starterId")]
+    #[serde(default)]
+    pub starter_id: Option<i32>,
+    /// Optional filter matching threads with at least one of the specified participant ids.
+    #[field(name = "participantId")]
+    #[serde(default)]
+    pub participant_ids: Vec<i32>,
+    /// Optional filter limiting results to a series identifier.
+    #[field(name = "seriesId")]
+    #[serde(default = "default_optional_string")]
+    pub series_id: Option<String>,
+    /// Optional sort descriptors (field:direction).
+    #[field(name = "sort")]
+    #[serde(default)]
+    pub sort: Vec<String>,
+    /// Optional list of mailing lists (for global search endpoint).
+    #[field(name = "mailingList")]
+    #[serde(default)]
+    pub mailing_lists: Vec<String>,
 }
 
 impl Default for ThreadSearchParams {
@@ -328,6 +380,12 @@ impl Default for ThreadSearchParams {
             start_date: None,
             end_date: None,
             semantic_ratio: None,
+            has_patches: None,
+            starter_id: None,
+            participant_ids: Vec::new(),
+            series_id: None,
+            sort: Vec::new(),
+            mailing_lists: Vec::new(),
         }
     }
 }
@@ -377,6 +435,62 @@ impl ThreadSearchParams {
             .filter(|value| value.is_finite())
             .map(|value| value.clamp(0.0, 1.0))
     }
+
+    /// Optional patch flag filter.
+    pub fn has_patches(&self) -> Option<bool> {
+        self.has_patches
+    }
+
+    /// Optional starter id filter (positive integers only).
+    pub fn starter_id(&self) -> Option<i32> {
+        self.starter_id.filter(|id| *id > 0)
+    }
+
+    /// Deduplicated participant ids (positive integers).
+    pub fn participant_ids(&self) -> Vec<i32> {
+        let mut ids: Vec<i32> = self
+            .participant_ids
+            .iter()
+            .copied()
+            .filter(|id| *id > 0)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// Normalized series identifier.
+    pub fn series_id(&self) -> Option<String> {
+        self.series_id
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+    }
+
+    /// Normalized sort expressions.
+    pub fn sort_fields(&self) -> Vec<String> {
+        self.sort
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .collect()
+    }
+
+    /// Normalized mailing list filters (lowercase, deduplicated).
+    pub fn mailing_lists(&self) -> Vec<String> {
+        let mut lists: Vec<String> = self
+            .mailing_lists
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .collect();
+        lists.sort();
+        lists.dedup();
+        lists
+    }
 }
 
 impl JsonSchema for ThreadSearchParams {
@@ -400,6 +514,18 @@ impl JsonSchema for ThreadSearchParams {
             end_date: Option<String>,
             #[serde(default)]
             semantic_ratio: Option<f32>,
+            #[serde(default)]
+            has_patches: Option<bool>,
+            #[serde(default)]
+            starter_id: Option<i32>,
+            #[serde(default)]
+            participant_id: Vec<i32>,
+            #[serde(default = "default_optional_string")]
+            series_id: Option<String>,
+            #[serde(default)]
+            sort: Vec<String>,
+            #[serde(default)]
+            mailing_list: Vec<String>,
         }
 
         ThreadSearchParamsDoc::json_schema(generator)
@@ -421,6 +547,12 @@ mod tests {
         assert!(parsed.start_date.is_none());
         assert!(parsed.end_date.is_none());
         assert!(parsed.semantic_ratio.is_none());
+        assert_eq!(parsed.has_patches(), None);
+        assert_eq!(parsed.starter_id(), None);
+        assert!(parsed.participant_ids().is_empty());
+        assert_eq!(parsed.series_id(), None);
+        assert!(parsed.sort_fields().is_empty());
+        assert!(parsed.mailing_lists().is_empty());
 
         let parsed_default: ThreadSearchParams = Form::parse("").unwrap();
         assert_eq!(parsed_default.q, None);
@@ -428,6 +560,8 @@ mod tests {
         assert_eq!(parsed_default.size(), 25);
         assert!(parsed_default.start_date.is_none());
         assert!(parsed_default.end_date.is_none());
+        assert!(parsed_default.sort_fields().is_empty());
+        assert!(parsed_default.mailing_lists().is_empty());
     }
 
     #[test]
@@ -458,5 +592,41 @@ mod tests {
 
         let parsed_zero: ThreadSearchParams = Form::parse("semanticRatio=-0.5").unwrap();
         assert_eq!(parsed_zero.semantic_ratio(), Some(0.0));
+    }
+
+    #[test]
+    fn parses_thread_search_filters_and_sort() {
+        let parsed: ThreadSearchParams = Form::parse(
+            "hasPatches=true&starterId=42&participantId=10&participantId=42&participantId=-1&seriesId= abc123 &sort=lastActivity:desc&sort=messageCount:asc&mailingList=linux-kernel&mailingList=netdev",
+        )
+        .unwrap();
+
+        assert_eq!(parsed.has_patches(), Some(true));
+        assert_eq!(parsed.starter_id(), Some(42));
+        assert_eq!(parsed.participant_ids(), vec![10, 42]);
+        assert_eq!(parsed.series_id().as_deref(), Some("abc123"));
+        assert_eq!(
+            parsed.sort_fields(),
+            vec![
+                "lastActivity:desc".to_string(),
+                "messageCount:asc".to_string()
+            ]
+        );
+        assert_eq!(
+            parsed.mailing_lists(),
+            vec!["linux-kernel".to_string(), "netdev".to_string()]
+        );
+    }
+
+    #[test]
+    fn author_search_mailing_lists_dedup() {
+        let parsed: AuthorSearchParams =
+            Form::parse("mailingList=linux-kernel&mailingList= netdev &mailingList=linux-kernel")
+                .unwrap();
+
+        assert_eq!(
+            parsed.mailing_lists(),
+            vec!["linux-kernel".to_string(), "netdev".to_string()]
+        );
     }
 }

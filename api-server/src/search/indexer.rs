@@ -210,6 +210,7 @@ async fn build_thread_document(
 ) -> Result<ThreadDocument, SearchError> {
     let mut participant_ids = Vec::new();
     let mut participant_names = Vec::new();
+    let mut participant_emails = Vec::new();
     let mut seen_participants: HashSet<i32> = HashSet::new();
     let mut has_patches = false;
 
@@ -225,6 +226,7 @@ async fn build_thread_document(
                     .clone()
                     .unwrap_or_else(|| email.author_email.clone()),
             );
+            participant_emails.push(email.author_email.clone());
         }
         if email.is_patch_only || email.patch_type.is_some() {
             has_patches = true;
@@ -277,6 +279,7 @@ async fn build_thread_document(
         starter_name: thread.starter_name.clone(),
         starter_email: thread.starter_email.clone(),
         first_post_excerpt,
+        participant_emails,
         vector,
     })
 }

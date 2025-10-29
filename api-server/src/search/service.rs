@@ -22,6 +22,38 @@ pub struct SearchService {
     thread_embedder: String,
     default_semantic_ratio: f32,
     thread_embedding_dimensions: usize,
+    allow_global_thread_search: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreadMailingListFilter {
+    pub slug: String,
+    pub mailing_list_id: Option<i32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreadSearchPayload {
+    pub query: String,
+    pub page: i64,
+    pub size: i64,
+    pub semantic_ratio: f32,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub has_patches: Option<bool>,
+    pub starter_id: Option<i32>,
+    pub participant_ids: Vec<i32>,
+    pub series_id: Option<String>,
+    pub mailing_lists: Vec<ThreadMailingListFilter>,
+    pub sort_expressions: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthorSearchPayload {
+    pub query: Option<String>,
+    pub page: i64,
+    pub size: i64,
+    pub sort_expression: Option<String>,
+    pub mailing_lists: Vec<String>,
 }
 
 impl SearchService {
@@ -31,6 +63,7 @@ impl SearchService {
         embeddings_url: impl Into<String>,
         default_semantic_ratio: f32,
         thread_embedding_dimensions: usize,
+        allow_global_thread_search: bool,
     ) -> Self {
         let http = Client::builder()
             .build()
@@ -49,11 +82,16 @@ impl SearchService {
             thread_embedder: "threads-qwen3".to_string(),
             default_semantic_ratio: default_semantic_ratio.clamp(0.0, 1.0),
             thread_embedding_dimensions,
+            allow_global_thread_search,
         }
     }
 
     pub fn default_semantic_ratio(&self) -> f32 {
         self.default_semantic_ratio
+    }
+
+    pub fn allow_global_thread_search(&self) -> bool {
+        self.allow_global_thread_search
     }
 
     pub fn threads_index_uid(&self) -> &str {
@@ -428,19 +466,14 @@ impl SearchService {
 
     pub async fn search_threads(
         &self,
-        mailing_list_slug: &str,
-        mailing_list_id: i32,
-        query: &str,
-        page: i64,
-        size: i64,
-        start_date: Option<DateTime<Utc>>,
-        end_date: Option<DateTime<Utc>>,
-        semantic_ratio: f32,
+        options: ThreadSearchPayload,
     ) -> Result<ThreadSearchResults, SearchError> {
+        let semantic_ratio = options.semantic_ratio.clamp(0.0, 1.0);
+
         let vector = if semantic_ratio > 0.0 {
             Some(
                 self.embed_with_fallback(
-                    query,
+                    &options.query,
                     self.thread_embedding_dimensions(),
                     "thread search query",
                 )
@@ -450,13 +483,12 @@ impl SearchService {
             None
         };
 
-        let filters =
-            build_thread_filters(mailing_list_slug, mailing_list_id, start_date, end_date);
+        let filters = build_thread_filters(&options);
 
         let payload = ThreadSearchRequest {
-            q: query,
-            limit: size as usize,
-            offset: ((page - 1) * size) as usize,
+            q: &options.query,
+            limit: options.size as usize,
+            offset: ((options.page - 1) * options.size) as usize,
             filter: if filters.is_empty() {
                 None
             } else {
@@ -470,6 +502,11 @@ impl SearchService {
                 embedder: self.thread_embedder.clone(),
                 semantic_ratio: semantic_ratio.clamp(0.0, 1.0),
             }),
+            sort: if options.sort_expressions.is_empty() {
+                None
+            } else {
+                Some(options.sort_expressions.clone())
+            },
         };
 
         let response = self
@@ -485,24 +522,27 @@ impl SearchService {
 
     pub async fn search_authors(
         &self,
-        mailing_list_slug: &str,
-        query: Option<&str>,
-        page: i64,
-        size: i64,
-        sort_field: Option<&str>,
-        sort_order: Option<&str>,
+        options: AuthorSearchPayload,
     ) -> Result<AuthorSearchResults, SearchError> {
-        let filters = vec![format!("mailing_lists = \"{}\"", mailing_list_slug)];
+        let filters = if options.mailing_lists.is_empty() {
+            None
+        } else {
+            let clauses: Vec<String> = options
+                .mailing_lists
+                .into_iter()
+                .map(|slug| format!("mailing_lists = \"{}\"", slug))
+                .collect();
 
-        let sort_clause = sort_field
-            .zip(sort_order)
-            .map(|(field, order)| vec![format!("{}:{}", field, order.to_ascii_lowercase())]);
+            Some(vec![join_filter_clauses(clauses)])
+        };
+
+        let sort_clause = options.sort_expression.map(|expr| vec![expr]);
 
         let payload = AuthorSearchRequest {
-            q: query,
-            limit: size as usize,
-            offset: ((page - 1) * size) as usize,
-            filter: Some(filters),
+            q: options.query.as_deref(),
+            limit: options.size as usize,
+            offset: ((options.page - 1) * options.size) as usize,
+            filter: filters,
             sort: sort_clause,
         };
 
@@ -545,6 +585,7 @@ impl SearchService {
                     "mailing_list",
                     "mailing_list_id",
                     "participant_ids",
+                    "starter_id",
                     "has_patches",
                     "series_id",
                     "start_ts",
@@ -768,26 +809,74 @@ impl SearchService {
     }
 }
 
-fn build_thread_filters(
-    mailing_list_slug: &str,
-    mailing_list_id: i32,
-    start_date: Option<DateTime<Utc>>,
-    end_date: Option<DateTime<Utc>>,
-) -> Vec<String> {
-    let mut filters = vec![
-        format!("mailing_list = \"{}\"", mailing_list_slug),
-        format!("mailing_list_id = {}", mailing_list_id),
-    ];
+fn build_thread_filters(options: &ThreadSearchPayload) -> Vec<String> {
+    let mut filters: Vec<String> = Vec::new();
 
-    if let Some(start) = start_date {
+    if !options.mailing_lists.is_empty() {
+        let slug_filters: Vec<String> = options
+            .mailing_lists
+            .iter()
+            .map(|ml| format!("mailing_list = \"{}\"", ml.slug))
+            .collect();
+        if !slug_filters.is_empty() {
+            filters.push(join_filter_clauses(slug_filters));
+        }
+
+        let id_filters: Vec<String> = options
+            .mailing_lists
+            .iter()
+            .filter_map(|ml| {
+                ml.mailing_list_id
+                    .map(|id| format!("mailing_list_id = {}", id))
+            })
+            .collect();
+        if !id_filters.is_empty() {
+            filters.push(join_filter_clauses(id_filters));
+        }
+    }
+
+    if let Some(start) = options.start_date {
         filters.push(format!("last_ts >= {}", start.timestamp()));
     }
 
-    if let Some(end) = end_date {
+    if let Some(end) = options.end_date {
         filters.push(format!("start_ts <= {}", end.timestamp()));
     }
 
+    if let Some(has_patches) = options.has_patches {
+        filters.push(format!("has_patches = {}", has_patches));
+    }
+
+    if let Some(starter_id) = options.starter_id {
+        filters.push(format!("starter_id = {}", starter_id));
+    }
+
+    if !options.participant_ids.is_empty() {
+        let participant_filters: Vec<String> = options
+            .participant_ids
+            .iter()
+            .map(|id| format!("participant_ids = {}", id))
+            .collect();
+        filters.push(join_filter_clauses(participant_filters));
+    }
+
+    if let Some(series_id) = options.series_id.as_ref() {
+        filters.push(format!("series_id = \"{}\"", escape_quotes(series_id)));
+    }
+
     filters
+}
+
+fn join_filter_clauses(clauses: Vec<String>) -> String {
+    if clauses.len() == 1 {
+        clauses.into_iter().next().unwrap()
+    } else {
+        clauses.join(" OR ")
+    }
+}
+
+fn escape_quotes(input: &str) -> String {
+    input.replace('"', "\\\"")
 }
 
 #[derive(Serialize)]
@@ -808,6 +897,8 @@ struct ThreadSearchRequest<'a> {
     vector: Option<Vec<f32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hybrid: Option<HybridSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sort: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]

@@ -337,39 +337,143 @@ pub struct ThreadWithStarter {
     pub starter_email: String,
 }
 
-/// Search hit metadata for thread queries.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ThreadSearchHit {
-    /// Thread metadata and starter information.
-    pub thread: ThreadWithStarter,
-    /// Lexical score (0..1) when available.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lexical_score: Option<f32>,
-}
-
-impl ThreadSearchHit {
-    pub fn from_thread(thread: ThreadWithStarter) -> Self {
-        Self {
-            thread,
-            lexical_score: None,
-        }
-    }
-}
-
-/// Response envelope for thread search queries.
+/// Lightweight thread summary returned by the search endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadSearchResponse {
-    /// Original query string trimmed.
-    pub query: String,
-    /// One-based page index.
-    pub page: i64,
-    /// Page size used for the request.
-    pub size: i64,
-    /// Total number of matching threads (best effort for hybrid).
+pub struct ThreadSearchThreadSummary {
+    pub thread_id: i32,
+    pub mailing_list_id: i32,
+    pub mailing_list_slug: String,
+    pub root_message_id: String,
+    pub subject: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized_subject: Option<String>,
+    #[serde(rename = "startDate")]
+    pub start_date: DateTime<Utc>,
+    #[serde(rename = "lastActivity")]
+    pub last_activity: DateTime<Utc>,
+    #[serde(rename = "messageCount")]
+    pub message_count: i32,
+    #[serde(rename = "starterId")]
+    pub starter_id: i32,
+    #[serde(rename = "starterName", skip_serializing_if = "Option::is_none")]
+    pub starter_name: Option<String>,
+    #[serde(rename = "starterEmail")]
+    pub starter_email: String,
+}
+
+/// Participant metadata attached to search hits.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSearchParticipant {
+    pub id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub email: String,
+}
+
+/// Ranking information attached to search hits.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSearchScore {
+    #[serde(rename = "rankingScore", skip_serializing_if = "Option::is_none")]
+    pub ranking_score: Option<f32>,
+    #[serde(rename = "semanticRatio")]
+    pub semantic_ratio: f32,
+}
+
+/// Highlight snippets extracted from Meilisearch.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSearchHighlights {
+    #[serde(rename = "subjectHtml", skip_serializing_if = "Option::is_none")]
+    pub subject_html: Option<String>,
+    #[serde(rename = "subjectText", skip_serializing_if = "Option::is_none")]
+    pub subject_text: Option<String>,
+    #[serde(rename = "discussionHtml", skip_serializing_if = "Option::is_none")]
+    pub discussion_html: Option<String>,
+    #[serde(rename = "discussionText", skip_serializing_if = "Option::is_none")]
+    pub discussion_text: Option<String>,
+}
+
+/// Search hit metadata for thread queries.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSearchHit {
+    pub thread: ThreadSearchThreadSummary,
+    pub participants: Vec<ThreadSearchParticipant>,
+    #[serde(rename = "hasPatches")]
+    pub has_patches: bool,
+    #[serde(rename = "seriesId", skip_serializing_if = "Option::is_none")]
+    pub series_id: Option<String>,
+    #[serde(rename = "seriesNumber", skip_serializing_if = "Option::is_none")]
+    pub series_number: Option<i32>,
+    #[serde(rename = "seriesTotal", skip_serializing_if = "Option::is_none")]
+    pub series_total: Option<i32>,
+    #[serde(rename = "firstPostExcerpt", skip_serializing_if = "Option::is_none")]
+    pub first_post_excerpt: Option<String>,
+    pub score: ThreadSearchScore,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlights: Option<ThreadSearchHighlights>,
+}
+
+/// Response payload for thread search queries.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSearchPage {
+    pub hits: Vec<ThreadSearchHit>,
     pub total: i64,
-    /// Ranked search hits.
-    pub results: Vec<ThreadSearchHit>,
+}
+
+/// Per-mailing-list activity breakdown returned with author search hits.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorSearchMailingListStats {
+    pub slug: String,
+    #[serde(rename = "emailCount")]
+    pub email_count: i64,
+    #[serde(rename = "threadCount")]
+    pub thread_count: i64,
+    #[serde(rename = "firstEmailDate", skip_serializing_if = "Option::is_none")]
+    pub first_email_date: Option<DateTime<Utc>>,
+    #[serde(rename = "lastEmailDate", skip_serializing_if = "Option::is_none")]
+    pub last_email_date: Option<DateTime<Utc>>,
+}
+
+/// Search hit metadata for author queries.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorSearchHit {
+    pub author_id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canonical_name: Option<String>,
+    pub email: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub mailing_lists: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_seen: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<DateTime<Utc>>,
+    #[serde(rename = "firstEmailDate", skip_serializing_if = "Option::is_none")]
+    pub first_email_date: Option<DateTime<Utc>>,
+    #[serde(rename = "lastEmailDate", skip_serializing_if = "Option::is_none")]
+    pub last_email_date: Option<DateTime<Utc>>,
+    #[serde(rename = "threadCount")]
+    pub thread_count: i64,
+    #[serde(rename = "emailCount")]
+    pub email_count: i64,
+    #[serde(default, rename = "mailingListStats")]
+    pub mailing_list_stats: Vec<AuthorSearchMailingListStats>,
+}
+
+/// Response payload for author search queries.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorSearchPage {
+    pub hits: Vec<AuthorSearchHit>,
+    pub total: i64,
 }
 
 /// Pagination metadata accompanying list responses.

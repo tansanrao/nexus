@@ -17,6 +17,8 @@ pub struct ThreadDocument {
     pub discussion_text: String,
     pub participants: Vec<String>,
     pub participant_ids: Vec<i32>,
+    #[serde(default)]
+    pub participant_emails: Vec<String>,
     pub has_patches: bool,
     pub series_id: Option<String>,
     pub series_number: Option<i32>,

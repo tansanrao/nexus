@@ -69,12 +69,21 @@ pub fn rocket() -> Rocket<Build> {
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(1024);
 
+    let allow_global_thread_search = std::env::var("SEARCH_ENABLE_GLOBAL_THREADS")
+        .ok()
+        .map(|value| {
+            let lower = value.trim().to_ascii_lowercase();
+            matches!(lower.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false);
+
     let search_service = SearchService::new(
         meili_url,
         meili_key,
         embeddings_url,
         default_semantic_ratio,
         thread_embedding_dim,
+        allow_global_thread_search,
     );
 
     // Configure CORS
@@ -258,6 +267,9 @@ pub fn rocket() -> Rocket<Build> {
                 routes::authors::get_author_emails,
                 routes::authors::get_author_threads_started,
                 routes::authors::get_author_threads_participated,
+                routes::search::search_threads_for_list,
+                routes::search::search_threads_global,
+                routes::search::search_authors,
             ],
         )
         .mount(
@@ -279,6 +291,8 @@ pub fn rocket() -> Rocket<Build> {
                 routes::admin::reset_database_endpoint,
                 routes::admin::database_status,
                 routes::admin::database_config,
+                routes::search::refresh_search_indexes,
+                routes::search::reset_search_indexes,
             ],
         )
         .mount(
@@ -292,10 +306,22 @@ pub fn rocket() -> Rocket<Build> {
             "/api/docs/rapidoc/",
             make_rapidoc(&RapiDocConfig {
                 general: GeneralConfig {
-                    spec_urls: vec![
-                        UrlObject::new("Nexus API", "/api/v1/openapi.json"),
-                        UrlObject::new("Admin API", "/admin/v1/openapi.json"),
-                    ],
+                    spec_urls: vec![UrlObject::new("Nexus API", "/api/v1/openapi.json")],
+                    ..Default::default()
+                },
+                hide_show: HideShowConfig {
+                    allow_spec_url_load: false,
+                    allow_spec_file_load: false,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )
+        .mount(
+            "/admin/docs/rapidoc/",
+            make_rapidoc(&RapiDocConfig {
+                general: GeneralConfig {
+                    spec_urls: vec![UrlObject::new("Admin API", "/admin/v1/openapi.json")],
                     ..Default::default()
                 },
                 hide_show: HideShowConfig {
