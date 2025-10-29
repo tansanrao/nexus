@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation"
 
 type ThreadsSlugPageProps = {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }
 
-export default function ThreadsSlugRedirect({
+export default async function ThreadsSlugRedirect({
   params,
-}: ThreadsSlugPageProps): never {
-  const slug = decodeURIComponent(params.slug)
+}: ThreadsSlugPageProps): Promise<never> {
+  const resolvedParams = await params
+  const slug = decodeURIComponent(resolvedParams.slug)
   redirect(`/explore/threads/${encodeURIComponent(slug)}/1`)
 }
