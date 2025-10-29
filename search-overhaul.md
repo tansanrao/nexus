@@ -156,38 +156,42 @@ This yields a crisp, patch/quote-free summary of thread discourse for both lexic
 
 ## 6) API surface (backend-owned; UI never talks to Meili directly)
 
-### 6.1 Thread search (always **hybrid**)
+### 6.1 Thread search (hybrid by default)
 
-`GET /api/v1/:slug/threads/search`
+`GET /api/v1/lists/{slug}/threads/search`
 
-**Query params**
+**Core parameters**
 
-* `q`: text query
-* `semanticRatio`: float (0..1). **Always present; default 0.35**. Expose as an **advanced slider** in the UI.
-* `filters`: DSL mapped to Meili `filter` (e.g., list, participants, has_patches, date range)
-* `sort`: `["last_date:desc"]` by default; allow alternatives in UI (advanced)
-* `limit`, `offset`
+* `q` (required): free-text query. Empty/blank requests return HTTP 400.
+* `page`, `pageSize`: pagination (defaults 1/25, hard cap 100).
+* `semanticRatio`: optional float 0–1; defaults to `SEARCH_DEFAULT_SEMANTIC_RATIO` (0.35 today). Any value >0 triggers query-time embeddings.
+* `startDate`, `endDate`: inclusive UTC boundaries (applied to `last_ts`/`start_ts`).
+* `hasPatches`, `starterId`, `participantId` (repeatable), `seriesId`: optional filters mapped to Meilisearch filter clauses.
+* `sort`: comma-separated `field:direction` values. Supported fields: `lastActivity`, `startDate`, `messageCount`, `semanticScore` (fallbacks to `lastActivity:desc`).
 
-**Meili request (conceptual)**
+**Behaviour**
 
-```jsonc
-{
-  "q": "virtio net rx slow",
-  "vector": [ /* query vector from Qwen3 (local) */ ],
-  "hybrid": { "embedder": "threads-qwen3", "semanticRatio": 0.35 },
-  "filter": "mailing_list = 'linux-kernel'",
-  "sort": ["last_date:desc"],
-  "limit": 20,
-  "attributesToHighlight": ["subject","discussion_text"],
-  "attributesToCrop": ["discussion_text"]
-}
-```
+1. Resolve `{slug}` → `mailing_list_id` via Postgres.
+2. Embed the query when `semanticRatio > 0` using Qwen3 (fallback to zero vector on failure).
+3. Build Meili filters (`mailing_list`, `mailing_list_id`, plus optional facets above).
+4. Execute `/indexes/threads/search` with highlights (`subject`, `discussion_text`) and clipping (160 chars).
+5. Wrap the hits in the shared `ApiResponse<ThreadSearchPage>` envelope. Each hit now includes:
+   * Normalised thread summary (ids, slug, start/last activity, counts, starter info, first-post excerpt).
+   * Participant metadata (id/name/email) limited to the first 10.
+   * Patch + series flags, ranking score + semantic ratio, optional highlight HTML/text pairs.
+6. Populate `meta.listId`, `meta.pagination`, `meta.sort`, and `meta.extra.search` (echo query, filters, semantic ratio).
 
-**Always distinct by thread**: with one-doc-per-thread and `distinctAttribute: thread_id`, the result set is inherently unique per thread.
+**Global search (feature-flagged)**
+
+`GET /api/v1/search/threads` mirrors the contract above but accepts `mailingList` (multi-value). When enabled (`SEARCH_ENABLE_GLOBAL_THREADS=1`), missing `mailingList` means “search all lists”. Slug validation still happens via Postgres before calling Meili.
 
 ### 6.2 Author search
 
-`GET /api/v1/authors/search` → direct Meili search on `authors` (lexical only is fine, or add a small embedder later if desired). Filters: by `mailing_lists`.
+`GET /api/v1/authors/search`
+
+* Query params: `q`, `page`, `pageSize`, `sortBy` (`emailCount`, `threadCount`, `firstEmailDate`, `lastEmailDate`, `canonicalName`, `email`), `order`, `mailingList` (repeatable filter).
+* The API validates slugs (when present), submits the query to Meili `authors` index, and returns `ApiResponse<AuthorSearchPage>` with per-author global stats plus `mailingListStats[...]` slices.
+* Response metadata mirrors the thread endpoint; `meta.extra.search` captures query echo, sorting, and applied mailing lists.
 
 ---
 

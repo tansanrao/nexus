@@ -84,7 +84,7 @@ Notifications (SSE/WebSocket):
   * Routes: `src/routes/*` (grouped by domain: `admin`, `threads`, `emails`, `authors`, `search`, `users`, `notifications`, `health`, `metrics`)
   * Sync & import: `src/sync/*`
   * Threading: `src/threading/*`
-* **Search:** `src/search/` hosts Meilisearch client/service helpers, thread/author indexers, and sanitizers reused by routes, the sync dispatcher, and admin jobs.
+* **Search:** `src/search/` hosts Meilisearch client/service helpers, thread/author indexers, and sanitizers reused by routes, the sync dispatcher, and admin jobs; `src/routes/search.rs` exposes the consumer/admin HTTP surface.
   * **Auth:** `src/auth/*` (OIDC verifier, JWKS caching, local credential service, JWT issuer, refresh token store)
   * **Docs:** `src/docs/openapi.rs` (OpenAPI builder)
   * **Migrations:** `migrations/*.up.sql`, `*.down.sql` (**reversible**)
@@ -217,20 +217,37 @@ Notifications (SSE/WebSocket):
   * Canonical author metadata + aliases.
   * Per-mailing-list activity stats (`mailing_list_stats[...]`) so `/authors` can shape responses without hitting Postgres again.
 * Admin endpoints enqueue the same helpers:
-  * `POST /admin/search/index/refresh` ⇒ selective thread reindex (optional `mailingListSlug`) + full author refresh.
-  * `POST /admin/search/index/reset` ⇒ drop both indexes, recreate settings, and invoke full thread+author rebuild.
+  * `POST /admin/v1/search/indexes/threads/refresh` ⇒ selective thread reindex (optional `mailingListSlug`) plus full author refresh.
+  * `POST /admin/v1/search/indexes/reset` ⇒ drop both indexes, recreate settings, and run a full thread + author rebuild.
 
-### 6.3 Query behaviour (Deferred)
+### 6.3 Public API surface
 
-* Full-text and semantic search endpoints are temporarily unavailable during the `/api/v1` refactor. The Meilisearch cluster and ingestion pipelines remain in place, but HTTP routes will be reintroduced after the new REST surface stabilizes.
-* Existing search services should continue indexing so we can switch the endpoints back on without data backfill once the refactor lands.
+* `GET /api/v1/lists/{slug}/threads/search`
+  * **Purpose:** list-scoped hybrid search returning thread summaries, highlights, and Meili ranking scores.
+  * **Query params:** `q` (required), `page`/`pageSize` (default 1/25, max 100), `semanticRatio` (float clamped to 0–1; falls back to `SEARCH_DEFAULT_SEMANTIC_RATIO`), `startDate`/`endDate` (ISO 8601, inclusive), `hasPatches` (bool), `starterId` (author id), `participantId` (multi-valued), `seriesId` (string), and `sort` (comma separated `field:direction`, where field ∈ {`lastActivity`, `startDate`, `messageCount`, `semanticScore`}).
+  * **Behaviour:** respond with `400` if `q` is blank; otherwise resolve `{slug} → mailing_list_id`, build Meilisearch filters, embed queries whenever `semanticRatio > 0`, then call `SearchService::search_threads`.
+  * **Response:** `ApiResponse<ThreadSearchPage>` where `data.hits[]` includes:
+    * `thread` — compact summary (id, subject, dates, message count, starter metadata).
+    * `participants` — up to 10 `{ id, name, email }` ordered by first appearance.
+    * `hasPatches`, `series` metadata, `firstPostExcerpt`.
+    * `score` — Meili `_rankingScore` plus the applied `semanticRatio`.
+    * `highlights` — HTML snippets with `<em>` markers for `subject`/`discussion_text` and a plain-text fallback.
+  * **Meta:** `meta.listId`, `meta.pagination`, and `meta.extra.search` (echoed query, semantic ratio, filters, sort).
+
+* `GET /api/v1/search/threads` (feature-flagged)
+  * Same response envelope as the list-scoped endpoint.
+  * Additional query params: `mailingList` (single or repeated) to restrict the search; omitted ⇒ all lists. We OR multiple values and still enforce page size caps.
+
+* `GET /api/v1/authors/search`
+  * **Query params:** `q` (optional), `page`/`pageSize`, `sort` (`lastSeen`, `firstSeen`, `threadCount`, `emailCount`), and `mailingList` (multi-valued, filters on `mailing_lists` array).
+  * **Response:** `ApiResponse<AuthorSearchPage>` where every hit contains canonical info, aliases, total email/thread counts, and per-list activity stats sourced from Meilisearch. `meta.extra.search` mirrors the thread endpoint for consistency.
 
 ### 6.4 Operations
 
 * Cluster configuration lives in `docker-compose.yml` (`meilisearch` service, mounted volume, API key env vars).
-* `SearchService` still centralises HTTP calls, settings management (searchable/filterable attributes, embedder declaration), and task polling to keep background jobs operational even while public endpoints are gated.
-* Queue jobs wrap long-running operations so Terraform/dashboards can inspect progress via the new `/admin/v1/jobs` endpoints.
-* **Ranking:** remains `ts_rank_cd` over `lex_ts` combined with trigram scoring, with recent activity as a tie-breaker. We retain this detail for when the search routes return.
+* `SearchService` centralises HTTP calls, settings management (searchable/filterable/sortable attributes, embedder declaration), and task polling so both public endpoints and admin jobs share the same guardrails.
+* Queue jobs wrap long-running operations so Terraform/dashboards can inspect progress via `/admin/v1/jobs`.
+* **Ranking:** Meilisearch’s hybrid pipeline (BM25 + vector similarity) drives ordering. We expose `_rankingScore` and the applied `semanticRatio` so clients can present scoring context or perform secondary sorting client-side.
 
 ---
 
@@ -250,12 +267,16 @@ The October 2025 refactor standardises the HTTP surface into `/api/v1` for consu
   * `GET /api/v1/lists/{slug}/threads/{threadId}` — thread detail plus email hierarchy.
   * `GET /api/v1/lists/{slug}/emails` — paginated emails across the list.
   * `GET /api/v1/lists/{slug}/emails/{emailId}` — single email enriched with author info.
+  * `GET /api/v1/lists/{slug}/threads/search` — hybrid lexical/semantic search scoped to one mailing list.
 * **Authors**
   * `GET /api/v1/authors` — global author catalogue with filtering.
   * `GET /api/v1/authors/{authorId}` — author profile with mailing-list stats.
   * `GET /api/v1/authors/{authorId}/lists/{slug}/emails`
   * `GET /api/v1/authors/{authorId}/lists/{slug}/threads-started`
   * `GET /api/v1/authors/{authorId}/lists/{slug}/threads-participated`
+* **Search**
+  * `GET /api/v1/search/threads` — optional cross-list thread search (feature-flagged).
+  * `GET /api/v1/authors/search` — people lookup powered by Meilisearch.
 * **Auth & Sessions** (unchanged paths)
   * `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/session`, `GET /api/v1/auth/keys`.
 * **Health & Observability**
@@ -271,6 +292,9 @@ The October 2025 refactor standardises the HTTP surface into `/api/v1` for consu
   * `DELETE /admin/v1/jobs/{jobId}` — delete terminal job history (policy controlled).
 * **Database & Config**
   * `POST /admin/v1/database/reset`, `GET /admin/v1/database/status`, `GET /admin/v1/database/config`.
+* **Search Maintenance**
+  * `POST /admin/v1/search/indexes/threads/refresh` — enqueue a list-scoped or global refresh (payload may include `{ "mailingListSlug": "linux-kernel" }`).
+  * `POST /admin/v1/search/indexes/reset` — drop/recreate Meilisearch indexes and trigger a full thread + author rebuild.
 * **Mailing List Management**
   * `GET /admin/v1/lists`, `GET /admin/v1/lists/{slug}`, `GET /admin/v1/lists/{slug}/repositories`, `PATCH /admin/v1/lists/{slug}/toggle`, `POST /admin/v1/lists/seed`.
   * These endpoints reuse the envelopes and pagination described for `/api/v1`.
