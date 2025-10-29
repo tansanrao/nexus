@@ -35,7 +35,17 @@ export function AuthorView({ authorId, threadsCollapsed, rightPanelView }: Autho
 
   const mapToFetchResult = useCallback(
     (response: PaginatedResponse<ThreadWithStarter>): ThreadFetchResult => ({
-      items: response.data.map((thread) => ({ thread })),
+      items: response.data.map((thread) => ({
+        thread,
+        participants: [],
+        hasPatches: false,
+        seriesId: null,
+        seriesNumber: null,
+        seriesTotal: null,
+        firstPostExcerpt: null,
+        score: { rankingScore: null, semanticRatio: 0 },
+        highlights: null,
+      })),
       page: response.page.page ?? 1,
       totalPages: response.page.totalPages,
       total: response.page.totalElements,

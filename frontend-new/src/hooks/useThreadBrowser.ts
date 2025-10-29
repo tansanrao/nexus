@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../lib/api';
 import { useApiConfig } from '../contexts/ApiConfigContext';
-import type { ThreadWithStarter, ThreadListItem, ThreadSearchResponse } from '../types';
+import type {
+  ThreadWithStarter,
+  ThreadListItem,
+  ApiEnvelope,
+  ThreadSearchPage,
+} from '../types';
 import type { ThreadFilters } from '../components/ThreadListHeader';
 
 interface FetchThreadsParams {
@@ -127,12 +132,16 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
               pageSize,
               semanticRatio,
             );
-            const totalPages = response.total > 0 ? Math.ceil(response.total / response.size) : 0;
+            const pagination = response.meta.pagination;
+            const total = pagination?.totalItems ?? response.data.total;
+            const totalPagesFromMeta = pagination?.totalPages ?? null;
+            const currentPageFromMeta = pagination?.page ?? targetPage;
             return {
               items: mapSearchResultsToItems(response),
-              page: response.page,
-              totalPages,
-              total: response.total,
+              page: currentPageFromMeta,
+              totalPages:
+                totalPagesFromMeta ?? (total > 0 ? Math.ceil(total / pageSize) : 0),
+              total,
             };
           }
 
@@ -144,7 +153,17 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
             activeFilters.order
           );
           return {
-            items: result.data.map((thread) => ({ thread })),
+            items: result.data.map((thread) => ({
+              thread,
+              participants: [],
+              hasPatches: false,
+              seriesId: null,
+              seriesNumber: null,
+              seriesTotal: null,
+              firstPostExcerpt: null,
+              score: { rankingScore: null, semanticRatio },
+              highlights: null,
+            })),
             page: result.page.page ?? targetPage,
             totalPages: result.page.totalPages,
             total: result.page.totalElements,
@@ -262,9 +281,33 @@ export function useThreadBrowser(options: UseThreadBrowserOptions = {}) {
   };
 }
 
-function mapSearchResultsToItems(response: ThreadSearchResponse): ThreadListItem[] {
-  return response.results.map((hit) => ({
-    thread: hit.thread,
-    lexical_score: hit.lexical_score,
+function mapSearchResultsToItems(
+  response: ApiEnvelope<ThreadSearchPage>
+): ThreadListItem[] {
+  return response.data.hits.map((hit) => ({
+    thread: mapThreadSummaryToThread(hit.thread),
+    participants: hit.participants,
+    hasPatches: hit.hasPatches,
+    seriesId: hit.seriesId ?? null,
+    seriesNumber: hit.seriesNumber ?? null,
+    seriesTotal: hit.seriesTotal ?? null,
+    firstPostExcerpt: hit.firstPostExcerpt ?? null,
+    score: hit.score,
+    highlights: hit.highlights ?? null,
   }));
+}
+
+function mapThreadSummaryToThread(summary: ThreadSearchPage['hits'][number]['thread']): ThreadWithStarter {
+  return {
+    id: summary.threadId,
+    mailing_list_id: summary.mailingListId,
+    root_message_id: summary.rootMessageId,
+    subject: summary.subject,
+    start_date: summary.startDate,
+    last_date: summary.lastActivity,
+    message_count: summary.messageCount,
+    starter_id: summary.starterId,
+    starter_name: summary.starterName ?? null,
+    starter_email: summary.starterEmail,
+  };
 }

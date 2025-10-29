@@ -6,12 +6,15 @@ import type {
   AuthorWithStats,
   ThreadWithStarter,
   PaginatedResponse,
-  DataResponse,
   GlobalSyncStatus,
   DatabaseStatus,
-  ThreadSearchResponse,
+  ApiEnvelope,
+  ThreadSearchPage,
+  AuthorSearchPage,
   MessageResponse,
   JobEnqueueResponse,
+  JobStatusInfo,
+  JobType,
 } from '../types';
 import { getApiBaseUrl } from '../contexts/ApiConfigContext';
 
@@ -27,6 +30,7 @@ interface AuthorThreadQueryParams {
 }
 
 const API_PREFIX = '/api/v1';
+const ADMIN_PREFIX = '/admin/v1';
 
 interface ToggleResponse {
   message: string;
@@ -47,12 +51,10 @@ interface SeedResponse {
 
 interface SearchIndexRefreshParams {
   mailingListSlug?: string;
-  reindex?: boolean;
 }
 
 interface IndexMaintenanceParams {
   mailingListSlug?: string;
-  reindex?: boolean;
 }
 
 export class ApiClient {
@@ -125,31 +127,35 @@ export class ApiClient {
   }
 
   async getMailingLists(): Promise<MailingList[]> {
-    const result = await this.request<DataResponse<MailingList[]>>(
-      `${API_PREFIX}/admin/mailing-lists`
+    const result = await this.request<ApiEnvelope<MailingList[]>>(
+      `${ADMIN_PREFIX}/mailing-lists`
     );
     return result.data;
   }
 
   async getMailingList(slug: string): Promise<MailingList> {
-    return this.request<MailingList>(`${API_PREFIX}/admin/mailing-lists/${slug}`);
+    const result = await this.request<ApiEnvelope<MailingList>>(
+      `${ADMIN_PREFIX}/mailing-lists/${slug}`
+    );
+    return result.data;
   }
 
   async getMailingListRepositories(slug: string): Promise<MailingListRepository[]> {
-    return this.request<MailingListRepository[]>(
-      `${API_PREFIX}/admin/mailing-lists/${slug}/repositories`
+    const result = await this.request<ApiEnvelope<MailingListRepository[]>>(
+      `${ADMIN_PREFIX}/mailing-lists/${slug}/repositories`
     );
+    return result.data;
   }
 
   async toggleMailingList(slug: string, enabled: boolean): Promise<ToggleResponse> {
-    return this.request<ToggleResponse>(`${API_PREFIX}/admin/mailing-lists/${slug}/toggle`, {
+    return this.request<ToggleResponse>(`${ADMIN_PREFIX}/mailing-lists/${slug}/toggle`, {
       method: 'PATCH',
       body: JSON.stringify({ enabled }),
     });
   }
 
   async seedMailingLists(): Promise<SeedResponse> {
-    return this.request<SeedResponse>(`${API_PREFIX}/admin/mailing-lists/seed`, {
+    return this.request<SeedResponse>(`${ADMIN_PREFIX}/mailing-lists/seed`, {
       method: 'POST',
     });
   }
@@ -159,14 +165,26 @@ export class ApiClient {
     if (params.mailingListSlug && params.mailingListSlug.trim()) {
       payload.mailingListSlug = params.mailingListSlug.trim();
     }
-    if (typeof params.reindex === 'boolean') {
-      payload.reindex = params.reindex;
-    }
 
-    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/index/refresh`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    const response = await this.request<ApiEnvelope<JobStatusInfo>>(
+      `${ADMIN_PREFIX}/search/indexes/threads/refresh`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const job = response.data;
+    const jobType =
+      job.jobType === 'import' || job.jobType === 'index_maintenance'
+        ? (job.jobType as JobType)
+        : 'index_maintenance';
+    return {
+      jobId: job.id,
+      jobType,
+      mailingListId: job.mailingListId ?? null,
+      message: `Job ${job.id} queued`,
+    };
   }
 
   async resetSearchIndexes(params: IndexMaintenanceParams = {}): Promise<JobEnqueueResponse> {
@@ -174,14 +192,26 @@ export class ApiClient {
     if (params.mailingListSlug && params.mailingListSlug.trim()) {
       payload.mailingListSlug = params.mailingListSlug.trim();
     }
-    if (typeof params.reindex === 'boolean') {
-      payload.reindex = params.reindex;
-    }
 
-    return this.request<JobEnqueueResponse>(`${API_PREFIX}/admin/search/index/reset`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    const response = await this.request<ApiEnvelope<JobStatusInfo>>(
+      `${ADMIN_PREFIX}/search/indexes/reset`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const job = response.data;
+    const jobType =
+      job.jobType === 'import' || job.jobType === 'index_maintenance'
+        ? (job.jobType as JobType)
+        : 'index_maintenance';
+    return {
+      jobId: job.id,
+      jobType,
+      mailingListId: job.mailingListId ?? null,
+      message: `Job ${job.id} queued`,
+    };
   }
 
   async getThreads(
@@ -209,7 +239,7 @@ export class ApiClient {
     page: number = 1,
     size: number = 25,
     semanticRatio?: number
-  ): Promise<ThreadSearchResponse> {
+  ): Promise<ApiEnvelope<ThreadSearchPage>> {
     const params = new URLSearchParams({
       page: page.toString(),
       size: size.toString(),
@@ -223,7 +253,7 @@ export class ApiClient {
       params.set('semanticRatio', clamped.toFixed(2));
     }
 
-    return this.request<ThreadSearchResponse>(
+    return this.request<ApiEnvelope<ThreadSearchPage>>(
       `${API_PREFIX}/${slug}/threads/search?${params.toString()}`
     );
   }
@@ -258,10 +288,38 @@ export class ApiClient {
     if (order) {
       params.set('order', order);
     }
+    params.append('mailingList', slug);
 
-    return this.request<PaginatedResponse<AuthorWithStats>>(
-      `${API_PREFIX}/${slug}/authors?${params.toString()}`
+    const response = await this.request<ApiEnvelope<AuthorSearchPage>>(
+      `${API_PREFIX}/authors/search?${params.toString()}`
     );
+
+    const pagination = response.meta.pagination;
+    const hits = response.data.hits.map<AuthorWithStats>((hit) => ({
+      id: hit.authorId,
+      email: hit.email,
+      canonical_name: hit.canonicalName ?? null,
+      first_seen: hit.firstSeen ?? null,
+      last_seen: hit.lastSeen ?? null,
+      email_count: hit.emailCount,
+      thread_count: hit.threadCount,
+      first_email_date: hit.firstEmailDate ?? null,
+      last_email_date: hit.lastEmailDate ?? null,
+      mailing_lists: hit.mailingLists,
+      name_variations: hit.aliases,
+    }));
+
+    return {
+      data: hits,
+      page: {
+        page: pagination?.page ?? page,
+        size: pagination?.pageSize ?? size,
+        totalPages:
+          pagination?.totalPages ??
+          (response.data.total > 0 ? Math.ceil(response.data.total / size) : 0),
+        totalElements: pagination?.totalItems ?? response.data.total,
+      },
+    };
   }
 
   async getAuthor(slug: string, authorId: number): Promise<AuthorWithStats> {
@@ -295,30 +353,30 @@ export class ApiClient {
   }
 
   async getSyncStatus(): Promise<GlobalSyncStatus> {
-    return this.request<GlobalSyncStatus>(`${API_PREFIX}/admin/sync/status`);
+    return this.request<GlobalSyncStatus>(`${ADMIN_PREFIX}/sync/status`);
   }
 
   async queueSync(slugs: string[]): Promise<SyncQueueResponse> {
-    return this.request<SyncQueueResponse>(`${API_PREFIX}/admin/sync/queue`, {
+    return this.request<SyncQueueResponse>(`${ADMIN_PREFIX}/sync/queue`, {
       method: 'POST',
       body: JSON.stringify({ mailingListSlugs: slugs }),
     });
   }
 
   async cancelSync(): Promise<MessageResponse> {
-    return this.request<MessageResponse>(`${API_PREFIX}/admin/sync/cancel`, {
+    return this.request<MessageResponse>(`${ADMIN_PREFIX}/sync/cancel`, {
       method: 'POST',
     });
   }
 
   async resetDatabase(): Promise<MessageResponse> {
-    return this.request<MessageResponse>(`${API_PREFIX}/admin/database/reset`, {
+    return this.request<MessageResponse>(`${ADMIN_PREFIX}/database/reset`, {
       method: 'POST',
     });
   }
 
   async getDatabaseStatus(): Promise<DatabaseStatus> {
-    return this.request<DatabaseStatus>(`${API_PREFIX}/admin/database/status`);
+    return this.request<DatabaseStatus>(`${ADMIN_PREFIX}/database/status`);
   }
 
   async testConnection(): Promise<boolean> {

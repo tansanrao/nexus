@@ -19,7 +19,6 @@ interface HistoryEntry {
   operation: MaintenanceOperation;
   jobId: number | null;
   jobType?: JobType | string;
-  reindex?: boolean;
   success: boolean;
   message: string;
   durationMs?: number;
@@ -28,7 +27,6 @@ interface HistoryEntry {
 interface ActiveRun {
   scope: string;
   operation: MaintenanceOperation;
-  reindex?: boolean;
   startedAt: number;
 }
 
@@ -48,7 +46,6 @@ const loadHistory = (): HistoryEntry[] => {
           operation: entry.operation ?? 'refresh_index',
           jobId: entry.jobId ?? null,
           jobType: entry.jobType,
-          reindex: entry.reindex,
           success: entry.success ?? false,
           message: entry.message ?? '',
           durationMs: entry.durationMs,
@@ -86,7 +83,6 @@ const formatDuration = (durationMs?: number) => {
 
 export function SearchMaintenancePanel() {
   const [mailingListSlug, setMailingListSlug] = useState('');
-  const [includeReindex, setIncludeReindex] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
@@ -130,15 +126,11 @@ export function SearchMaintenancePanel() {
     setActiveRun({
       scope,
       operation: 'reset_index',
-      reindex: includeReindex,
       startedAt: Date.now(),
     });
 
     try {
-      const params =
-        trimmedSlug.length > 0
-          ? { mailingListSlug: trimmedSlug, reindex: includeReindex }
-          : { reindex: includeReindex };
+      const params = trimmedSlug.length > 0 ? { mailingListSlug: trimmedSlug } : {};
       const response = await apiClient.resetSearchIndexes(params);
       const duration = performance.now() - startedAt;
       const entry: HistoryEntry = {
@@ -148,7 +140,6 @@ export function SearchMaintenancePanel() {
         operation: 'reset_index',
         jobId: response.jobId ?? null,
         jobType: response.jobType,
-        reindex: includeReindex,
         success: true,
         message: response.message,
         durationMs: duration,
@@ -166,7 +157,6 @@ export function SearchMaintenancePanel() {
         operation: 'reset_index',
         jobId: null,
         jobType: undefined,
-        reindex: includeReindex,
         success: false,
         message,
         durationMs: duration,
@@ -180,10 +170,7 @@ export function SearchMaintenancePanel() {
 
   const handleRefresh = async () => {
     const trimmedSlug = mailingListSlug.trim();
-    const payload =
-      trimmedSlug.length > 0
-        ? { mailingListSlug: trimmedSlug, reindex: includeReindex }
-        : { reindex: includeReindex };
+    const payload = trimmedSlug.length > 0 ? { mailingListSlug: trimmedSlug } : {};
 
     setIsRunning(true);
     setError(null);
@@ -191,7 +178,6 @@ export function SearchMaintenancePanel() {
     setActiveRun({
       scope: trimmedSlug || 'All mailing lists',
       operation: 'refresh_index',
-      reindex: includeReindex,
       startedAt: Date.now(),
     });
 
@@ -205,7 +191,6 @@ export function SearchMaintenancePanel() {
         operation: 'refresh_index',
         jobId: response.jobId ?? null,
         jobType: response.jobType,
-        reindex: includeReindex,
         success: true,
         message: response.message,
         durationMs: duration,
@@ -223,7 +208,6 @@ export function SearchMaintenancePanel() {
         operation: 'refresh_index',
         jobId: null,
         jobType: undefined,
-        reindex: includeReindex,
         success: false,
         message,
         durationMs: duration,
@@ -280,18 +264,9 @@ export function SearchMaintenancePanel() {
             placeholder="Mailing list slug (leave blank for all)"
             className="h-8 w-full sm:w-auto min-w-[220px] text-sm"
           />
-          <label className="inline-flex items-center gap-2 text-[12px] uppercase tracking-[0.08em] text-muted-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={includeReindex}
-              onChange={(event) => setIncludeReindex(event.target.checked)}
-              className="h-4 w-4 rounded border border-border/70 bg-background"
-            />
-            Run REINDEX after refresh
-          </label>
         </div>
         <p className="text-[12px] text-muted-foreground uppercase tracking-[0.08em]">
-          Refresh operations update lexical columns; enabling reindex rebuilds GIN/vector indexes for {scopeLabel}.
+          Refresh operations update lexical and semantic materialized fields for {scopeLabel}. Reset fully drops and rebuilds indexes.
         </p>
       </div>
 
@@ -303,9 +278,6 @@ export function SearchMaintenancePanel() {
           </div>
           <div className="text-[12px] uppercase tracking-[0.08em] text-muted-foreground">
             {operationLabel(activeRun.operation)}
-            {['refresh_index', 'reset_index'].includes(activeRun.operation)
-              ? ` • Reindex: ${activeRun.reindex ? 'Yes' : 'No'}`
-              : null}
             {elapsedForActiveRun ? ` • ${elapsedForActiveRun}` : null}
           </div>
         </div>
@@ -342,9 +314,6 @@ export function SearchMaintenancePanel() {
                 </div>
                 <div className="mt-1 text-[12px] text-muted-foreground uppercase tracking-[0.08em]">
                   {operationLabel(entry.operation)}
-                  {['refresh_index', 'reset_index'].includes(entry.operation)
-                    ? ` • Reindex: ${entry.reindex ? 'Yes' : 'No'}`
-                    : null}
                   {entry.jobId != null ? ` • Job #${entry.jobId}` : null}
                   {entry.jobType ? ` • ${jobTypeLabel(entry.jobType)}` : null}
                   {entry.durationMs

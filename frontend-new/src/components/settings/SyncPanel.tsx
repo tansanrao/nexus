@@ -145,11 +145,11 @@ export function SyncPanel() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="font-semibold">
-                  {currentJob.name ?? currentJob.slug ?? `Job #${currentJob.id}`}
+                  {currentJob.mailingListName ?? currentJob.mailingListSlug ?? `Job #${currentJob.id}`}
                 </div>
                 <div className="text-xs uppercase tracking-[0.08em] text-muted-foreground">
-                  {currentJob.slug
-                    ? `${jobTypeLabel(currentJob.jobType)} • ${currentJob.slug}`
+                  {currentJob.mailingListSlug
+                    ? `${jobTypeLabel(currentJob.jobType)} • ${currentJob.mailingListSlug}`
                     : jobTypeLabel(currentJob.jobType)}
                 </div>
               </div>
@@ -162,9 +162,9 @@ export function SyncPanel() {
                 {statusLabel(currentJob.status)}
               </span>
             </div>
-            {currentJob.started_at && (
+            {currentJob.startedAt && (
               <div className="mt-2 text-[11px] text-muted-foreground">
-                Started {new Date(currentJob.started_at).toLocaleString()}
+                Started {new Date(currentJob.startedAt).toLocaleString()}
               </div>
             )}
           </div>
@@ -310,13 +310,13 @@ function statusTone(status: JobStatus) {
   }
 }
 
-function jobTypeLabel(jobType: JobType) {
+function jobTypeLabel(jobType: JobType | string) {
   switch (jobType) {
     case 'import':
       return 'Sync job';
     case 'index_maintenance':
       return 'Index maintenance';
     default:
-      return jobType;
+      return jobType.replace(/_/g, ' ');
   }
 }

@@ -107,19 +107,121 @@ export interface ThreadWithStarter extends Thread {
   starter_email: string;
 }
 
-export interface ThreadSearchHit {
-  thread: ThreadWithStarter;
-  lexical_score?: number | null;
+export type SortDirection = 'asc' | 'desc';
+
+export interface SortDescriptor {
+  field: string;
+  direction: SortDirection;
 }
 
-export type ThreadListItem = ThreadSearchHit;
-
-export interface ThreadSearchResponse {
-  query: string;
+export interface PaginationMeta {
   page: number;
-  size: number;
+  pageSize: number;
+  totalPages: number;
+  totalItems: number;
+}
+
+export interface ResponseMeta {
+  pagination?: PaginationMeta;
+  sort?: SortDescriptor[];
+  listId?: string;
+  filters?: Record<string, unknown>;
+  extra?: Record<string, unknown>;
+}
+
+export interface ApiEnvelope<T> {
+  data: T;
+  meta: ResponseMeta;
+}
+
+export interface ThreadSearchThreadSummary {
+  threadId: number;
+  mailingListId: number;
+  mailingListSlug: string;
+  rootMessageId: string;
+  subject: string;
+  normalizedSubject?: string | null;
+  startDate: string;
+  lastActivity: string;
+  messageCount: number;
+  starterId: number;
+  starterName?: string | null;
+  starterEmail: string;
+}
+
+export interface ThreadSearchParticipant {
+  id: number;
+  name?: string | null;
+  email: string;
+}
+
+export interface ThreadSearchScore {
+  rankingScore?: number | null;
+  semanticRatio: number;
+}
+
+export interface ThreadSearchHighlights {
+  subjectHtml?: string | null;
+  subjectText?: string | null;
+  discussionHtml?: string | null;
+  discussionText?: string | null;
+}
+
+export interface ThreadSearchHit {
+  thread: ThreadSearchThreadSummary;
+  participants: ThreadSearchParticipant[];
+  hasPatches: boolean;
+  seriesId?: string | null;
+  seriesNumber?: number | null;
+  seriesTotal?: number | null;
+  firstPostExcerpt?: string | null;
+  score: ThreadSearchScore;
+  highlights?: ThreadSearchHighlights | null;
+}
+
+export interface ThreadSearchPage {
+  hits: ThreadSearchHit[];
   total: number;
-  results: ThreadSearchHit[];
+}
+
+export interface ThreadListItem {
+  thread: ThreadWithStarter;
+  participants: ThreadSearchParticipant[];
+  hasPatches: boolean;
+  seriesId?: string | null;
+  seriesNumber?: number | null;
+  seriesTotal?: number | null;
+  firstPostExcerpt?: string | null;
+  score: ThreadSearchScore;
+  highlights?: ThreadSearchHighlights | null;
+}
+
+export interface AuthorSearchMailingListStats {
+  slug: string;
+  emailCount: number;
+  threadCount: number;
+  firstEmailDate?: string | null;
+  lastEmailDate?: string | null;
+}
+
+export interface AuthorSearchHit {
+  authorId: number;
+  canonicalName?: string | null;
+  email: string;
+  aliases: string[];
+  mailingLists: string[];
+  firstSeen?: string | null;
+  lastSeen?: string | null;
+  firstEmailDate?: string | null;
+  lastEmailDate?: string | null;
+  threadCount: number;
+  emailCount: number;
+  mailingListStats: AuthorSearchMailingListStats[];
+}
+
+export interface AuthorSearchPage {
+  hits: AuthorSearchHit[];
+  total: number;
 }
 
 export interface MessageResponse {
@@ -155,16 +257,18 @@ export type JobType = 'import' | 'index_maintenance';
 
 export interface JobStatusInfo {
   id: number;
-  mailingListId: number | null;
-  slug?: string | null;
-  name?: string | null;
-  jobType: JobType;
+  jobType: JobType | string;
   status: JobStatus;
   priority: number;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
+  payload?: unknown;
+  mailingListId: number | null;
+  mailingListSlug: string | null;
+  mailingListName: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  lastHeartbeat: string | null;
+  errorMessage: string | null;
 }
 
 export interface QueuedJob {

@@ -177,7 +177,9 @@ export function ThreadList({
       <ScrollArea className="flex-1 min-h-0">
         <div className="py-1">
           {threads.map((item) => {
-            const { thread, lexical_score } = item;
+            const { thread, score } = item;
+            const rankingScore =
+              typeof score?.rankingScore === 'number' ? score.rankingScore : null;
             const startDateText = formatDateCompact(thread.start_date, timezone);
             const shouldPrefix =
               isWithinLastWeek(thread.start_date) &&
@@ -222,9 +224,9 @@ export function ThreadList({
                     )}
                   </div>
                 </div>
-                {typeof lexical_score === 'number' && (
+                {typeof rankingScore === 'number' && (
                   <div className="mt-2 text-[11px] text-muted-foreground">
-                    Relevance {formatScore(lexical_score)}
+                    Relevance {formatScore(rankingScore)}
                   </div>
                 )}
               </div>
